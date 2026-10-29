@@ -6,8 +6,8 @@ import { useAuth } from "@/lib/auth";
 import { visibleMenu } from "@/lib/menu";
 
 export default function SitemapPage() {
-  const { status, perms } = useAuth();
-  const menu = visibleMenu(status === "authed" ? perms : null);
+  const { status, perms, offPerms } = useAuth();
+  const menu = visibleMenu(status === "authed" ? perms : null, offPerms);
   useEffect(() => {
     document.title = "누리집 지도 | 충청남도교육청 원클릭AS시스템";
   }, []);

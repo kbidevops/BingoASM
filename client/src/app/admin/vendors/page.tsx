@@ -5,7 +5,7 @@ import { Confirm, FilterField, FilterForm, ListHead, Tiles } from "@/components/
 import SubPage from "@/components/SubPage";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
-import { ACTIVE_TYPES as TYPES, AS_NAME } from "@/lib/as";
+import { AS_NAME, useAsTypes } from "@/lib/as";
 import { downloadCsv, type Engineer, type Vendor } from "@/lib/admin";
 import { loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
@@ -21,6 +21,7 @@ export default function VendorsPage() {
 }
 
 function Vendors() {
+  const TYPES = useAsTypes();
   const toast = useToast();
   const [regions, setRegions] = useState<Region[]>([]);
   const [all, setAll] = useState<Vendor[] | null>(null);
@@ -105,6 +106,7 @@ function Vendors() {
 }
 
 function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | null; regions: Region[]; onClose: () => void; onSaved: (m: string) => void }) {
+  const TYPES = useAsTypes();
   const [v, setV] = useState({
     vendorName: vendor?.vendorName ?? "", regionId: vendor?.regionId ? String(vendor.regionId) : "", bizNo: vendor?.bizNo ?? "",
     tel: vendor?.tel ?? "", address: vendor?.address ?? "", serviceTypes: vendor?.serviceTypes ?? [] as string[],

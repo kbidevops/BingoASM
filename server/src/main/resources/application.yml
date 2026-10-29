@@ -51,6 +51,11 @@ app:
   room-link-template: ${ROOM_LINK:/admin/floorplan?room={roomId}}
   # Built frontend served by this server when present (npm --prefix client run build).
   client-dist: ${CLIENT_DIST:../client/dist}
+  # AS services (C 정보기기, M 무선망, S 스쿨넷, T 스마트기기) for an organisation that hasn't chosen yet.
+  # Each 교육청 sets its own in 통합관리 → AS 서비스 설정 (orgs.as_types).
+  default-as-types: ${DEFAULT_AS_TYPES:M,S}
+  # Organisation whose services the signed-out site shows (orgCode). Blank = the first organisation.
+  site-org-code: ${SITE_ORG_CODE:}
 
 logging:
   level:

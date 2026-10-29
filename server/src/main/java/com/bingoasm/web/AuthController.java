@@ -71,7 +71,7 @@ public class AuthController {
                 .with("regionId", regionId).with("regionName", region)
                 .with("memberType", PermissionService.memberType(u)).with("otpEnabled", Boolean.TRUE.equals(u.otpEnabled))
                 .with("passwordChangedAt", u.passwordChangedAt).with("createdAt", u.createdAt).with("lastLoginAt", u.lastLoginAt)
-                .with("roles", u.roles).with("permissions", new ArrayList<>(permissions.effectivePerms(u)));
+                .with("roles", u.roles).with("permissions", new ArrayList<>(permissions.effectivePerms(u))).with("asTypes", permissions.asTypes(u.orgId));
     }
 
     private static String clientIp(HttpServletRequest req) {

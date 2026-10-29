@@ -29,7 +29,6 @@ export const MENU: MenuGroup[] = [
   },
   {
     title: "스마트기기ALL",
-    hidden: true,
     items: [
       { title: "스마트기기지원신청", href: "/smart", perm: "SMART_REQUEST" },
       { title: "스마트기기 결과조회", href: "/smart/list", perm: "SMART_REQUEST" },
@@ -37,7 +36,6 @@ export const MENU: MenuGroup[] = [
   },
   {
     title: "정보기기 유지관리",
-    hidden: true,
     items: [
       { title: "정보기기 AS신청", href: "/as/info", perm: "AS_C_REQUEST" },
       { title: "정보기기 AS결과조회", href: "/as/info/list", perm: "AS_C_VIEW" },
@@ -70,6 +68,7 @@ export const MENU: MenuGroup[] = [
       { title: "업체관리", href: "/admin/vendors", perm: "VENDOR_MANAGE" },
       { title: "AS통계관리", href: "/admin/stats", perm: "AS_STATS" },
       { title: "사용자 메뉴 권한", href: "/admin/user-menus", perm: "ROLE_GRANT" },
+      { title: "AS 서비스 설정", href: "/admin/services", perm: "ORG_WRITE" },
     ],
   },
 ];
@@ -87,9 +86,13 @@ export function findMenu(pathname: string): { group?: MenuGroup; item?: MenuItem
   return { title: EXTRA[path] ?? "" };
 }
 
-/** Filters the menu by permission. Signed out → full menu (pages then ask to sign in). */
-export function visibleMenu(perms: Set<string> | null): MenuGroup[] {
-  const shown = MENU.filter((g) => !g.hidden);
-  if (!perms) return shown;
-  return shown.map((g) => ({ ...g, items: g.items.filter((i) => !i.perm || perms.has(i.perm)) })).filter((g) => g.items.length > 0);
+/**
+ * Filters the menu by permission. Signed out → full menu (pages then ask to sign in) minus `off`, the menus of
+ * AS services the 교육청 does not use; signed in, those are already missing from `perms`.
+ */
+export function visibleMenu(perms: Set<string> | null, off: Set<string> = new Set()): MenuGroup[] {
+  const allowed = (i: MenuItem) => !i.perm || (perms ? perms.has(i.perm) : !off.has(i.perm));
+  return MENU.filter((g) => !g.hidden)
+    .map((g) => ({ ...g, items: g.items.filter(allowed) }))
+    .filter((g) => g.items.length > 0);
 }

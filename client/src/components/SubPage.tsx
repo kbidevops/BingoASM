@@ -23,7 +23,7 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status, perms, can } = useAuth();
+  const { status, perms, offPerms, can } = useAuth();
   const [font, setFont] = useState(16);
   const [share, setShare] = useState(false);
   const cur = findMenu(menuPath ?? pathname);
@@ -45,7 +45,7 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
   }, [needLogin, status, router]);
 
   // The side menu shows the current group as this user may see it.
-  const group = cur.group && visibleMenu(status === "authed" ? perms : null).find((g) => g.title === cur.group!.title);
+  const group = cur.group && visibleMenu(status === "authed" ? perms : null, offPerms).find((g) => g.title === cur.group!.title);
   const showSide = side && !!group;
   const here = (menuPath ?? pathname).replace(/\/$/, "");
 

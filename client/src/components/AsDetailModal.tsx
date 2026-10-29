@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { ACTION_LABEL, ACTIVE_TYPES, AS_NAME, loadCodes } from "@/lib/as";
+import { ACTION_LABEL, AS_NAME, loadCodes, useAsTypes } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { fileSize, fmtDate, fmtDateTime, won } from "@/lib/format";
 import type { AsCodes, AsDetail, CostItem, FileInfo, RceptTy } from "@/lib/types";
@@ -136,6 +136,7 @@ export default function AsDetailModal({ sn, onClose, onChanged }: { sn: number; 
 function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: string; onCancel: () => void; onDone: (closeAfter: boolean) => void }) {
   const toast = useToast();
   const { me } = useAuth();
+  const asTypes = useAsTypes();
   const [codes, setCodes] = useState<AsCodes | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -235,7 +236,7 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
             <tr><th scope="row"><i>*</i>이관 대상</th><td>
               <select aria-label="이관 대상" value={v.rceptTy} onChange={set("rceptTy")}>
                 <option value="">-- 선택 --</option>
-                {ACTIVE_TYPES.filter((t) => t !== "T" && t !== d.rceptTy).map((t) => <option key={t} value={t}>{AS_NAME[t]}</option>)}
+                {asTypes.filter((t) => t !== "T" && t !== d.rceptTy).map((t) => <option key={t} value={t}>{AS_NAME[t]}</option>)}
               </select> <small className="hint">대상 유형의 담당 업체로 다시 배정됩니다.</small>
             </td></tr>
             <tr><th scope="row">이관 내용</th><td><textarea className="ta" aria-label="이관 내용" value={v.content} onChange={set("content")} /></td></tr>

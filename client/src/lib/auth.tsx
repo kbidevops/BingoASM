@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, AUTH_EXPIRED_EVENT, tokens, type Tokens } from "./api";
-import type { Me } from "./types";
+import type { Me, RceptTy, SiteInfo } from "./types";
 
 /** Signed-in users are logged out after 30 idle minutes, with a warning 2 minutes before. */
 export const IDLE_SECONDS = 30 * 60;
@@ -15,6 +15,10 @@ interface AuthState {
   me: Me | null;
   perms: Set<string> | null;
   can: (perm?: string) => boolean;
+  /** AS 서비스 the 교육청 uses: the signed-in user's, else the site's. */
+  asTypes: RceptTy[];
+  /** Menu permissions switched off for the whole 교육청 (unused AS services). */
+  offPerms: Set<string>;
   /** Store tokens from login / OTP / QR and the `me` that came with them. */
   signIn: (t: Tokens, me: Me) => void;
   signOut: (message?: string) => void;
@@ -33,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [me, setMeState] = useState<Me | null>(null);
   const [notice, setNotice] = useState("");
+  const [site, setSite] = useState<SiteInfo | null>(null);
   const [idleLeft, setIdleLeft] = useState(IDLE_SECONDS);
   const lastActive = useRef(Date.now());
   const warned = useRef(false);
@@ -51,6 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMeState(m);
     setStatus("authed");
     setNotice("");
+  }, []);
+
+  useEffect(() => {
+    api.get<SiteInfo>("/api/site").then(setSite).catch(() => {});
   }, []);
 
   // Restore the session from sessionStorage on first load.
@@ -107,6 +116,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       me,
       perms,
       can: (perm) => !perm || !!perms?.has(perm),
+      asTypes: me?.asTypes ?? site?.asTypes ?? [],
+      offPerms: new Set(site?.disabledPerms ?? []),
       signIn,
       signOut,
       setMe: setMeState,
@@ -114,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       notice,
       clearNotice: () => setNotice(""),
     };
-  }, [status, me, signIn, signOut, extend, notice]);
+  }, [status, me, site, signIn, signOut, extend, notice]);
 
   return (
     <AuthContext.Provider value={value}>

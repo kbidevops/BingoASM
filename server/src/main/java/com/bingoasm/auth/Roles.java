@@ -44,6 +44,16 @@ public final class Roles {
     /** 사용자별로 보이기·숨기기를 조정할 수 있는 메뉴 권한 (client/src/lib/menu.ts의 perm과 같다). */
     public static final List<String> MENU_PERMS = concat(PORTAL_ALL, List.of(
             "AS_MANAGE", "WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS"));
+    /**
+     * AS 서비스(접수 유형)별 메뉴 권한. 교육청이 쓰지 않는 서비스의 권한은 그 교육청 사용자 전원에게서 빠진다
+     * (PermissionService) — 메뉴·화면·API가 함께 닫힌다.
+     */
+    public static final Map<String, List<String>> AS_TYPE_PERMS = Map.of(
+            "C", List.of("AS_C_REQUEST", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR"),
+            "M", List.of("AS_M_REQUEST", "AS_M_VIEW", "WDEVICE_MANAGE"),
+            "S", List.of("AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA"),
+            "T", List.of("SMART_REQUEST"));
+
     /** 사용자별 조정 대상 전체: 메뉴 권한 + AS 처리 기능. */
     public static final List<String> ADJUSTABLE_PERMS = concat(MENU_PERMS, ACTION_PERMS);
 

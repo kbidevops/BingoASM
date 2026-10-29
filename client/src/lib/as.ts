@@ -1,13 +1,16 @@
 "use client";
 
 import { api } from "./api";
+import { useAuth } from "./auth";
 import type { AsCodes, RceptTy } from "./types";
 
 // AS types: C 정보기기 · M 무선망 · S 스쿨넷 · T 스마트기기 (rceptTy on the server).
 
 export const AS_NAME: Record<RceptTy, string> = { C: "정보기기", M: "무선망", S: "스쿨넷", T: "스마트기기" };
-/** Types offered in selects, tiles and charts. 정보기기(C)·스마트기기(T) are hidden for now — add them back here to restore them everywhere. */
-export const ACTIVE_TYPES: RceptTy[] = ["M", "S"];
+/** AS 서비스 the 교육청 uses (통합관리 → AS 서비스 설정). Selects, tiles and charts offer only these. */
+export function useAsTypes(): RceptTy[] {
+  return useAuth().asTypes;
+}
 
 export const AS_REQUEST_HREF: Record<RceptTy, string> = { C: "/as/info", M: "/as/wireless", S: "/as/schoolnet", T: "/smart" };
 export const AS_LIST_HREF: Record<RceptTy, string> = { C: "/as/info/list", M: "/as/wireless/list", S: "/as/schoolnet/list", T: "/smart/list" };

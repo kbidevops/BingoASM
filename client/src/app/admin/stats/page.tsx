@@ -6,7 +6,7 @@ import { FilterField, FilterForm, Kpis } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
 import { ErrorBox, Icon, Loading, Pager } from "@/components/ui";
 import { api, type Page } from "@/lib/api";
-import { ACTIVE_TYPES, AS_NAME } from "@/lib/as";
+import { AS_NAME, useAsTypes } from "@/lib/as";
 import { downloadCsv } from "@/lib/admin";
 import { loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
@@ -45,6 +45,7 @@ const rate = (a: Agg) => (a.count ? ((a.done / a.count) * 100).toFixed(1) : "0.0
 const won = (v?: number | null) => { const n = v ?? 0; return n >= 100_000_000 ? (n / 100_000_000).toFixed(2) + "억" : n >= 10_000 ? Math.round(n / 10_000).toLocaleString() + "만" : n.toLocaleString(); };
 
 function Stats() {
+  const asTypes = useAsTypes();
   const thisYear = new Date().getFullYear();
   const [regions, setRegions] = useState<Region[]>([]);
   const [tab, setTab] = useState<"count" | "cost" | "sat">("count");
@@ -94,7 +95,7 @@ function Stats() {
         <FilterField id="st-k" label="구분">
           <select id="st-k" value={draft.rceptTy} onChange={(e) => setDraft({ ...draft, rceptTy: e.target.value })}>
             <option value="">전체</option>
-            {ACTIVE_TYPES.map((t) => <option key={t} value={t}>{AS_NAME[t]}</option>)}
+            {asTypes.map((t) => <option key={t} value={t}>{AS_NAME[t]}</option>)}
           </select>
         </FilterField>
         <FilterField id="st-r" label="지역">
@@ -115,7 +116,7 @@ function Stats() {
           ]} />
           <div className="stg">
             <VBar title="월별 접수 건수" bars={m.months.map((x) => ({ label: `${x.month}월`, value: x.count, tip: `${m.year}년 ${x.month}월 · ${x.count.toLocaleString()}건 (완료 ${x.done})` }))} />
-            <HBar title="구분별 접수 건수" bars={m.byType.filter((x) => x.count && ACTIVE_TYPES.includes(x.rceptTy as RceptTy)).map((x) => ({ label: x.name, value: x.count }))} />
+            <HBar title="구분별 접수 건수" bars={m.byType.filter((x) => x.count && asTypes.includes(x.rceptTy as RceptTy)).map((x) => ({ label: x.name, value: x.count }))} />
           </div>
           <AggTable title="지역별 처리 현황" name="지역" rows={m.byRegion.map((x) => ({ key: x.regionId, label: x.regionName, a: x }))} csv={`AS건수통계_지역별_${m.year}`} />
           <AggTable title="업체별 처리 현황" name="업체" score rows={m.byVendor.map((x) => ({ key: x.vendorId, label: x.vendorName, a: x }))} csv={`AS건수통계_업체별_${m.year}`} />
@@ -133,7 +134,7 @@ function Stats() {
             <HBar title="비용 항목별" unit="원" fmt={won} bars={(m.byCostType ?? []).filter((x) => x.amount).map((x) => ({ label: x.name, value: x.amount, tip: `${x.name} · ${x.amount.toLocaleString()}원 (${x.lines}줄, 유상 ${x.paidAmount.toLocaleString()}원)` }))} />
           </div>
           <div className="stg2">
-            <HBar title="구분별 AS 비용" unit="원" fmt={won} bars={m.byType.filter((x) => ACTIVE_TYPES.includes(x.rceptTy as RceptTy)).map((x) => ({ label: x.name, value: x.cost, tip: `${x.name} · ${x.cost.toLocaleString()}원 (유상 ${(x.paidCost ?? 0).toLocaleString()}원)` }))} />
+            <HBar title="구분별 AS 비용" unit="원" fmt={won} bars={m.byType.filter((x) => asTypes.includes(x.rceptTy as RceptTy)).map((x) => ({ label: x.name, value: x.cost, tip: `${x.name} · ${x.cost.toLocaleString()}원 (유상 ${(x.paidCost ?? 0).toLocaleString()}원)` }))} />
             <CostTypeTable rows={m.byCostType ?? []} year={m.year} />
           </div>
           <AggTable title="지역별 AS 비용" name="지역" cost rows={m.byRegion.map((x) => ({ key: x.regionId, label: x.regionName, a: x }))} csv={`AS비용통계_지역별_${m.year}`} />

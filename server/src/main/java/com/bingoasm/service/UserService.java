@@ -199,7 +199,8 @@ public class UserService {
                 .with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS)
                 .with("base", Roles.ADJUSTABLE_PERMS.stream().filter(base::contains).toList())
                 .with("granted", new ArrayList<>(u.grantedPerms)).with("denied", new ArrayList<>(u.deniedPerms))
-                .with("effective", Roles.ADJUSTABLE_PERMS.stream().filter(effective::contains).toList());
+                .with("effective", Roles.ADJUSTABLE_PERMS.stream().filter(effective::contains).toList())
+                .with("disabled", new ArrayList<>(permissions.disabledPerms(u.orgId)));
     }
 
     /** body: { granted: [...], denied: [...] }. 역할 기본값과 같은 조정(이미 있는 권한 열기·없는 권한 숨기기)은 버린다. */

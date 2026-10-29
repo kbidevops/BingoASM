@@ -17,5 +17,7 @@ public record AppProperties(
         String qrBaseUrl,
         String assetLinkTemplate,
         String roomLinkTemplate,
-        String corsOrigins) {
+        String corsOrigins,
+        String defaultAsTypes,
+        String siteOrgCode) {
 }

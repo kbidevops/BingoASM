@@ -165,7 +165,7 @@ export default function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
   const toast = useToast();
-  const { status, me, perms, extend, signOut } = useAuth();
+  const { status, me, perms, offPerms, extend, signOut } = useAuth();
   const idleLeft = useIdleLeft();
   const [searchOn, setSearchOn] = useState(false);
   const [q, setQ] = useState("");
@@ -186,7 +186,7 @@ export default function SiteHeader() {
     if (searchOn) searchInput.current?.focus();
   }, [searchOn]);
 
-  const menu = visibleMenu(status === "authed" ? perms : null);
+  const menu = visibleMenu(status === "authed" ? perms : null, offPerms);
   const cur = findMenu(pathname);
   const curGroup = cur.group
     ? menu.findIndex((g) => g.title === cur.group!.title)

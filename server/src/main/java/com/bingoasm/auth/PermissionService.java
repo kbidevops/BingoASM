@@ -1,9 +1,15 @@
 package com.bingoasm.auth;
 
+import com.bingoasm.common.AppProperties;
 import com.bingoasm.domain.AppUser;
+import com.bingoasm.domain.Org;
+import com.bingoasm.domain.as.AsCodes;
 import com.bingoasm.domain.as.Vendor;
+import com.bingoasm.repo.OrgRepository;
 import com.bingoasm.repo.as.VendorRepository;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -12,19 +18,25 @@ import org.springframework.stereotype.Service;
  * (AppUser.grantedPerms added, deniedPerms removed — both limited to Roles.ADJUSTABLE_PERMS).
  * An AS engineer whose vendor handles M (무선망) and S (스쿨넷) gets AS_M_REQUEST/VIEW and AS_S_REQUEST/VIEW,
  * which reproduces the per-vendor menu visibility of the reference portal.
+ * Finally the menus of AS services the user's 교육청 does not use (Org.asTypes) are removed for everyone, overrides included.
  */
 @Service
 public class PermissionService {
     private final VendorRepository vendors;
+    private final OrgRepository orgs;
+    private final AppProperties props;
 
-    public PermissionService(VendorRepository vendors) {
+    public PermissionService(VendorRepository vendors, OrgRepository orgs, AppProperties props) {
         this.vendors = vendors;
+        this.orgs = orgs;
+        this.props = props;
     }
 
     public Set<String> effectivePerms(AppUser u) {
         Set<String> perms = basePerms(u);
         for (String p : u.grantedPerms) if (Roles.ADJUSTABLE_PERMS.contains(p)) perms.add(p);
         for (String p : u.deniedPerms) if (Roles.ADJUSTABLE_PERMS.contains(p)) perms.remove(p);
+        perms.removeAll(disabledPerms(u.orgId));
         return perms;
     }
 
@@ -39,7 +51,38 @@ public class PermissionService {
                 perms.add("AS_" + ty + "_VIEW");
             }
         }
+        perms.removeAll(disabledPerms(u.orgId));
         return perms;
+    }
+
+    // ---------- AS services per 교육청 ----------
+
+    /** AS 서비스(접수 유형) the organisation uses, in C·M·S·T order. */
+    public List<String> asTypes(Long orgId) {
+        Org org = orgId == null ? null : orgs.findById(orgId).orElse(null);
+        return parseAsTypes(org == null || org.asTypes == null || org.asTypes.isBlank() ? props.defaultAsTypes() : org.asTypes);
+    }
+
+    /** Menu permissions of the services the organisation does not use. */
+    public Set<String> disabledPerms(Long orgId) {
+        List<String> on = asTypes(orgId);
+        Set<String> off = new LinkedHashSet<>();
+        for (String ty : AsCodes.RCEPT_TYPES) if (!on.contains(ty)) off.addAll(Roles.AS_TYPE_PERMS.get(ty));
+        // A permission shared with a service still in use stays.
+        for (String ty : on) off.removeAll(Roles.AS_TYPE_PERMS.get(ty));
+        return off;
+    }
+
+    /** Organisation the signed-out site describes: app.site-org-code, else the first one. */
+    public Org siteOrg() {
+        String code = props.siteOrgCode();
+        if (code != null && !code.isBlank()) return orgs.findByOrgCode(code.trim()).orElse(null);
+        return orgs.findAll().stream().min((a, b) -> Long.compare(a.orgId, b.orgId)).orElse(null);
+    }
+
+    static List<String> parseAsTypes(String csv) {
+        Set<String> picked = new LinkedHashSet<>(Arrays.stream(csv == null ? new String[0] : csv.split(",")).map(String::trim).toList());
+        return AsCodes.RCEPT_TYPES.stream().filter(picked::contains).toList();
     }
 
     /** 회원타입 표시용. */

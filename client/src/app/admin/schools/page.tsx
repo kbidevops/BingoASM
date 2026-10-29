@@ -5,7 +5,7 @@ import { Confirm, FilterField, FilterForm, ListHead, Tiles } from "@/components/
 import SubPage from "@/components/SubPage";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
-import { ACTIVE_TYPES, AS_NAME } from "@/lib/as";
+import { AS_NAME, useAsTypes } from "@/lib/as";
 import { downloadCsv, loadSchools, SCHOOL_TYPES, type Engineer, type SchoolFull, type Vendor } from "@/lib/admin";
 import { isRegionAdmin, useAuth } from "@/lib/auth";
 import { loadRegions } from "@/lib/boards";
@@ -21,6 +21,7 @@ export default function SchoolsPage() {
 }
 
 function Schools() {
+  const asTypes = useAsTypes();
   const toast = useToast();
   const { me } = useAuth();
   const district = isRegionAdmin(me);
@@ -54,7 +55,7 @@ function Schools() {
   const pages = Math.max(1, Math.ceil(shown.length / size));
   const cur = Math.min(page, pages);
   const vis = shown.slice((cur - 1) * size, cur * size);
-  const vendorsOf = (s: SchoolFull) => (s.vendors ?? []).filter((v) => v.vendorName && ACTIVE_TYPES.includes(v.rceptTy as RceptTy)).map((v) => `${v.rceptTyName} ${v.vendorName}`).join(", ") || "-";
+  const vendorsOf = (s: SchoolFull) => (s.vendors ?? []).filter((v) => v.vendorName && asTypes.includes(v.rceptTy as RceptTy)).map((v) => `${v.rceptTyName} ${v.vendorName}`).join(", ") || "-";
   const head = ["기관명", "지역", "학교급", "학급 수", "유지관리 계약", "담당업체", "자산", "관리"];
 
   return (
@@ -119,10 +120,11 @@ function Schools() {
   );
 }
 
-// 저장은 네 유형 모두 보낸다 (숨긴 정보기기·스마트기기 담당이 지워지지 않도록). 화면에는 ACTIVE_TYPES만.
+// 저장은 네 유형 모두 보낸다 (쓰지 않는 서비스의 담당이 지워지지 않도록). 화면에는 교육청이 쓰는 서비스만.
 const TYPES: RceptTy[] = ["C", "M", "S", "T"];
 
 function SchoolForm({ school, regions, onClose, onSaved }: { school: SchoolFull | null; regions: Region[]; onClose: () => void; onSaved: (m: string) => void }) {
+  const asTypes = useAsTypes();
   const [v, setV] = useState({
     schoolName: school?.schoolName ?? "", schoolCode: school?.schoolCode ?? "", schoolType: school?.schoolType ?? "ELEM",
     regionId: school?.regionId ? String(school.regionId) : regions.length === 1 ? String(regions[0].regionId) : "", address: school?.address ?? "", tel: school?.tel ?? "",
@@ -205,7 +207,7 @@ function SchoolForm({ school, regions, onClose, onSaved }: { school: SchoolFull 
             <label style={{ marginRight: 12 }}><input type="radio" name="ct" checked={v.contractStatus === "CONTRACTED"} onChange={() => setV({ ...v, contractStatus: "CONTRACTED" })} /> 체결</label>
             <label><input type="radio" name="ct" checked={v.contractStatus !== "CONTRACTED"} onChange={() => setV({ ...v, contractStatus: "NONE" })} /> 미체결</label>
           </FormRow>
-          {ACTIVE_TYPES.map((t) => {
+          {asTypes.map((t) => {
             const options = vendors.filter((x) => x.serviceTypes.includes(t));
             const engs = map[t].vendorId ? engineers[map[t].vendorId] ?? [] : [];
             return (

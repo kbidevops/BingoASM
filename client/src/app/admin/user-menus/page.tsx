@@ -40,6 +40,8 @@ interface MenuPerms {
   granted: string[];
   denied: string[];
   effective: string[];
+  /** Menus of AS services the user's 교육청 does not use — off for everyone, not adjustable here. */
+  disabled?: string[];
 }
 
 const ROLE_NAME: Record<string, string> = {
@@ -181,8 +183,9 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
   if (!data) return msg ? <FormMsg kind="bad" text={msg} /> : <Loading />;
   const base = new Set(data.base);
   const menuPerms = new Set(data.menuPerms);
-  const isOn = (p: string) => (base.has(p) || granted.has(p)) && !denied.has(p);
-  const editable = (i: MenuItem) => !!i.perm && menuPerms.has(i.perm);
+  const disabled = new Set(data.disabled ?? []);
+  const isOn = (p: string) => !disabled.has(p) && (base.has(p) || granted.has(p)) && !denied.has(p);
+  const editable = (i: MenuItem) => !!i.perm && menuPerms.has(i.perm) && !disabled.has(i.perm);
 
   const toggle = (perms: string[], on: boolean) => {
     const g = new Set(granted), d = new Set(denied);
@@ -243,13 +246,15 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
         {MENU.map((g) => {
           const perms = [...new Set(g.items.filter(editable).map((i) => i.perm!))];
           const onCount = perms.filter(isOn).length;
+          const unused = g.items.every((i) => i.perm && disabled.has(i.perm));
           return (
-            <section key={g.title} className={"um-card" + (g.hidden ? " muted" : "")} aria-label={g.title}>
+            <section key={g.title} className={"um-card" + (g.hidden || unused ? " muted" : "")} aria-label={g.title}>
               <div className="um-card-h">
                 <div>
                   <b>{g.title}</b>
                   <small>{perms.length ? `${onCount}/${perms.length} 켜짐` : "조정할 메뉴 없음"}</small>
                   {g.hidden && <span className="um-pill warn">사이트 전체에서 숨김</span>}
+                  {unused && <span className="um-pill warn">교육청에서 쓰지 않는 서비스</span>}
                 </div>
                 <Switch label={`${g.title} 전체`} disabled={!perms.length} checked={perms.length > 0 && onCount === perms.length}
                   mixed={onCount > 0 && onCount < perms.length} onChange={(on) => toggle(perms, on)} />
@@ -263,7 +268,9 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
                         <span>{i.title}</span>
                         {shared.length > 0 && <small>함께 바뀜: {shared.join(", ")}</small>}
                       </div>
-                      {i.perm ? (editable(i) ? status(i.perm) : <span className="um-pill none">관리자 전용</span>) : <span className="um-pill none">공개</span>}
+                      {!i.perm ? <span className="um-pill none">공개</span>
+                        : disabled.has(i.perm) ? <span className="um-pill none">서비스 미사용</span>
+                          : editable(i) ? status(i.perm) : <span className="um-pill none">관리자 전용</span>}
                       <Switch label={i.title} disabled={!editable(i)} checked={!i.perm || isOn(i.perm)} onChange={(on) => toggle([i.perm!], on)} />
                     </li>
                   );

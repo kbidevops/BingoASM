@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import { AS_LIST_HREF } from "@/lib/as";
-import type { AsRow, AsSummary, Page, PostRow } from "@/lib/types";
+import type { AsRow, AsSummary, Page, PostRow, RceptTy } from "@/lib/types";
 
 export default function HomePage() {
   const { status } = useAuth();
@@ -120,19 +120,20 @@ const QUICK = [
   },
 ] as const;
 
-const TELS = [
+/** [what, who, tel, AS 서비스 it belongs to — shown only when the 교육청 uses it]. */
+const TELS: [string, string, string, RceptTy?][] = [
   [
     "원클릭AS시스템 · 학교 정보화기기 유지관리",
     "충청남도교육청",
     "041-640-7114",
   ],
-  ["스마트기기(이로미) 유지보수", "TGS(스마트기기)", "1566-8797"],
-  ["스쿨넷 회선 장애", "LG UPLUS(스쿨넷)", "1644-3668"],
-  ["학내망(무선)", "충청남도교육청", "041-640-7114"],
+  ["스마트기기(이로미) 유지보수", "TGS(스마트기기)", "1566-8797", "T"],
+  ["스쿨넷 회선 장애", "LG UPLUS(스쿨넷)", "1644-3668", "S"],
+  ["학내망(무선)", "충청남도교육청", "041-640-7114", "M"],
 ];
 
 function HomeAuthed() {
-  const { me, can } = useAuth();
+  const { me, can, asTypes } = useAuth();
   const canScan = useCanQuickScan();
   const [scan, setScan] = useState(false);
   const [summary, setSummary] = useState<AsSummary | null>(null);
@@ -319,7 +320,7 @@ function HomeAuthed() {
                 <Link href="/contact">전체보기 +</Link>
               </div>
               <ul className="hm-l">
-                {TELS.map(([a, b, t]) => (
+                {TELS.filter(([, , , ty]) => !ty || asTypes.includes(ty)).map(([a, b, t]) => (
                   <li key={a}>
                     <span>
                       <small>{a}</small>

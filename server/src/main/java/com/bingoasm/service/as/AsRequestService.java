@@ -1,6 +1,7 @@
 package com.bingoasm.service.as;
 
 import com.bingoasm.auth.CurrentUser;
+import com.bingoasm.auth.PermissionService;
 import com.bingoasm.common.*;
 import com.bingoasm.domain.AppUser;
 import com.bingoasm.domain.Asset;
@@ -37,10 +38,12 @@ public class AsRequestService {
     private final WirelessDeviceRepository devices;
     private final AssetRepository assets;
     private final AsCostItemRepository costItems;
+    private final PermissionService permissions;
 
     public AsRequestService(AsRequestRepository requests, AsHistoryRepository histories, SchoolService schoolService, UserRepository users,
-                            WirelessDeviceRepository devices, AssetRepository assets, com.bingoasm.repo.FileRepository files, AsCostItemRepository costItems) {
-        this.files = files; this.costItems = costItems;
+                            WirelessDeviceRepository devices, AssetRepository assets, com.bingoasm.repo.FileRepository files, AsCostItemRepository costItems,
+                            PermissionService permissions) {
+        this.files = files; this.costItems = costItems; this.permissions = permissions;
         this.requests = requests; this.histories = histories; this.schoolService = schoolService; this.users = users;
         this.devices = devices; this.assets = assets;
     }
@@ -398,6 +401,7 @@ public class AsRequestService {
     public Long create(CurrentUser me, Map<String, Object> b) {
         String ty = Params.str(b, "rceptTy");
         if (ty == null || !AsCodes.RCEPT_TYPES.contains(ty)) throw ApiException.badRequest("접수 유형이 올바르지 않습니다.");
+        if (!permissions.asTypes(me.orgId()).contains(ty)) throw ApiException.badRequest(AsCodes.RCEPT_TY_NAME.get(ty) + " AS는 이 교육청에서 사용하지 않는 서비스입니다.");
         String perm = "T".equals(ty) ? "SMART_REQUEST" : "AS_" + ty + "_REQUEST";
         if (!me.can(perm)) throw ApiException.forbidden("권한이 없습니다.");
         Long schoolId = isSchoolSide(me) ? me.scope().schoolId() : Params.lng(b, "schoolId");
@@ -454,6 +458,7 @@ public class AsRequestService {
             case "transfer" -> {
                 String to = Params.str(b, "rceptTy");
                 if (to == null || !AsCodes.RCEPT_TYPES.contains(to) || to.equals(r.rceptTy)) throw ApiException.badRequest("이관 메뉴를 선택해주세요.");
+                if (!permissions.asTypes(r.orgId).contains(to)) throw ApiException.badRequest(AsCodes.RCEPT_TY_NAME.get(to) + " AS는 이 교육청에서 사용하지 않는 서비스입니다.");
                 String content = Params.str(b, "content");
                 if (content == null) throw ApiException.badRequest("이관 내용을 입력해주세요.");
                 SchoolVendor sv = schoolService.resolveVendor(r.schoolId, to).orElseThrow(() -> ApiException.badRequest("이관 대상 서비스에 대한 AS 업체 또는 담당 기사가 지정되어 있지 않습니다."));

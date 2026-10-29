@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Page } from "@/lib/api";
-import { ACTIVE_TYPES, AS_NAME, AS_REQUEST_HREF, AS_REQUEST_PERM } from "@/lib/as";
+import { AS_NAME, AS_REQUEST_HREF, AS_REQUEST_PERM, useAsTypes } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import type { AsRow, AsStatus, RceptTy } from "@/lib/types";
@@ -30,6 +30,7 @@ interface Filter {
 export default function AsList({ ty }: { ty?: RceptTy }) {
   const toast = useToast();
   const { can } = useAuth();
+  const asTypes = useAsTypes();
   const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: "", unassigned: false };
   const [draft, setDraft] = useState<Filter>(empty);
   const [filter, setFilter] = useState<Filter>(empty);
@@ -87,7 +88,7 @@ export default function AsList({ ty }: { ty?: RceptTy }) {
                   <td>
                     <select aria-label="구분" value={draft.rceptTy} onChange={(e) => setDraft({ ...draft, rceptTy: e.target.value })}>
                       <option value="">전체</option>
-                      {ACTIVE_TYPES.map((t) => <option key={t} value={t}>{AS_NAME[t]}</option>)}
+                      {asTypes.map((t) => <option key={t} value={t}>{AS_NAME[t]}</option>)}
                     </select>
                   </td>
                 </>

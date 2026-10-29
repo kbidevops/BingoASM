@@ -21,6 +21,9 @@ public class Org {
     /** 자산번호 접두어 (예: CB → CB-2026-00012). 없으면 HW/SW. */
     @Column(length = 10)
     public String assetNoPrefix;
+    /** 이 교육청이 쓰는 원클릭 AS 서비스 (C,M,S,T 중 쉼표 구분). 비어 있으면 app.default-as-types. */
+    @Column(length = 20)
+    public String asTypes;
     @Column(length = 1)
     public String useYn = "Y";
     public LocalDateTime createdAt;

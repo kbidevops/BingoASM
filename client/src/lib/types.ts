@@ -25,6 +25,16 @@ export interface Me {
   lastLoginAt?: string;
   roles: string[];
   permissions: string[];
+  /** AS 서비스 this user's 교육청 uses (C 정보기기 · M 무선망 · S 스쿨넷 · T 스마트기기). */
+  asTypes?: RceptTy[];
+}
+
+/** GET /api/site: what the signed-out site shows. */
+export interface SiteInfo {
+  orgName?: string;
+  asTypes: RceptTy[];
+  /** Menu permissions of the services not in use; their menus are hidden even before sign-in. */
+  disabledPerms: string[];
 }
 
 export interface LoginResult {

@@ -106,6 +106,9 @@ N = login("netengineer", "user1234!")
 V = login("vendoradmin", "user1234!")
 A = login("admin", "admin1234!")
 check("login: 5 accounts", all([S, S2, N, V, A]))
+# 권한표 검사는 네 서비스(정보기기·무선망·스쿨넷·스마트기기)를 모두 쓰는 교육청 기준. 끄고 켜기는 맨 끝에서 따로 본다.
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["C", "M", "S", "T"]}, token=A)
+check("as-services: all four on for the permission-table checks", st == 200 and data((st, j, None))["asTypes"] == ["C", "M", "S", "T"], j)
 
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"})
 d = j["data"]
@@ -608,6 +611,35 @@ st, j, _ = call("PUT", f"/api/users/{s1id}/menu-perms", {"granted": ["AS_DELETE"
 st, j, _ = call("GET", f"/api/as/requests/{sn5}", token=S); check("action-perms: granting beyond role does not widen scope", "delete" not in data((st, j, None))["allowedActions"], j)
 call("PUT", f"/api/users/{s1id}/menu-perms", {}, token=A); call("PUT", f"/api/users/{nid}/menu-perms", {}, token=A)
 st, j, _ = call("POST", f"/api/as/requests/{sn5}/cancel", {}, token=S); check("action-perms: reset → cancel works again", st == 200, j)
+
+# ---------- 교육청별 AS 서비스 ----------
+print("\n== 교육청별 AS 서비스")
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M", "S"]}, token=A); check("as-services: 무선망·스쿨넷 only", st == 200, j)
+st, j, _ = call("GET", "/api/site"); site = data((st, j, None))
+check("site: public, services M·S", st == 200 and site["asTypes"] == ["M", "S"], j)
+check("site: unused services' menus listed off", {"AS_C_REQUEST", "BOARD_DISPOSAL", "SMART_REQUEST"} <= set(site["disabledPerms"]) and "AS_M_REQUEST" not in site["disabledPerms"], site)
+st, j, _ = call("GET", "/api/auth/me", token=A); me_a = data((st, j, None))
+check("me: asTypes + unused menus removed even for SYS_ADMIN", me_a["asTypes"] == ["M", "S"] and "AS_C_REQUEST" not in me_a["permissions"] and "AS_S_REQUEST" in me_a["permissions"], me_a)
+st, j, _ = call("GET", "/api/org/as-services", token=E); check("as-services: EDU_ADMIN can read", st == 200 and len(data((st, j, None))["types"]) == 4, j)
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M"]}, token=E); check("as-services: EDU_ADMIN cannot change → 403", st == 403, j)
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": []}, token=A); check("as-services: none selected → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M", "X"]}, token=A); check("as-services: unknown type → 400", st == 400, j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "C", "faultTypeCode": "11", "symptom": "x", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=A)
+check("as-services: request for unused service → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["S", "M"]}, token=A)
+check("as-services: order normalised", st == 200 and data((st, j, None))["asTypes"] == ["M", "S"], j)
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M"]}, token=A)
+check("as-services: 스쿨넷 off", st == 200 and data((st, j, None))["asTypes"] == ["M"], j)
+st, j, _ = call("PUT", f"/api/users/{s1id}/menu-perms", {"granted": ["BOARD_SLA"]}, token=A)
+st, j, _ = call("GET", "/api/auth/me", token=S); p1 = data((st, j, None))["permissions"]
+check("as-services: 스쿨넷 menus gone, per-user grant can't reopen", "AS_S_REQUEST" not in p1 and "BOARD_SLA" not in p1 and "AS_M_REQUEST" in p1, p1)
+st, j, _ = call("GET", f"/api/users/{s1id}/menu-perms", token=A); check("menu-perms: lists disabled menus", "AS_S_REQUEST" in data((st, j, None))["disabled"], j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "꺼진 서비스(테스트)", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S)
+check("as-services: 스쿨넷 request blocked", st in (400, 403), j)
+st, j, _ = call("GET", "/api/site"); check("site: reflects the change", data((st, j, None))["asTypes"] == ["M"], j)
+call("PUT", f"/api/users/{s1id}/menu-perms", {}, token=A)
+st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M", "S"]}, token=A)
+st2, j2, _ = call("GET", "/api/auth/me", token=S); check("as-services: turning 스쿨넷 back on restores menus", st == 200 and "AS_S_REQUEST" in data((st2, j2, None))["permissions"], j2)
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")
