@@ -9,7 +9,7 @@ export default function SitemapPage() {
   const { status, perms } = useAuth();
   const menu = visibleMenu(status === "authed" ? perms : null);
   useEffect(() => {
-    document.title = "누리집 지도 | 충북교육청 원클릭AS시스템";
+    document.title = "누리집 지도 | 충청남도교육청 원클릭AS시스템";
   }, []);
   return (
     <main id="content">

@@ -115,7 +115,7 @@ export function LabelSheet({ labels }: { labels: Label[] }) {
       {labels.map((l, i) => (
         <div className="lbl" key={l.assetNo + i}>
           <QrCode text={l.qrText} label={l.assetNo + " QR"} margin={1} />
-          <div className="lbl-t"><small>충북교육청 원클릭AS</small><b>{l.assetNo}</b><span>{l.title}</span><em>{l.sub}</em></div>
+          <div className="lbl-t"><small>충청남도교육청 원클릭AS</small><b>{l.assetNo}</b><span>{l.title}</span><em>{l.sub}</em></div>
         </div>
       ))}
     </div>

@@ -35,7 +35,7 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
   }, [font]);
 
   useEffect(() => {
-    document.title = heading ? `${heading} | 충북교육청 원클릭AS시스템` : "충북교육청 원클릭AS시스템";
+    document.title = heading ? `${heading} | 충청남도교육청 원클릭AS시스템` : "충청남도교육청 원클릭AS시스템";
   }, [heading]);
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
   else if (perm && !can(perm)) {
     body = (
       <div className="empty" style={{ padding: "40px 20px" }}>
-        <p style={{ margin: "0 0 14px" }}>이 메뉴를 사용할 권한이 없습니다. 권한이 필요하면 학교정보화지원팀(043-290-2885)에 문의해 주세요.</p>
+        <p style={{ margin: "0 0 14px" }}>이 메뉴를 사용할 권한이 없습니다. 권한이 필요하면 충청남도교육청(041-640-7114)에 문의해 주세요.</p>
         <Link className="btn sm sec" href="/">메인으로</Link>
       </div>
     );

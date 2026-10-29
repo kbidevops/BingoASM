@@ -13,7 +13,7 @@ import type { AsRow, AsSummary, Page, PostRow } from "@/lib/types";
 export default function HomePage() {
   const { status } = useAuth();
   useEffect(() => {
-    document.title = "충북교육청 원클릭AS시스템";
+    document.title = "충청남도교육청 원클릭AS시스템";
   }, []);
   if (status === "loading")
     return (
@@ -77,8 +77,8 @@ function HomePublic() {
               사용가능합니다.
             </p>
             <p className="mtel">
-              문의: 창의특수교육과 학교정보화지원팀(
-              <a href="tel:043-290-2885">290-2885</a>)
+              문의: 충청남도교육청(
+              <a href="tel:041-640-7114">041-640-7114</a>)
             </p>
             <Link className="mlink" href="/contact">
               문의처에 대해 안내해 드립니다 <Icon name="arrow" />
@@ -113,12 +113,6 @@ const QUICK = [
     perm: "AS_S_REQUEST",
   },
   {
-    href: "/boards/write?code=disposal",
-    title: "불용PC수거신청",
-    icon: "box",
-    perm: "BOARD_DISPOSAL",
-  },
-  {
     href: "/boards/qna",
     title: "질문 및 건의하기",
     icon: "chat",
@@ -129,12 +123,12 @@ const QUICK = [
 const TELS = [
   [
     "원클릭AS시스템 · 학교 정보화기기 유지관리",
-    "창의특수교육과 학교정보화지원팀",
-    "043-290-2885",
+    "충청남도교육청",
+    "041-640-7114",
   ],
   ["스마트기기(이로미) 유지보수", "TGS(스마트기기)", "1566-8797"],
   ["스쿨넷 회선 장애", "LG UPLUS(스쿨넷)", "1644-3668"],
-  ["학내망(무선)", "창의특수교육과", "043-290-2882"],
+  ["학내망(무선)", "충청남도교육청", "041-640-7114"],
 ];
 
 function HomeAuthed() {
@@ -326,7 +320,7 @@ function HomeAuthed() {
               </div>
               <ul className="hm-l">
                 {TELS.map(([a, b, t]) => (
-                  <li key={t}>
+                  <li key={a}>
                     <span>
                       <small>{a}</small>
                       {b}

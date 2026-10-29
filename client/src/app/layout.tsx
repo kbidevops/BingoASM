@@ -7,7 +7,7 @@ import { ScrapProvider } from "@/lib/scraps";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "충북교육청 원클릭AS시스템",
+  title: "충청남도교육청 원클릭AS시스템",
   description: "학교 정보화기기 장애신고의 신청 · 접수 · 처리 · 결과를 원스톱으로 처리하는 원클릭AS시스템",
 };
 
@@ -35,10 +35,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {children}
               <footer className="ft">
                 <div className="wrap">
-                  <p><b><a href="https://www.cbe.go.kr/cbe/itp/policy/policyInfo.do?mi=11759" target="_blank" rel="noopener">개인정보처리방침</a></b></p>
-                  <p>(28635) 충북 청주시 서원구 청남로 1929 (산남동 4-11)</p>
-                  <p>TEL: 043)290-2000, (당직실 2500), 2669, 2670 FAX: 043)290-2741 <Link href="/contact">[문의처 안내]</Link></p>
-                  <p>Copyright © Chungcheongbuk-do Office Of Education. All Rights Reserved.</p>
+                  <p><b><a href="https://www.cne.go.kr" target="_blank" rel="noopener">개인정보처리방침</a></b></p>
+                  <p>(32255) 충청남도 홍성군 홍북읍 충절로 2111 충청남도교육청</p>
+                  <p>TEL: 041)640-7114 <Link href="/contact">[문의처 안내]</Link></p>
+                  <p>Copyright © Chungcheongnam-do Office of Education. All Rights Reserved.</p>
                 </div>
               </footer>
             </ToastProvider>

@@ -237,7 +237,7 @@ export function TelInput({ value, onChange }: { value: string; onChange: (v: str
   return (
     <>
       <select aria-label="앞자리" value={p[0] || "010"} onChange={(e) => set(0, e.target.value)}>
-        {["010", "011", "016", "017", "019", "043"].map((x) => <option key={x}>{x}</option>)}
+        {["010", "011", "016", "017", "019", "041"].map((x) => <option key={x}>{x}</option>)}
       </select>{" - "}
       <input size={5} aria-label="가운데" inputMode="numeric" maxLength={4} value={p[1] ?? ""} onChange={(e) => set(1, e.target.value)} />{" - "}
       <input size={5} aria-label="끝자리" inputMode="numeric" maxLength={4} value={p[2] ?? ""} onChange={(e) => set(2, e.target.value)} />

@@ -148,7 +148,6 @@ function Start() {
           <li><Link href="/as/wireless"><b>무선이 안 돼요</b><span>무선망 AS 신청</span></Link></li>
           <li><Link href="/admin/assets"><b>자산을 찾고 싶어요</b><span>번호·품명으로 검색</span></Link></li>
           <li><Link href="/admin/floorplan"><b>교실에 뭐가 있나요</b><span>도면에서 교실 누르기</span></Link></li>
-          <li><Link href="/boards/write?code=disposal"><b>오래된 PC를 버려요</b><span>불용PC 수거 신청</span></Link></li>
         </ul>
       </section>
       {scan && <QrQuickScan onClose={() => setScan(false)} />}

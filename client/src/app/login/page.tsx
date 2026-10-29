@@ -130,7 +130,7 @@ function IdLogin({ notice, onDone }: { notice: string; onDone: (r: LoginResult) 
         <button className="btn" type="submit" disabled={busy}>{busy ? "확인 중…" : "로그인"}</button>
       </form>
       <div className="links">
-        <span className="hint">아이디 찾기 · 비밀번호 재설정은 학교정보화지원팀(043-290-2885)에 문의해 주세요.</span>
+        <span className="hint">아이디 찾기 · 비밀번호 재설정은 충청남도교육청(041-640-7114)에 문의해 주세요.</span>
       </div>
     </>
   );

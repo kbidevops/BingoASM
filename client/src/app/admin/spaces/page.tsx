@@ -53,7 +53,7 @@ function Spaces() {
           {list.slice(0, 60).map((r, i) => (
             <div className="lbl" key={r.roomId}>
               <img className="qr" src={imgs[i]} alt={`${r.roomName} 실 QR`} />
-              <div className="lbl-t"><small>충북교육청 원클릭AS · 실 QR</small><b>{r.roomName}</b><span>{r.roomNo ?? ""}</span><em>{r.buildingName} {r.floorName}</em></div>
+              <div className="lbl-t"><small>충청남도교육청 원클릭AS · 실 QR</small><b>{r.roomName}</b><span>{r.roomNo ?? ""}</span><em>{r.buildingName} {r.floorName}</em></div>
             </div>
           ))}
         </div>,

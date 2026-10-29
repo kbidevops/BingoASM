@@ -215,7 +215,7 @@ export default function SiteHeader() {
       <div className="util">
         <div className="wrap">
           <Link className="home" href="/">
-            <Icon name="home" /> 충북교육청
+            <Icon name="home" /> 충청남도교육청
           </Link>
           <span>
             {status === "authed" && me ? (

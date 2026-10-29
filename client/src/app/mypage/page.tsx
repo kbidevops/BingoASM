@@ -256,7 +256,7 @@ function LogTab() {
   if (!logs) return <Loading />;
   return (
     <>
-      <p className="mpo">최근 로그인 기록 5건입니다. 본인이 아닌 기록이 있으면 비밀번호를 바꾸고 학교정보화지원팀(<a href="tel:043-290-2885">043-290-2885</a>)에 알려 주세요.</p>
+      <p className="mpo">최근 로그인 기록 5건입니다. 본인이 아닌 기록이 있으면 비밀번호를 바꾸고 충청남도교육청(<a href="tel:041-640-7114">041-640-7114</a>)에 알려 주세요.</p>
       <div className="tw">
         <table className="cards">
           <thead><tr><th scope="col">일시</th><th scope="col">브라우저</th><th scope="col">IP</th><th scope="col">방식</th><th scope="col">결과</th></tr></thead>
