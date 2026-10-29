@@ -28,8 +28,9 @@ public class AsStatsService {
 
     private List<AsRequest> base(CurrentUser me, int year, String rceptTy, Long regionId) {
         Map<Long, School> sm = schoolService.schoolMap(me.orgId());
-        Set<Long> inScope = schoolService.scopeSchoolIds(me);  // 교육지원청 담당자는 관내 학교만 집계
         com.bingoasm.auth.Scope sc = me.scope();
+        // 교육지원청 담당자는 관내 학교만, 업체는 (학교와 상관없이) 자기 업체에 배정된 건만 집계.
+        Set<Long> inScope = sc.vendor() ? null : schoolService.scopeSchoolIds(me);
         return requests.findByOrgIdAndUseYnAndRequestAtGreaterThanEqualAndRequestAtLessThan(me.orgId(), "Y",
                         LocalDate.of(year, 1, 1).atStartOfDay(), LocalDate.of(year + 1, 1, 1).atStartOfDay()).stream()
                 .filter(r -> inScope == null || inScope.contains(r.schoolId))

@@ -19,6 +19,7 @@ interface AuthState {
   asTypes: RceptTy[];
   /** Menu permissions switched off for the whole 교육청 (unused AS services). */
   offPerms: Set<string>;
+  site: SiteInfo | null;
   /** Store tokens from login / OTP / QR and the `me` that came with them. */
   signIn: (t: Tokens, me: Me) => void;
   signOut: (message?: string) => void;
@@ -118,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       can: (perm) => !perm || !!perms?.has(perm),
       asTypes: me?.asTypes ?? site?.asTypes ?? [],
       offPerms: new Set(site?.disabledPerms ?? []),
+      site,
       signIn,
       signOut,
       setMe: setMeState,
@@ -151,6 +153,16 @@ export function isSchoolUser(me: Me | null) {
 /** 교육지원청 담당자: 관할 교육지원청 학교만 다룸 (도교육청 관리자를 겸하면 아님). */
 export function isRegionAdmin(me: Me | null) {
   return !!me?.roles.includes("REGION_ADMIN") && !isAdmin(me);
+}
+
+/** 학교 등록·삭제, 계약·담당업체 지정을 할 수 있는가 (도교육청·교육지원청 — 서버 Scope.schoolAdmin). */
+export function isSchoolAdmin(me: Me | null) {
+  return isAdmin(me) || !!me?.roles.includes("REGION_ADMIN");
+}
+
+/** 업체 계정 (기사·업체 관리자): 학교 단위 데이터는 담당으로 배정된 학교만. */
+export function isVendorUser(me: Me | null) {
+  return !isSchoolAdmin(me) && !isSchoolUser(me) && !!me && (me.roles.includes("AS_ENGINEER") || me.roles.includes("VENDOR_ADMIN"));
 }
 
 export function isAdmin(me: Me | null) {

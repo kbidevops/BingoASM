@@ -35,6 +35,15 @@ export interface SiteInfo {
   asTypes: RceptTy[];
   /** Menu permissions of the services not in use; their menus are hidden even before sign-in. */
   disabledPerms: string[];
+  /** 문의처 안내 still holds sample data, not the 교육청's real contacts. */
+  contactsSample?: boolean;
+}
+
+/** GET /api/as/contacts/providers: the school's 담당업체 per AS service. */
+export interface Providers {
+  schoolId: number;
+  schoolName: string;
+  items: { rceptTy: RceptTy; rceptTyName: string; vendorName?: string; vendorTel?: string; engineerName?: string; engineerTel?: string }[];
 }
 
 export interface LoginResult {

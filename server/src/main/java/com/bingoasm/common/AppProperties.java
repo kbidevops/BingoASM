@@ -19,5 +19,6 @@ public record AppProperties(
         String roomLinkTemplate,
         String corsOrigins,
         String defaultAsTypes,
-        String siteOrgCode) {
+        String siteOrgCode,
+        boolean contactsSample) {
 }

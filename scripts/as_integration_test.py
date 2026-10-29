@@ -641,6 +641,100 @@ call("PUT", f"/api/users/{s1id}/menu-perms", {}, token=A)
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M", "S"]}, token=A)
 st2, j2, _ = call("GET", "/api/auth/me", token=S); check("as-services: turning 스쿨넷 back on restores menus", st == 200 and "AS_S_REQUEST" in data((st2, j2, None))["permissions"], j2)
 
+# ---------- 통합관리 메뉴를 학교·기사·교육지원청에 줘도 범위가 넓어지지 않는다 ----------
+print("\n== 통합관리 메뉴 범위")
+MGMT = ["AS_MANAGE", "AS_STATS", "WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE"]
+s2id_, nid_, rid_ = uid("school02"), uid("netengineer"), uid("regionadmin")
+st, j, _ = call("GET", "/api/as/schools", token=A); all_sc = data((st, j, None))
+st, j, _ = call("GET", "/api/as/vendors", token=A); hanbit = next(v for v in data((st, j, None)) if v["vendorName"] == "한빛네트웍스")
+assigned = {x["schoolId"] for x in all_sc if any(v.get("vendorId") == hanbit["vendorId"] for v in x.get("vendors") or [])}
+# 데모 학교는 모두 한빛 담당이라, 담당 업체가 없는 학교를 하나 만든다.
+other = next((x for x in all_sc if x["schoolId"] not in assigned), None)
+if other is None:
+    st, j, _ = call("POST", "/api/as/schools", {"schoolName": "범위검사학교", "regionId": all_sc[0]["regionId"]}, token=A)
+    other = data((st, j, None)); check("scope: unassigned school created", st == 200, j)
+own2 = next(x for x in all_sc if x["schoolName"] == "온천중학교")
+for u in (s2id_, nid_):
+    st, j, _ = call("PUT", f"/api/users/{u}/menu-perms", {"granted": MGMT}, token=A)
+    check(f"scope: 통합관리 menus granted (user {u})", st == 200, j)
+st, j, _ = call("PUT", f"/api/users/{rid_}/menu-perms", {"granted": ["VENDOR_MANAGE"]}, token=A); check("scope: 업체관리 granted to regionadmin", st == 200, j)
+
+# 학교: 자기 학교 기본정보만
+st, j, _ = call("POST", "/api/as/schools", {"schoolName": "가짜학교", "regionId": own2["regionId"]}, token=S2); check("school+SCHOOL_MANAGE: register school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/schools/{own2['schoolId']}", {"contractStatus": "CONTRACTED" if own2["contractStatus"] != "CONTRACTED" else "NONE"}, token=S2)
+check("school+SCHOOL_MANAGE: change own contract → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/schools/{own2['schoolId']}", {"classCount": own2.get("classCount"), "contractStatus": own2["contractStatus"], "regionId": own2["regionId"]}, token=S2)
+check("school+SCHOOL_MANAGE: own basic info (contract unchanged) → 200", st == 200, j)
+st, j, _ = call("PUT", f"/api/as/schools/{other['schoolId']}", {"classCount": 1}, token=S2); check("school+SCHOOL_MANAGE: other school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/schools/{own2['schoolId']}/vendors", [], token=S2); check("school+SCHOOL_MANAGE: set own 담당업체 → 403", st == 403, j)
+st, j, _ = call("DELETE", f"/api/as/schools/{own2['schoolId']}", token=S2); check("school+SCHOOL_MANAGE: delete own school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{hanbit['vendorId']}", {"vendorName": "탈취"}, token=S2); check("school+VENDOR_MANAGE: edit vendor → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/vendors", token=S2); check("school+VENDOR_MANAGE: vendor list readable", st == 200, j)
+
+# 기사: 배정된 학교만, 학교·업체 변경 불가
+st, j, _ = call("GET", "/api/as/schools", token=N); nsc = {x["schoolId"] for x in data((st, j, None))} if st == 200 else None
+check("engineer+SCHOOL_MANAGE: school list = assigned schools only", st == 200 and nsc == assigned and assigned, (nsc, assigned))
+st, j, _ = call("GET", f"/api/as/schools/{other['schoolId']}", token=N); check("engineer: unassigned school → 403", st == 403, j)
+st, rows = all_rows("/api/assets?size=500", N)
+check("engineer+ASSET_READ: assets of assigned schools only", st == 200 and all(x.get("schoolId") in assigned for x in rows), st)
+st, j, _ = call("GET", f"/api/assets?size=500&schoolId={other['schoolId']}", token=N)
+check("engineer+ASSET_READ: other school's assets empty", st in (200, 403) and (st == 403 or not data((st, j, None))["content"]), j)
+st, rows = all_rows("/api/as/wireless-devices?size=500", N)
+check("engineer+WDEVICE_MANAGE: devices of assigned schools only", st == 200 and all(x.get("schoolId") in assigned for x in rows), st)
+st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": other["schoolId"], "deviceName": "남의 학교 AP", "deviceType": "AP"}, token=N)
+check("engineer+WDEVICE_MANAGE: add device at unassigned school → 403", st == 403, j)
+st, j, _ = call("GET", f"/api/as/spaces/buildings?schoolId={other['schoolId']}", token=N); check("engineer+SPACE_MANAGE: unassigned school's buildings → 403", st == 403, j)
+a_sid = next(iter(assigned))
+st, j, _ = call("PUT", f"/api/as/schools/{a_sid}", {"classCount": 1}, token=N); check("engineer+SCHOOL_MANAGE: edit assigned school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/schools/{other['schoolId']}/vendors", [{"rceptTy": "M", "vendorId": hanbit["vendorId"]}], token=N)
+check("engineer+SCHOOL_MANAGE: assign own company to a school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{hanbit['vendorId']}", {"serviceTypes": ["C", "M", "S", "T"]}, token=N)
+check("engineer+VENDOR_MANAGE: widen own company's service types → 403", st == 403, j)
+st, rows = all_rows("/api/as/requests?size=500", N)
+check("engineer: AS list still = own company's requests", st == 200 and rows and all(x.get("vendorName") == "한빛네트웍스" for x in rows), st)
+st, j, _ = call("GET", f"/api/users/{nid_}/menu-perms", token=A); lim = data((st, j, None)).get("limits", {})
+check("menu-perms: engineer's limited menus explained", "SCHOOL_MANAGE" in lim and "ASSET_READ" in lim, lim)
+
+# 교육지원청: 업체는 조회만
+st, j, _ = call("PUT", f"/api/as/vendors/{hanbit['vendorId']}", {"vendorName": "탈취"}, token=R); check("region+VENDOR_MANAGE: edit vendor → 403", st == 403, j)
+st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "지원청업체", "serviceTypes": ["M"]}, token=R); check("region+VENDOR_MANAGE: register vendor → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{hanbit['vendorId']}", {"tel": hanbit.get("tel")}, token=A); check("eduadmin/admin: edit vendor still works", st == 200, j)
+
+for u in (s2id_, nid_, rid_):
+    call("PUT", f"/api/users/{u}/menu-perms", {}, token=A)
+
+# ---------- 문의처: 우리 학교 담당업체 · 구역별 편집 · 예시 데이터 표시 ----------
+print("\n== 문의처 안내")
+st, j, _ = call("GET", "/api/site"); check("site: contacts marked as sample data", data((st, j, None)).get("contactsSample") is True, j)
+st, j, _ = call("GET", "/api/as/contacts/providers", token=S); pv = data((st, j, None))
+check("providers: school user gets own school, one row per service in use", st == 200 and pv["schoolName"] == "봉황초등학교" and [x["rceptTy"] for x in pv["items"]] == ["M", "S"], j)
+check("providers: 무선망 vendor + engineer phone", pv["items"][0].get("vendorName") == "한빛네트웍스" and pv["items"][0].get("engineerTel"), pv)
+st, j, _ = call("GET", f"/api/as/contacts/providers?schoolId={own2['schoolId']}", token=S)
+check("providers: school user can't look up another school (own school returned)", st == 200 and data((st, j, None))["schoolName"] == "봉황초등학교", j)
+st, j, _ = call("GET", "/api/as/contacts/providers", token=E); check("providers: admin without schoolId → 400", st == 400, j)
+st, j, _ = call("GET", f"/api/as/contacts/providers?schoolId={own2['schoolId']}", token=E); check("providers: admin picks a school", st == 200 and data((st, j, None))["schoolName"] == "온천중학교", j)
+st, j, _ = call("GET", f"/api/as/contacts/providers?schoolId={other['schoolId']}", token=E)
+check("providers: school without 담당업체 → rows without vendor", st == 200 and all(not x.get("vendorName") for x in data((st, j, None))["items"]), j)
+
+st, j, _ = call("GET", "/api/as/contacts", token=R); before = data((st, j, None))
+mine = next(g for g in before if g["regionName"] == "청주교육지원청"); theirs = next(g for g in before if g["regionName"] == "충주교육지원청")
+rows = [{"groupName": "청주교육지원청 정보지원팀", "itemName": "정보지원팀장", "tel": "000-0000-0000", "duties": ["원클릭 AS 총괄", "무선망"]},
+        {"groupName": "유지보수 사업자", "itemName": "테스트네트웍스", "tel": "000-1111-2222"}]
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{mine['regionId']}", rows, token=R); after = data((st, j, None))
+cj = next(g for g in after if g["regionName"] == "청주교육지원청") if st == 200 else {}
+check("contacts: region admin replaces own district", st == 200 and [x["groupName"] for x in cj["groups"]] == ["청주교육지원청 정보지원팀", "유지보수 사업자"]
+      and cj["groups"][0]["items"][0]["duties"] == ["원클릭 AS 총괄", "무선망"], j)
+check("contacts: other sections untouched", st == 200 and next(g for g in after if g["regionName"] == "충주교육지원청") == theirs and after[0] == before[0], j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{theirs['regionId']}", rows, token=R); check("contacts: region admin other district → 403", st == 403, j)
+st, j, _ = call("PUT", "/api/as/contacts/sections/province", rows, token=R); check("contacts: region admin 도교육청 section → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{mine['regionId']}", rows, token=S); check("contacts: school user → 403", st == 403, j)
+st, j, _ = call("PUT", "/api/as/contacts/sections/999999", rows, token=E); check("contacts: unknown district → 404", st == 404, j)
+st, j, _ = call("PUT", "/api/as/contacts/sections/abc", rows, token=E); check("contacts: bad section → 400", st == 400, j)
+def back(g):
+    return [{"groupName": gr["groupName"], "itemName": it["itemName"], "tel": it.get("tel"), "note": it.get("note"), "duties": it.get("duties") or []} for gr in g["groups"] for it in gr["items"]]
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{mine['regionId']}", back(mine), token=E)
+check("contacts: 도교육청 admin can edit any district (restored)", st == 200 and back(next(g for g in data((st, j, None)) if g["regionName"] == "청주교육지원청")) == back(mine), j)
+
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")
 if fails:

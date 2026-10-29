@@ -46,13 +46,17 @@ public class SchoolService {
     }
 
     /**
-     * 범위({@link Scope}) 안의 학교 id. 학교 단위 데이터(학교·자산·공간·무선장비·AS)의 범위는 모두 여기서 정한다.
-     * null = 학교 제한 없음 (도교육청 관리자, 업체, 원클릭 AS 소속 없는 계정). 빈 집합 = 다룰 학교가 없음 (소속이 비어 있는 계정).
+     * 범위({@link Scope}) 안의 학교 id. 학교 단위 데이터(학교·자산·공간·무선장비)의 범위는 모두 여기서 정한다.
+     * 업체(기사·업체 관리자)는 자기 업체가 담당으로 배정된 학교만 — 메뉴 권한을 더 받아도 기관 전체로 넓어지지 않는다.
+     * (AS 신청은 업체 기준(배정된 건)으로 따로 본다: AsRequestService·AsStatsService.)
+     * null = 학교 제한 없음 (도교육청 관리자, 원클릭 AS 소속 없는 계정). 빈 집합 = 다룰 학교가 없음 (소속이 비어 있는 계정).
      */
     public Set<Long> scopeSchoolIds(CurrentUser me) {
         Scope sc = me.scope();
         return switch (sc.kind()) {
             case SCHOOL -> sc.schoolId() == null ? Set.of() : Set.of(sc.schoolId());
+            case VENDOR -> sc.vendorId() == null ? Set.of()
+                    : schoolVendors.findByVendorId(sc.vendorId()).stream().map(sv -> sv.schoolId).collect(Collectors.toSet());
             case REGION -> schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(me.orgId(), "Y").stream()
                     .filter(s -> sc.regionId() != null && sc.regionId().equals(s.regionId)).map(s -> s.schoolId).collect(Collectors.toSet());
             default -> null;
@@ -69,6 +73,8 @@ public class SchoolService {
             if (s == null || sc.regionId() == null || !sc.regionId().equals(s.regionId))
                 throw ApiException.forbidden("관할 교육지원청 학교의 정보만 다룰 수 있습니다.");
         }
+        if (sc.vendor() && (schoolId == null || !scopeSchoolIds(me).contains(schoolId)))
+            throw ApiException.forbidden("담당으로 배정된 학교의 정보만 다룰 수 있습니다.");
     }
 
     /** Loads a school of this org that is inside the caller's scope (400 if missing, 403 if out of scope). */
@@ -128,7 +134,7 @@ public class SchoolService {
                     .with("engineerUserId", sv.engineerUserId).with("engineerName", e == null ? null : e.userName);
         }).toList();
         return Json.obj().with("schoolId", s.schoolId).with("schoolCode", s.schoolCode).with("schoolName", s.schoolName)
-                .with("schoolType", s.schoolType).with("schoolTypeName", AsCodes.SCHOOL_TYPE_NAME.getOrDefault(s.schoolType, s.schoolType))
+                .with("schoolType", s.schoolType).with("schoolTypeName", s.schoolType == null ? null : AsCodes.SCHOOL_TYPE_NAME.getOrDefault(s.schoolType, s.schoolType))
                 .with("regionId", s.regionId).with("regionName", r == null ? null : r.regionName)
                 .with("address", s.address).with("tel", s.tel).with("classCount", s.classCount)
                 .with("contractStatus", s.contractStatus).with("contractStatusName", "CONTRACTED".equals(s.contractStatus) ? "체결" : "미체결")
@@ -167,11 +173,17 @@ public class SchoolService {
         if (b.containsKey("address")) s.address = Params.str(b, "address");
         if (b.containsKey("tel")) s.tel = Params.str(b, "tel");
         if (b.containsKey("classCount")) s.classCount = Params.integer(b, "classCount");
-        if (b.containsKey("contractStatus")) { String c = Params.str(b, "contractStatus"); s.contractStatus = "CONTRACTED".equals(c) ? "CONTRACTED" : "NONE"; }
+        if (b.containsKey("contractStatus")) s.contractStatus = normContract(Params.str(b, "contractStatus"));
         if (b.containsKey("memo")) s.memo = Params.str(b, "memo");
     }
 
+    /** 학교 등록·삭제와 계약·담당업체 지정은 도교육청·교육지원청만 — 학교·업체 계정은 메뉴를 받아도 못 한다. */
+    private static void requireSchoolAdmin(CurrentUser me, String what) {
+        if (!me.scope().schoolAdmin()) throw ApiException.forbidden(what + "은(는) 도교육청·교육지원청 담당자만 할 수 있습니다.");
+    }
+
     public Json createSchool(CurrentUser me, Map<String, Object> b) {
+        requireSchoolAdmin(me, "학교 등록");
         School s = new School();
         s.orgId = me.orgId(); s.createdAt = Times.now();
         applySchool(me, s, b);
@@ -191,12 +203,23 @@ public class SchoolService {
 
     public Json updateSchool(CurrentUser me, Long id, Map<String, Object> b) {
         School s = loadSchool(me, id);
+        if (me.scope().vendor()) throw ApiException.forbidden("업체 계정은 학교 정보를 바꿀 수 없습니다.");
+        if (!me.scope().schoolAdmin()) {
+            // 학교 담당자: 자기 학교의 기본 정보(이름·주소·전화·학급 수·메모)만. 계약·지역은 바꿀 수 없다.
+            if (b.containsKey("contractStatus") && !Objects.equals(normContract(Params.str(b, "contractStatus")), s.contractStatus))
+                throw ApiException.forbidden("유지관리 계약 상태는 도교육청·교육지원청 담당자만 바꿀 수 있습니다.");
+            if (b.containsKey("regionId") && !Objects.equals(Params.lng(b, "regionId"), s.regionId))
+                throw ApiException.forbidden("소속 교육지원청은 도교육청·교육지원청 담당자만 바꿀 수 있습니다.");
+        }
         applySchool(me, s, b);
         keepInDistrict(me, s);
         return school(me, id);
     }
 
+    private static String normContract(String c) { return "CONTRACTED".equals(c) ? "CONTRACTED" : "NONE"; }
+
     public void deleteSchool(CurrentUser me, Long id) {
+        requireSchoolAdmin(me, "학교 삭제");
         School s = loadSchool(me, id);
         s.useYn = "N";
     }
@@ -206,7 +229,7 @@ public class SchoolService {
     /** body: [{ rceptTy, vendorId, engineerUserId }] — replaces all mappings of the school. */
     public List<Json> setSchoolVendors(CurrentUser me, Long schoolId, List<Map<String, Object>> rows) {
         loadSchool(me, schoolId);
-        if (me.hasRole("VENDOR_ADMIN") && !me.can("SCHOOL_MANAGE")) throw ApiException.forbidden("권한이 없습니다.");
+        requireSchoolAdmin(me, "담당 업체·기사 지정");
         Map<Long, Vendor> vm = vendorMap(me.orgId());
         schoolVendors.deleteBySchoolId(schoolId);
         // Hibernate flushes INSERTs before DELETEs; without this, re-saving an existing (school, type) hits the unique key.
@@ -272,7 +295,13 @@ public class SchoolService {
         v.updatedAt = Times.now();
     }
 
+    /** 업체 등록·수정·삭제는 도교육청만 — 담당 분야를 바꾸면 그 업체 기사들의 AS 메뉴가 바뀌기 때문. 다른 계정은 조회만. */
+    private static void requireVendorAdmin(CurrentUser me) {
+        if (!me.scope().province()) throw ApiException.forbidden("업체 등록·수정·삭제는 도교육청 관리자만 할 수 있습니다.");
+    }
+
     public Json createVendor(CurrentUser me, Map<String, Object> b) {
+        requireVendorAdmin(me);
         Vendor v = new Vendor();
         v.orgId = me.orgId(); v.createdAt = Times.now();
         applyVendor(me, v, b);
@@ -281,12 +310,14 @@ public class SchoolService {
     }
 
     public Json updateVendor(CurrentUser me, Long id, Map<String, Object> b) {
+        requireVendorAdmin(me);
         Vendor v = loadVendor(me, id);
         applyVendor(me, v, b);
         return vendors(me, null, null).stream().filter(j -> id.equals(j.get("vendorId"))).findFirst().orElseThrow();
     }
 
     public void deleteVendor(CurrentUser me, Long id) {
+        requireVendorAdmin(me);
         loadVendor(me, id).useYn = "N";
     }
 

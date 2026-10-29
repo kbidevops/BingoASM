@@ -6,6 +6,7 @@ import com.bingoasm.auth.CurrentUser;
 import com.bingoasm.auth.PermissionService;
 import com.bingoasm.auth.PublicApi;
 import com.bingoasm.auth.RequirePerm;
+import com.bingoasm.common.AppProperties;
 import com.bingoasm.common.ApiException;
 import com.bingoasm.common.ApiResponse;
 import com.bingoasm.common.Json;
@@ -27,10 +28,12 @@ import org.springframework.web.bind.annotation.*;
 public class OrgServiceController {
     private final OrgRepository orgs;
     private final PermissionService permissions;
+    private final AppProperties props;
 
-    public OrgServiceController(OrgRepository orgs, PermissionService permissions) {
+    public OrgServiceController(OrgRepository orgs, PermissionService permissions, AppProperties props) {
         this.orgs = orgs;
         this.permissions = permissions;
+        this.props = props;
     }
 
     /** 로그인 전 화면(메뉴·사이트맵)이 쓰는 사이트 정보. */
@@ -41,7 +44,8 @@ public class OrgServiceController {
         Long orgId = org == null ? null : org.orgId;
         return ApiResponse.ok(Json.obj().with("orgName", org == null ? null : org.orgName)
                 .with("asTypes", permissions.asTypes(orgId))
-                .with("disabledPerms", new ArrayList<>(permissions.disabledPerms(orgId))));
+                .with("disabledPerms", new ArrayList<>(permissions.disabledPerms(orgId)))
+                .with("contactsSample", props.contactsSample()));
     }
 
     @GetMapping("/api/org/as-services")

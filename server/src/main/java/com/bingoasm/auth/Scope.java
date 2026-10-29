@@ -34,6 +34,11 @@ public record Scope(Kind kind, Long regionId, Long schoolId, Long vendorId) {
     public boolean region() { return kind == Kind.REGION; }
     public boolean school() { return kind == Kind.SCHOOL; }
     public boolean vendor() { return kind == Kind.VENDOR; }
-    /** 학교 단위로 범위가 정해지는가 (학교·교육지원청). 이런 사용자는 학교 없는 데이터를 다룰 수 없다. */
-    public boolean schoolBound() { return kind == Kind.SCHOOL || kind == Kind.REGION; }
+    /**
+     * 학교 단위 데이터(학교·자산·공간·무선장비)가 학교로 묶이는가 (학교·교육지원청·업체 — 업체는 배정된 학교).
+     * 이런 사용자는 학교 없는 데이터를 다룰 수 없다.
+     */
+    public boolean schoolBound() { return kind == Kind.SCHOOL || kind == Kind.REGION || kind == Kind.VENDOR; }
+    /** 학교 등록·삭제, 계약·담당업체 지정처럼 학교를 "관리"하는 일을 할 수 있는 범위 (도교육청·교육지원청). */
+    public boolean schoolAdmin() { return kind == Kind.PROVINCE || kind == Kind.REGION; }
 }

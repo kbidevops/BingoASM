@@ -1405,3 +1405,18 @@ b.ok{color:var(--s3)}b.warn{color:var(--s2)}
  .um-items li{padding:10px 12px;flex-wrap:wrap}.um-item-t{flex-basis:calc(100% - 60px)}
  .um-bar{bottom:8px}.um-bar .btn{flex:1}.um-bar-t{flex-basis:100%}
 }
+.um-item-t .um-limit{color:var(--err)}
+
+/* 문의처 안내: 우리 학교 담당업체 · 편집 */
+.cprov{margin-bottom:18px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
+.cprov-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.cprov-h h3{margin:0;font-size:1rem}
+.cprov-l{list-style:none;margin:0 0 6px;padding:0;display:grid;gap:6px}
+.cprov-l li{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 10px;border-radius:var(--r-sm);background:var(--head)}
+.cprov-l b{min-width:64px}
+.cprov-v{display:flex;flex-wrap:wrap;gap:4px 14px}
+.c-edit{display:flex;justify-content:flex-end;margin-bottom:10px}
+.c-ed input,.c-ed textarea{width:100%;min-width:90px;font:inherit}
+.c-ed textarea{min-width:160px;resize:vertical}
+.c-ed td{white-space:normal}
+.c-ed-a{white-space:nowrap}.c-ed-a .btn{width:auto;padding:2px 8px;margin-left:2px}

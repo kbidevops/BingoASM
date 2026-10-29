@@ -42,6 +42,8 @@ interface MenuPerms {
   effective: string[];
   /** Menus of AS services the user's 교육청 does not use — off for everyone, not adjustable here. */
   disabled?: string[];
+  /** perm → what still works for this user's 소속 (학교·업체 계정이 받은 관리 메뉴). */
+  limits?: Record<string, string>;
 }
 
 const ROLE_NAME: Record<string, string> = {
@@ -244,33 +246,34 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
       <h4 className="um-sec">메뉴</h4>
       <div className="um-groups">
         {MENU.map((g) => {
-          const perms = [...new Set(g.items.filter(editable).map((i) => i.perm!))];
+          // 교육청이 쓰지 않는 AS 서비스의 메뉴는 아예 보이지 않는다 (AS 서비스 설정에서 켜면 다시 나온다).
+          const items = g.items.filter((i) => !i.perm || !disabled.has(i.perm));
+          if (!items.length) return null;
+          const perms = [...new Set(items.filter(editable).map((i) => i.perm!))];
           const onCount = perms.filter(isOn).length;
-          const unused = g.items.every((i) => i.perm && disabled.has(i.perm));
           return (
-            <section key={g.title} className={"um-card" + (g.hidden || unused ? " muted" : "")} aria-label={g.title}>
+            <section key={g.title} className={"um-card" + (g.hidden ? " muted" : "")} aria-label={g.title}>
               <div className="um-card-h">
                 <div>
                   <b>{g.title}</b>
                   <small>{perms.length ? `${onCount}/${perms.length} 켜짐` : "조정할 메뉴 없음"}</small>
                   {g.hidden && <span className="um-pill warn">사이트 전체에서 숨김</span>}
-                  {unused && <span className="um-pill warn">교육청에서 쓰지 않는 서비스</span>}
                 </div>
                 <Switch label={`${g.title} 전체`} disabled={!perms.length} checked={perms.length > 0 && onCount === perms.length}
                   mixed={onCount > 0 && onCount < perms.length} onChange={(on) => toggle(perms, on)} />
               </div>
               <ul className="um-items">
-                {g.items.map((i) => {
+                {items.map((i) => {
                   const shared = i.perm ? PERM_TITLES[i.perm].filter((t) => t !== i.title) : [];
                   return (
                     <li key={i.href} className={editable(i) ? "" : "fixed"}>
                       <div className="um-item-t">
                         <span>{i.title}</span>
                         {shared.length > 0 && <small>함께 바뀜: {shared.join(", ")}</small>}
+                        {i.perm && data.limits?.[i.perm] && isOn(i.perm) && <small className="um-limit">제한된 기능 · {data.limits[i.perm]}</small>}
                       </div>
                       {!i.perm ? <span className="um-pill none">공개</span>
-                        : disabled.has(i.perm) ? <span className="um-pill none">서비스 미사용</span>
-                          : editable(i) ? status(i.perm) : <span className="um-pill none">관리자 전용</span>}
+                        : editable(i) ? status(i.perm) : <span className="um-pill none">관리자 전용</span>}
                       <Switch label={i.title} disabled={!editable(i)} checked={!i.perm || isOn(i.perm)} onChange={(on) => toggle([i.perm!], on)} />
                     </li>
                   );

@@ -6,6 +6,7 @@ import SubPage from "@/components/SubPage";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { AS_NAME, useAsTypes } from "@/lib/as";
+import { isAdmin, useAuth } from "@/lib/auth";
 import { downloadCsv, type Engineer, type Vendor } from "@/lib/admin";
 import { loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
@@ -22,6 +23,8 @@ export default function VendorsPage() {
 
 function Vendors() {
   const TYPES = useAsTypes();
+  // 업체 등록·수정·삭제는 도교육청 관리자만 (서버도 막는다). 다른 계정은 조회만.
+  const canEdit = isAdmin(useAuth().me);
   const toast = useToast();
   const [regions, setRegions] = useState<Region[]>([]);
   const [all, setAll] = useState<Vendor[] | null>(null);
@@ -78,7 +81,7 @@ function Vendors() {
           onClick={() => downloadCsv("업체관리", head.slice(0, -1), shown.map((v) => [v.regionName, v.vendorName, v.tel, v.serviceTypeNames.join(", "), v.bizNo, v.engineerCount, fmtDate(v.updatedAt)]))}>
           엑셀출력 <Icon name="down" />
         </button>
-        <button className="btn sm" type="button" onClick={() => setEdit("new")}>업체 등록</button>
+        {canEdit && <button className="btn sm" type="button" onClick={() => setEdit("new")}>업체 등록</button>}
       </ListHead>
       <div className="tw">
         <table className="cards" style={{ minWidth: 780 }}>
@@ -93,7 +96,7 @@ function Vendors() {
                 <td data-label="사업자번호">{v.bizNo ?? "-"}</td>
                 <td data-label="기사 수">{v.engineerCount}</td>
                 <td data-label="최근 수정">{fmtDate(v.updatedAt)}</td>
-                <td data-label="관리"><button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button></td>
+                <td data-label="관리">{canEdit ? <button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button> : <span className="hint">조회만</span>}</td>
               </tr>
             )) : <tr><td colSpan={head.length}>조회된 업체가 없습니다.</td></tr>}
           </tbody>

@@ -2,14 +2,17 @@
 
 import { useEffect, useState } from "react";
 import SubPage from "@/components/SubPage";
-import { ErrorBox, Icon, Loading } from "@/components/ui";
+import { ErrorBox, FormMsg, Icon, Loading, Modal, NoticeBox, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
-import type { ContactGroup } from "@/lib/types";
+import { isAdmin, isRegionAdmin, isSchoolUser, isVendorUser, useAuth } from "@/lib/auth";
+import type { ContactGroup, Providers } from "@/lib/types";
 
 /**
  * 문의처 안내 — same three tabs as cbe.go.kr:
  *  도교육청 (region null) · 교육지원청 (정보지원팀 per region) · 유지보수 사업자 (the published per-region list).
  * All three come from GET /api/as/contacts; vendors are the "유지보수 사업자" group, not the system's vendor accounts.
+ * Above them, "우리 학교 담당업체" comes from the school's actual assignments (기관정보관리 → 담당업체).
+ * 도교육청 관리자 edits any section; 교육지원청 담당자 edits their own district.
  */
 export default function ContactPage() {
   return (
@@ -26,17 +29,21 @@ const short = (name: string) => name.replace(/교육지원청$/, "");
 const VENDOR_GROUP = "유지보수 사업자";
 
 function Contacts() {
+  const { me, site } = useAuth();
   const [data, setData] = useState<ContactGroup[] | null>(null);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState<Tab>("edu");
   const [region, setRegion] = useState("");
   const [q, setQ] = useState("");
+  const [editing, setEditing] = useState<ContactGroup | null>(null);
 
   const load = () => {
     setErr("");
     api.get<ContactGroup[]>("/api/as/contacts").then((d) => {
       setData(d);
-      setRegion((r) => r || d.find((x) => x.regionName !== "도교육청")?.regionName || "");
+      // 처음에는 내 교육지원청(학교·교육지원청 계정), 없으면 첫 교육지원청.
+      setRegion((r) => r || d.find((x) => x.regionName !== "도교육청" && x.regionName === me?.regionName)?.regionName
+        || d.find((x) => x.regionName !== "도교육청")?.regionName || "");
     }).catch((e) => setErr(e.message));
   };
   useEffect(load, []);
@@ -47,9 +54,18 @@ function Contacts() {
   const edu = data.find((x) => x.regionName === "도교육청");
   const districts = data.filter((x) => x.regionName !== "도교육청");
   const query = q.trim();
+  const section = tab === "edu" ? edu : districts.find((d) => d.regionName === region);
+  const canEdit = (g?: ContactGroup) => !!g && (isAdmin(me) || (isRegionAdmin(me) && g.regionId != null && g.regionId === me?.regionId));
 
   return (
     <>
+      {site?.contactsSample && (
+        <NoticeBox style={{ marginBottom: 14 }}>
+          <p>■ 아래 문의처는 예시 데이터입니다. 실제 연락처로 교체될 예정이니 전화하기 전에 확인해 주세요.</p>
+        </NoticeBox>
+      )}
+      {!isVendorUser(me) && <MyProviders />}
+
       <form className="csearch" role="search" onSubmit={(e) => e.preventDefault()}>
         <label htmlFor="cq">담당업무·부서·업체 검색</label>
         <div className="cs-in">
@@ -67,6 +83,13 @@ function Contacts() {
             ))}
           </div>
           <div id="cpanel" role="tabpanel">
+            {canEdit(section) && (
+              <div className="c-edit">
+                <button type="button" className="btn sm sec" onClick={() => setEditing(section!)}>
+                  {section!.regionName} 문의처 편집
+                </button>
+              </div>
+            )}
             {tab !== "edu" && (
               <div className="pills" role="tablist" aria-label="지역">
                 {districts.map((d) => (
@@ -80,7 +103,139 @@ function Contacts() {
           </div>
         </>
       )}
+      {editing && <SectionEditor section={editing} onClose={() => setEditing(null)} onSaved={(d) => { setData(d); setEditing(null); }} />}
     </>
+  );
+}
+
+/** 우리 학교 담당업체: 학교 계정은 자기 학교, 교육청·교육지원청은 학교를 골라서. */
+function MyProviders() {
+  const { me } = useAuth();
+  const own = isSchoolUser(me);
+  const [schools, setSchools] = useState<{ schoolId: number; schoolName: string }[]>([]);
+  const [sid, setSid] = useState("");
+  const [p, setP] = useState<Providers | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!own) api.get<{ schoolId: number; schoolName: string }[]>("/api/as/schools").then(setSchools).catch(() => {});
+  }, [own]);
+  useEffect(() => {
+    setErr("");
+    if (!own && !sid) return setP(null);
+    api.get<Providers>("/api/as/contacts/providers" + (own ? "" : `?schoolId=${sid}`)).then(setP).catch((e) => setErr((e as Error).message));
+  }, [own, sid]);
+
+  if (!own && !schools.length) return null;
+  return (
+    <section className="cprov" aria-labelledby="cprov-t">
+      <div className="cprov-h">
+        <h3 id="cprov-t">{own ? `우리 학교 담당업체${p ? ` · ${p.schoolName}` : ""}` : "학교별 담당업체"}</h3>
+        {!own && (
+          <select aria-label="학교 선택" value={sid} onChange={(e) => setSid(e.target.value)}>
+            <option value="">-- 학교 선택 --</option>
+            {schools.map((s) => <option key={s.schoolId} value={s.schoolId}>{s.schoolName}</option>)}
+          </select>
+        )}
+      </div>
+      {err ? <FormMsg kind="bad" text={err} />
+        : !p ? <p className="hint">학교를 고르면 서비스별 담당업체와 기사 연락처를 보여 줍니다.</p>
+          : (
+            <ul className="cprov-l">
+              {p.items.map((it) => (
+                <li key={it.rceptTy}>
+                  <b>{it.rceptTyName}</b>
+                  {it.vendorName ? (
+                    <span className="cprov-v">
+                      <span>{it.vendorName} <Tel tel={it.vendorTel} /></span>
+                      {it.engineerName && <span>담당 기사 {it.engineerName} <Tel tel={it.engineerTel} /></span>}
+                    </span>
+                  ) : <span className="hint">지정된 업체가 없습니다. 교육지원청에 문의해 주세요.</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+      <small className="hint">기관정보관리에 지정된 담당업체 기준입니다.</small>
+    </section>
+  );
+}
+
+type Row = { groupName: string; itemName: string; tel: string; note: string; duties: string };
+
+/** One section (도교육청 or one 교육지원청) edited as rows; saving replaces just that section. */
+function SectionEditor({ section, onClose, onSaved }: { section: ContactGroup; onClose: () => void; onSaved: (d: ContactGroup[]) => void }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<Row[]>(() => section.groups.flatMap((g) => g.items.map((it) => ({
+    groupName: g.groupName, itemName: it.itemName, tel: it.tel ?? "", note: it.note ?? "", duties: (it.duties ?? []).join("\n"),
+  }))));
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const district = section.regionId != null;
+
+  const set = (i: number, k: keyof Row, v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const move = (i: number, d: number) => {
+    const j = i + d;
+    if (j < 0 || j >= rows.length) return;
+    const next = [...rows];
+    [next[i], next[j]] = [next[j], next[i]];
+    setRows(next);
+  };
+  const add = (groupName: string) => setRows([...rows, { groupName, itemName: "", tel: "", note: "", duties: "" }]);
+
+  const save = async () => {
+    const bad = rows.findIndex((r) => !r.groupName.trim() || !r.itemName.trim());
+    if (bad >= 0) return setMsg(`${bad + 1}번째 줄: 부서/구분과 항목 이름을 입력해 주세요.`);
+    setBusy(true);
+    setMsg("");
+    try {
+      const d = await api.put<ContactGroup[]>(`/api/as/contacts/sections/${section.regionId ?? "province"}`, rows.map((r) => ({
+        groupName: r.groupName.trim(), itemName: r.itemName.trim(), tel: r.tel.trim() || null, note: r.note.trim() || null,
+        duties: r.duties.split("\n").map((x) => x.trim()).filter(Boolean),
+      })));
+      toast(`${section.regionName} 문의처를 저장했습니다.`);
+      onSaved(d);
+    } catch (e) {
+      setMsg((e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`${section.regionName} 문의처 편집`} wide onClose={onClose}>
+      <p className="hint" style={{ marginTop: 0 }}>
+        같은 부서/구분 이름끼리 한 표로 묶입니다.{district && <> 업체 목록은 부서/구분을 <b>{VENDOR_GROUP}</b>로 적으면 유지보수 사업자 탭에 나옵니다.</>} 담당업무는 한 줄에 하나씩 적습니다.
+      </p>
+      <div className="tw c-ed">
+        <table>
+          <thead><tr><th scope="col">부서/구분</th><th scope="col">항목·직위</th><th scope="col">전화</th><th scope="col">비고</th><th scope="col">담당업무</th><th scope="col"><span className="sr">순서·삭제</span></th></tr></thead>
+          <tbody>
+            {rows.length ? rows.map((r, i) => (
+              <tr key={i}>
+                <td><input aria-label={`${i + 1}번째 부서/구분`} value={r.groupName} onChange={(e) => set(i, "groupName", e.target.value)} /></td>
+                <td><input aria-label={`${i + 1}번째 항목`} value={r.itemName} onChange={(e) => set(i, "itemName", e.target.value)} /></td>
+                <td><input aria-label={`${i + 1}번째 전화`} value={r.tel} onChange={(e) => set(i, "tel", e.target.value)} /></td>
+                <td><input aria-label={`${i + 1}번째 비고`} value={r.note} onChange={(e) => set(i, "note", e.target.value)} /></td>
+                <td><textarea aria-label={`${i + 1}번째 담당업무`} rows={1} value={r.duties} onChange={(e) => set(i, "duties", e.target.value)} /></td>
+                <td className="c-ed-a">
+                  <button type="button" className="btn sm sec" aria-label="위로" disabled={i === 0} onClick={() => move(i, -1)}>▲</button>
+                  <button type="button" className="btn sm sec" aria-label="아래로" disabled={i === rows.length - 1} onClick={() => move(i, 1)}>▼</button>
+                  <button type="button" className="btn sm sec" aria-label="삭제" onClick={() => setRows(rows.filter((_, j) => j !== i))}>✕</button>
+                </td>
+              </tr>
+            )) : <tr><td colSpan={6}>문의처가 없습니다. 아래에서 줄을 추가하세요.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="btn sm sec" onClick={() => add(rows[rows.length - 1]?.groupName ?? (district ? `${section.regionName} 정보지원팀` : ""))}>＋ 줄 추가</button>
+        {district && <button type="button" className="btn sm sec" onClick={() => add(VENDOR_GROUP)}>＋ 유지보수 사업자 추가</button>}
+      </div>
+      <FormMsg kind={msg ? "bad" : undefined} text={msg} />
+      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+        <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
+        <button type="button" className="btn sm" disabled={busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
+      </div>
+    </Modal>
   );
 }
 

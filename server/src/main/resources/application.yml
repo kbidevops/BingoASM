@@ -56,6 +56,8 @@ app:
   default-as-types: ${DEFAULT_AS_TYPES:M,S}
   # Organisation whose services the signed-out site shows (orgCode). Blank = the first organisation.
   site-org-code: ${SITE_ORG_CODE:}
+  # 문의처 안내가 아직 예시 데이터(실제 연락처 아님)일 때 true — 화면에 안내 문구를 띄운다. 실제 연락처를 넣으면 false로.
+  contacts-sample: ${CONTACTS_SAMPLE:true}
 
 logging:
   level:

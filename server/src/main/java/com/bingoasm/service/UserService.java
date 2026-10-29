@@ -3,6 +3,7 @@ package com.bingoasm.service;
 import com.bingoasm.auth.CurrentUser;
 import com.bingoasm.auth.PermissionService;
 import com.bingoasm.auth.Roles;
+import com.bingoasm.auth.Scope;
 import com.bingoasm.common.*;
 import com.bingoasm.domain.*;
 import com.bingoasm.repo.*;
@@ -200,7 +201,31 @@ public class UserService {
                 .with("base", Roles.ADJUSTABLE_PERMS.stream().filter(base::contains).toList())
                 .with("granted", new ArrayList<>(u.grantedPerms)).with("denied", new ArrayList<>(u.deniedPerms))
                 .with("effective", Roles.ADJUSTABLE_PERMS.stream().filter(effective::contains).toList())
-                .with("disabled", new ArrayList<>(permissions.disabledPerms(u.orgId)));
+                .with("disabled", new ArrayList<>(permissions.disabledPerms(u.orgId)))
+                .with("limits", menuLimits(Scope.of(u)));
+    }
+
+    /**
+     * 메뉴를 켜도 이 사용자의 소속 범위 때문에 일부만 되는 것 (사용자 메뉴 권한 화면의 안내).
+     * 실제 제한은 SchoolService(학교·업체 관리)와 scopeSchoolIds(학교 단위 데이터)가 한다.
+     */
+    static Map<String, String> menuLimits(Scope sc) {
+        Map<String, String> m = new LinkedHashMap<>();
+        switch (sc.kind()) {
+            case SCHOOL -> {
+                m.put("SCHOOL_MANAGE", "자기 학교 기본정보만 수정 (계약·담당업체·등록·삭제 불가)");
+                m.put("VENDOR_MANAGE", "조회만 가능");
+            }
+            case VENDOR -> {
+                for (String p : List.of("AS_MANAGE", "AS_STATS")) m.put(p, "자기 업체에 배정된 AS만");
+                for (String p : List.of("WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY")) m.put(p, "담당으로 배정된 학교만");
+                m.put("SCHOOL_MANAGE", "배정된 학교 조회만 가능");
+                m.put("VENDOR_MANAGE", "조회만 가능");
+            }
+            case REGION -> m.put("VENDOR_MANAGE", "조회만 가능");
+            default -> { }
+        }
+        return m;
     }
 
     /** body: { granted: [...], denied: [...] }. 역할 기본값과 같은 조정(이미 있는 권한 열기·없는 권한 숨기기)은 버린다. */

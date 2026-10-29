@@ -60,14 +60,15 @@ public class AsRequestService {
     static boolean isSchoolSide(CurrentUser me) { return me.scope().school() && me.scope().schoolId() != null; }
 
     private Specification<AsRequest> scope(CurrentUser me) {
-        Set<Long> inScope = schoolService.scopeSchoolIds(me);
+        Set<Long> inScope = me.scope().vendor() ? null : schoolService.scopeSchoolIds(me);
         return (root, q, cb) -> {
             List<Predicate> p = new ArrayList<>();
             p.add(cb.equal(root.get("orgId"), me.orgId()));
             p.add(cb.equal(root.get("useYn"), "Y"));
             if (isAdmin(me)) return cb.and(p.toArray(Predicate[]::new));
-            if (inScope != null) p.add(inScope.isEmpty() ? cb.disjunction() : root.get("schoolId").in(inScope));
-            else if (me.scope().vendor()) p.add(isVendorSide(me) ? cb.equal(root.get("vendorId"), me.scope().vendorId()) : cb.disjunction());
+            // 업체는 학교가 아니라 자기 업체에 배정된 AS를 본다.
+            if (me.scope().vendor()) p.add(isVendorSide(me) ? cb.equal(root.get("vendorId"), me.scope().vendorId()) : cb.disjunction());
+            else if (inScope != null) p.add(inScope.isEmpty() ? cb.disjunction() : root.get("schoolId").in(inScope));
             else p.add(cb.equal(root.get("applicantUserId"), me.userId()));
             return cb.and(p.toArray(Predicate[]::new));
         };
@@ -76,9 +77,9 @@ public class AsRequestService {
     private boolean inScope(CurrentUser me, AsRequest r) {
         if (!r.orgId.equals(me.orgId())) return false;
         if (isAdmin(me)) return true;
+        if (me.scope().vendor()) return isVendorSide(me) && me.scope().vendorId().equals(r.vendorId);
         Set<Long> inScope = schoolService.scopeSchoolIds(me);
         if (inScope != null) return inScope.contains(r.schoolId);
-        if (me.scope().vendor()) return isVendorSide(me) && me.scope().vendorId().equals(r.vendorId);
         return me.userId().equals(r.applicantUserId);
     }
 
