@@ -1,0 +1,14 @@
+# PostgreSQL profile: SPRING_PROFILES_ACTIVE=postgres
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/bingoasm}
+    username: ${DB_USER:bingoasm}
+    password: ${DB_PASSWORD:bingoasm}
+  jpa:
+    hibernate:
+      ddl-auto: ${DDL_AUTO:update}
+
+# Hide PostgreSQL "constraint does not exist, skipping" notices emitted while Hibernate updates the schema.
+logging:
+  level:
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: error

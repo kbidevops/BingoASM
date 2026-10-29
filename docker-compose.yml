@@ -1,0 +1,25 @@
+# Local PostgreSQL for BingoASM.
+#   docker compose up -d postgres
+# then run the server with:  SPRING_PROFILES_ACTIVE=postgres npm run dev:server
+# Credentials below are for local development only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bingoasm-postgres
+    environment:
+      POSTGRES_DB: bingoasm
+      POSTGRES_USER: bingoasm
+      POSTGRES_PASSWORD: bingoasm
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - bingoasm-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bingoasm -d bingoasm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  bingoasm-pgdata:

@@ -1,0 +1,18 @@
+{
+  "name": "bingoasm",
+  "private": true,
+  "scripts": {
+    "install:all": "cd server && ./mvnw -q -DskipTests dependency:go-offline && cd ../client && npm install",
+    "dev:server": "cd server && ./mvnw spring-boot:run",
+    "dev:server:pg": "cd server && SPRING_PROFILES_ACTIVE=postgres ./mvnw spring-boot:run",
+    "dev:client": "npm --prefix client run dev",
+    "build:client": "npm --prefix client run build",
+    "build": "cd server && ./mvnw -q -DskipTests package",
+    "start": "cd server && java -jar target/bingoasm-server.jar",
+    "test:api": "python3 scripts/as_integration_test.py",
+    "reset-db": "rm -rf server/data",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "reset-db:pg": "docker compose exec postgres psql -U bingoasm -d bingoasm -c 'drop schema public cascade; create schema public;'"
+  }
+}

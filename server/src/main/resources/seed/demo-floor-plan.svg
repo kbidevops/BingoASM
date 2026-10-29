@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" font-family="sans-serif">
+  <rect width="1200" height="900" fill="#ffffff"/>
+  <g fill="none" stroke="#334155" stroke-width="8">
+    <rect x="80" y="80" width="1040" height="740"/>
+    <line x1="80" y1="380" x2="520" y2="380"/>
+    <line x1="520" y1="80" x2="520" y2="300"/>
+    <line x1="520" y1="400" x2="520" y2="820"/>
+    <line x1="800" y1="80" x2="800" y2="300"/>
+    <line x1="800" y1="400" x2="800" y2="820"/>
+    <line x1="800" y1="560" x2="1120" y2="560"/>
+    <line x1="520" y1="300" x2="1120" y2="300"/>
+    <line x1="520" y1="400" x2="1120" y2="400"/>
+  </g>
+  <g fill="none" stroke="#94a3b8" stroke-width="3">
+    <path d="M 300 380 A 60 60 0 0 1 360 320"/>
+    <path d="M 520 300 A 60 60 0 0 0 580 360"/>
+    <path d="M 800 400 A 60 60 0 0 1 860 460"/>
+  </g>
+  <g fill="#e2e8f0" stroke="#94a3b8" stroke-width="2">
+    <rect x="130" y="130" width="120" height="60"/><rect x="290" y="130" width="120" height="60"/>
+    <rect x="130" y="230" width="120" height="60"/><rect x="290" y="230" width="120" height="60"/>
+    <rect x="130" y="460" width="160" height="80"/><rect x="330" y="460" width="140" height="80"/>
+    <rect x="580" y="130" width="160" height="110"/>
+    <rect x="860" y="460" width="200" height="60"/>
+  </g>
+  <g fill="#475569" font-size="28" text-anchor="middle">
+    <text x="300" y="350">민원실</text>
+    <text x="300" y="700">사무실</text>
+    <text x="660" y="280">회의실</text>
+    <text x="660" y="360" font-size="22" fill="#94a3b8">복도</text>
+    <text x="660" y="640">자료실</text>
+    <text x="960" y="200">전산실</text>
+    <text x="960" y="700">탕비실</text>
+  </g>
+  <text x="1110" y="870" font-size="18" fill="#94a3b8" text-anchor="end">BingoASM demo floor plan</text>
+</svg>

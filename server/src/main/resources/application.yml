@@ -1,0 +1,70 @@
+# BingoASM API server.
+# Default profile uses an embedded H2 file database (no install needed).
+# Production: run with SPRING_PROFILES_ACTIVE=postgres and DB_URL / DB_USER / DB_PASSWORD.
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: bingoasm
+  datasource:
+    url: jdbc:h2:file:${app.data-dir}/bingoasm;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: Asia/Seoul
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: Asia/Seoul
+
+app:
+  # Data folder: H2 database files and uploaded floor plans.
+  data-dir: ${DATA_DIR:./data}
+  # JWT signing key (HS384 needs 48+ bytes). Always override in production.
+  jwt-secret: ${JWT_SECRET:change-me-in-production-bingoasm-dev-secret-key-0123456789abcdef}
+  access-token-hours: 8
+  refresh-token-days: 14
+  max-login-fail: 5
+  # Minutes an account stays locked after too many failed logins (0 = until an admin unlocks).
+  lock-minutes: 30
+  # AES-256-GCM key for personal data at rest (mobile, email). 32+ chars. Always override in production.
+  data-key: ${DATA_KEY:bingoasm-dev-data-key-change-me-0123456789}
+  # Development only: return the OTP code in the login response instead of sending it.
+  otp-dev-echo: ${OTP_DEV_ECHO:true}
+  qr-login-seconds: 180
+  # Front-end origins allowed to call the API (comma separated). "*" is fine in development; set the real origin in production.
+  cors-origins: ${CORS_ORIGINS:*}
+  # QR label contents: {qr-base-url}/a/{assetNo} and {qr-base-url}/r/{roomId}
+  qr-base-url: ${QR_BASE_URL:http://localhost:8080}
+  # Where /a/{assetNo} and /r/{roomId} redirect to (the frontend route).
+  asset-link-template: ${ASSET_LINK:/admin/assets?no={assetNo}}
+  room-link-template: ${ROOM_LINK:/admin/floorplan?room={roomId}}
+  # Built frontend served by this server when present (npm --prefix client run build).
+  client-dist: ${CLIENT_DIST:../client/dist}
+
+logging:
+  level:
+    org.hibernate.orm.deprecation: error
+
+# Swagger UI: http://localhost:8080/swagger-ui.html  (OpenAPI JSON: /v3/api-docs)
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    doc-expansion: none
+    display-request-duration: true
+    try-it-out-enabled: true
+  default-produces-media-type: application/json
