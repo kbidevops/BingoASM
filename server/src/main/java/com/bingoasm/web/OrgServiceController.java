@@ -48,8 +48,9 @@ public class OrgServiceController {
                 .with("contactsSample", props.contactsSample()));
     }
 
+    /** 시스템 관리자만. 교육청 관리자(EDU_ADMIN)는 ORG_READ가 있어도 볼 수 없다. */
     @GetMapping("/api/org/as-services")
-    @RequirePerm({"ORG_READ", "ORG_WRITE"})
+    @RequirePerm("ORG_WRITE")
     public ApiResponse get() {
         return ApiResponse.ok(view(AuthContext.get().orgId()));
     }

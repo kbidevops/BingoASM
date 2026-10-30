@@ -620,7 +620,7 @@ check("site: public, services M·S", st == 200 and site["asTypes"] == ["M", "S"]
 check("site: unused services' menus listed off", {"AS_C_REQUEST", "BOARD_DISPOSAL", "SMART_REQUEST"} <= set(site["disabledPerms"]) and "AS_M_REQUEST" not in site["disabledPerms"], site)
 st, j, _ = call("GET", "/api/auth/me", token=A); me_a = data((st, j, None))
 check("me: asTypes + unused menus removed even for SYS_ADMIN", me_a["asTypes"] == ["M", "S"] and "AS_C_REQUEST" not in me_a["permissions"] and "AS_S_REQUEST" in me_a["permissions"], me_a)
-st, j, _ = call("GET", "/api/org/as-services", token=E); check("as-services: EDU_ADMIN can read", st == 200 and len(data((st, j, None))["types"]) == 4, j)
+st, j, _ = call("GET", "/api/org/as-services", token=E); check("as-services: EDU_ADMIN cannot read → 403", st == 403, j)
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M"]}, token=E); check("as-services: EDU_ADMIN cannot change → 403", st == 403, j)
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": []}, token=A); check("as-services: none selected → 400", st == 400, j)
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M", "X"]}, token=A); check("as-services: unknown type → 400", st == 400, j)
