@@ -261,7 +261,13 @@ export default function SiteHeader() {
       </div>
       <div className="hd2 wrap">
         <Link className="logo" href="/">
-          <img className="logo-img" src="/images/충청남도교육청.png" alt="충청남도교육청" width={154} height={44} />
+          <img
+            className="logo-img"
+            src="/images/Chungcheongnam-doOfficeofEducation.png"
+            alt="충청남도교육청"
+            width={154}
+            height={44}
+          />
           <i></i>원클릭AS시스템
         </Link>
         <nav id="gnb" aria-label="메인메뉴">
