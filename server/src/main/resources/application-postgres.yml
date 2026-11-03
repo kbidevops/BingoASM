@@ -6,9 +6,9 @@ spring:
     password: ${DB_PASSWORD:bingoasm}
   jpa:
     hibernate:
-      ddl-auto: ${DDL_AUTO:update}
+      ddl-auto: ${DDL_AUTO:validate}
 
-# Hide PostgreSQL "constraint does not exist, skipping" notices emitted while Hibernate updates the schema.
+# Hide PostgreSQL "constraint does not exist, skipping" notices emitted while Hibernate updates the schema (DDL_AUTO=update).
 logging:
   level:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: error

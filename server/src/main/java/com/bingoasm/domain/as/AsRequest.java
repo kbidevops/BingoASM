@@ -70,6 +70,19 @@ public class AsRequest {
     /** FREE 무상(유지관리 계약·SLA 포함, 학교 청구 없음) / PAID 유상(별도 청구). 예전 보고서는 null. */
     @Column(length = 4)
     public String chargeType;
+    /**
+     * 유상 청구 진행: BILLED 청구(보고서 등록 시) → CONFIRMED 학교 확인 → PAID 지급 완료. 무상이면 null.
+     * 예전 유상 보고서도 null이며 청구(BILLED)로 본다 (billStatus()).
+     */
+    @Column(length = 10)
+    public String billStatus;
+    public LocalDateTime billConfirmedAt;
+    public Long billConfirmedBy;
+    public LocalDateTime billPaidAt;
+    public Long billPaidBy;
+    /** 청구서·세금계산서 첨부 */
+    @Column(length = 500)
+    public String billFileIds;
     @Column(length = 500)
     public String reportFileIds;
     @Column(length = 500)
@@ -81,4 +94,9 @@ public class AsRequest {
     public LocalDateTime evaluatedAt;
     @Column(length = 1)
     public String useYn = "Y";
+
+    /** 유상 건의 청구 단계. 무상·보고서 없음은 null. */
+    public String billStatus() {
+        return "PAID".equals(chargeType) ? (billStatus == null ? "BILLED" : billStatus) : null;
+    }
 }

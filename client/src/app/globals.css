@@ -1120,12 +1120,13 @@ b.ok{color:var(--s3)}b.warn{color:var(--s2)}
 }
 
 /* ===== AS 처리 보고서 비용 항목 ===== */
-.cost-ed table{width:100%;table-layout:fixed;border-collapse:collapse;border:1px solid var(--line);font-size:.875rem;margin-bottom:8px}
-.cost-ed th{background:var(--head);color:var(--muted);font-size:.75rem;font-weight:700;padding:6px;text-align:left;border:0;white-space:nowrap}
-.cost-ed td{padding:4px;border:0;border-top:1px solid var(--line);text-align:left}
+/* Written as ".cost-ed table th" so they beat the outer form's ".ftab th" / ".ftab td" (width 140px, big padding). */
+.cost-ed table{width:100%;min-width:0;table-layout:fixed;border-collapse:collapse;border:1px solid var(--line);font-size:.875rem;margin-bottom:8px}
+.cost-ed table th{width:auto;background:var(--head);color:var(--muted);font-size:.75rem;font-weight:700;padding:6px;text-align:left;border:0;white-space:nowrap}
+.cost-ed table td{padding:4px;border:0;border-top:1px solid var(--line);text-align:left}
 .cost-ed select,.cost-ed input{height:34px;width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:0 6px;background:var(--surface);color:var(--text);font:inherit;font-size:.8125rem}
 .cost-ed select{padding:0 2px 0 6px}
-.cost-ed th:nth-child(1){width:76px}.cost-ed th:nth-child(3){width:58px}.cost-ed th:nth-child(4){width:100px}.cost-ed th:nth-child(5){width:84px}.cost-ed th:nth-child(6){width:30px}
+.cost-ed table th:nth-child(1){width:76px}.cost-ed table th:nth-child(3){width:58px}.cost-ed table th:nth-child(4){width:100px}.cost-ed table th:nth-child(5){width:84px}.cost-ed table th:nth-child(6){width:30px}
 .cost-ed td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .cost-x{border:0;background:none;color:var(--muted);cursor:pointer;padding:4px;border-radius:6px}.cost-x:hover{color:var(--err);background:var(--head)}
 .cost-foot{display:flex;justify-content:space-between;align-items:center;gap:8px}.cost-foot .btn{width:auto}
@@ -1142,7 +1143,7 @@ b.ok{color:var(--s3)}b.warn{color:var(--s2)}
  .cost-ed table{table-layout:auto}
  .cost-ed thead{display:none}
  .cost-ed tr{display:grid;grid-template-columns:76px 1fr 30px;gap:6px;padding:8px 0;border-top:1px solid var(--line)}
- .cost-ed td{border:0;padding:0}
+ .cost-ed table td{border:0;padding:0}
  .cost-ed td:nth-child(2){grid-column:2 / 4}
  .cost-ed td:nth-child(3){grid-column:1}.cost-ed td:nth-child(4){grid-column:2}
  .cost-ed td.num{grid-column:2;text-align:left}.cost-ed td:nth-child(6){grid-column:3;grid-row:2}
@@ -1504,4 +1505,111 @@ b.ok{color:var(--s3)}b.warn{color:var(--s2)}
 .msel-list button{display:block;width:100%;min-height:46px;padding:10px 12px;border:0;border-radius:var(--r-sm);background:none;color:var(--text);font:inherit;text-align:left;overflow-wrap:anywhere;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .msel-list button.on{background:var(--accent);color:var(--pri);font-weight:700}
 .msel-list button[disabled]{color:var(--muted);opacity:.6;cursor:default}
+
+/* ---------- AS 비용: 계약·예산·청구 ---------- */
+.cost-how{margin:0 0 12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface)}
+.cost-how summary{cursor:pointer;font-weight:700}
+.cost-how ul{margin:8px 0 0}
+.bgt{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bgt-bar{display:inline-block;width:90px;height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.bgt-bar b{display:block;height:100%;background:var(--pri)}
+.bgt.over{color:var(--err);font-weight:700}.bgt.over .bgt-bar b{background:var(--err)}
+tr.rp-warn td{background:color-mix(in srgb,var(--err) 7%,transparent)}
+tr.rp-warn td b{color:var(--err)}
+.ct-st{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;background:var(--head);color:var(--muted);font-size:.75rem}
+.ct-st.on{background:var(--accent);color:var(--pri);font-weight:700}
+.ct-period{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ft2 input.num,.bg-tb input.num{text-align:right;font-variant-numeric:tabular-nums}
+/* 계약·예산 관리 (/admin/costs): 요약 막대 · 안내 · 예산 표 */
+.cst-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;margin:0 0 12px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface)}
+.cst-stats{display:flex;flex-wrap:wrap;align-items:stretch;gap:10px}
+.cst-stat,.cst-year{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:110px;padding:8px 14px;border-radius:var(--r-sm);background:var(--head)}
+.cst-stat span,.cst-year span{font-size:.75rem;font-weight:600;color:var(--muted)}
+.cst-stat b{font-size:1.125rem;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cst-stat b small{margin-left:3px;font-size:.75rem;font-weight:600;color:var(--muted)}
+.cst-stat.muted b{color:var(--muted);font-weight:700}
+.cst-year select{height:34px;min-width:110px;margin:0 -4px;padding:0 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font:inherit;font-weight:700;cursor:pointer}
+.cst-year select:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px var(--ring)}
+.cst-year select:disabled{cursor:not-allowed;opacity:.7}
+.cst-act{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
+.cst-dirty{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:color-mix(in srgb,var(--s2,#c46a0e) 14%,transparent);color:var(--s2,#c46a0e);font-size:.8125rem;font-weight:700}
+.cst-dirty:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.cst-note{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:10px 14px;border-radius:var(--r-sm);background:var(--accent);color:var(--text);font-size:.875rem;line-height:1.55}
+.cst-note > span:first-child{flex:none;display:grid;place-items:center;width:20px;height:20px;margin-top:1px;border-radius:50%;background:var(--pri);color:#fff;font-size:.75rem;font-weight:800;font-style:italic;font-family:Georgia,serif}
+.bg-tb{table-layout:fixed}
+.bg-tb col.c-rg{width:24%}.bg-tb col.c-ty{width:16%}.bg-tb col.c-amt{width:22%}.bg-tb col.c-x{width:56px}
+.bg-tb select,.bg-tb input{width:100%;min-width:0;height:40px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font:inherit}
+.bg-tb select:focus,.bg-tb input:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px var(--ring)}
+.cst-won{position:relative;display:block}
+.cst-won input{padding-right:30px!important}
+.cst-won > span{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.8125rem;pointer-events:none}
+.cst-x{width:36px;height:36px;border:1px solid transparent;border-radius:var(--r-sm);background:none;color:var(--muted);cursor:pointer}
+.cst-x:hover,.cst-x:focus-visible{border-color:var(--line);background:var(--head);color:var(--err)}
+.cst-empty{padding:28px 16px!important;text-align:center}
+.cst-empty b,.cst-empty span{display:block}.cst-empty span{margin-top:4px;color:var(--muted);font-size:.875rem}
+@media (max-width:760px){
+ .cst-stats{width:100%}.cst-stat,.cst-year{flex:1 1 calc(50% - 5px);min-width:0}
+ .cst-act{width:100%;margin-left:0}.cst-act .btn{flex:1}
+ .bg-tb{table-layout:auto}
+}
+/* Phones: each budget line is a card with label | full-width field rows (the shared card style would squeeze the inputs). */
+@media (max-width:640px){
+ .tw table.cards.bg-tb{display:block}
+ .bg-tb colgroup{display:none}
+ .tw table.cards.bg-tb tr{position:relative;padding:10px 12px}
+ .tw table.cards.bg-tb td{display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;align-items:center;text-align:left;padding:5px 0}
+ .tw table.cards.bg-tb td > *{width:100%;min-width:0}
+ .tw table.cards.bg-tb td.c-x{position:absolute;top:6px;right:6px;display:block;padding:0}
+ .tw table.cards.bg-tb td.c-x:before{display:none}
+ .tw table.cards.bg-tb td.c-x > *{width:36px}
+ .tw table.cards.bg-tb td:first-child{padding-right:40px}
+ .tw table.cards.bg-tb td.cst-empty{display:block}
+}
+.bill-steps{display:flex;gap:6px;margin:0;padding:0;list-style:none}
+.bill-steps li{flex:1;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r-sm);color:var(--muted)}
+.bill-steps li b{display:block;font-size:.875rem}
+.bill-steps li small{font-size:.75rem}
+.bill-steps li.on{border-color:var(--pri);color:var(--text)}
+.bill-steps li.on b{color:var(--pri)}
+.bill-steps li[aria-current="step"]{background:var(--accent)}
+@media (max-width:640px){.bill-steps{flex-direction:column}.tw table.cards.bg-tb td select,.tw table.cards.bg-tb td input{min-width:0;flex:1}}
+
+/* ---------- AS 상세: 처리 입력 패널 (접수·보고서·반려·청구…) ---------- */
+.as-act{margin-top:16px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);box-shadow:0 2px 10px rgba(15,23,42,.06);scroll-margin-top:8px;text-align:left}
+.as-act-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:12px 16px;border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;background:var(--head)}
+.as-act-h h5{margin:0;font-size:1rem;font-weight:800}
+.as-act-h small{color:var(--muted);font-size:.8125rem}
+.as-act-b{padding:14px 16px}
+.as-act-q{margin:0;line-height:1.6}
+/* Fixed layout: the label column stays 120px and the field column takes exactly the rest, so wide content wraps instead of widening the dialog. */
+/* Child selectors only: the cost-item table nested inside a field must not get the 120px label width. */
+.as-act .ftab{table-layout:fixed;min-width:0}
+.as-act .ftab > tbody > tr > th{width:120px;white-space:nowrap;vertical-align:top;padding:12px 14px}
+.as-act .ftab > tbody > tr > td{min-width:0;overflow-wrap:anywhere;padding:8px 12px}
+.as-act .ftab input:not([type=radio]):not([type=checkbox]):not([type=date]):not([type=number]){width:100%;max-width:360px}
+.as-act .ftab select{min-width:120px}
+.as-act .ftab .ta{display:block;width:100%;min-height:84px;resize:vertical}
+.as-act .ftab td > .hint,.as-act .ftab td > small.hint{display:block;margin-top:6px}
+.as-act .att-keep{margin:0 0 8px;padding-left:18px}
+.as-act .att-keep li{margin:2px 0;overflow-wrap:anywhere}
+.as-act .drop{padding:16px;border-radius:var(--r-sm)}
+.as-act .msg{margin:10px 0 0;text-align:left;font-size:.875rem;scroll-margin-bottom:72px}
+.as-act-f{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line);border-radius:0 0 var(--r-lg) var(--r-lg);background:var(--surface)}
+.as-act-f .btn.danger{background:var(--err);border-color:var(--err)}
+@media (max-width:640px){
+ .as-act-b{padding:12px}
+ .as-act .ftab > tbody > tr > th{width:auto;padding:10px 12px 4px;border-bottom:0}
+ .as-act .ftab > tbody > tr > td{padding:4px 12px 12px}
+ .as-act .ftab input:not([type=radio]):not([type=checkbox]){max-width:none}
+ .as-act-f .btn{flex:1}
+}
+
+/* ---------- 맨 위로 (ScrollTop) ---------- */
+.to-top{position:fixed;right:max(20px,env(safe-area-inset-right));bottom:max(24px,calc(env(safe-area-inset-bottom) + 16px));z-index:40;display:grid;place-items:center;width:48px;height:48px;border:0;border-radius:50%;background:var(--pri);color:#fff;box-shadow:0 6px 16px rgba(0,0,0,.22);cursor:pointer;opacity:0;visibility:hidden;transform:translateY(12px);transition:opacity .2s,transform .2s,visibility .2s;-webkit-tap-highlight-color:transparent}
+.to-top.on{opacity:1;visibility:visible;transform:none}
+.to-top:hover{filter:brightness(1.1)}
+.to-top:focus-visible{outline:3px solid var(--pri);outline-offset:3px}
+@media (max-width:760px){.to-top{right:max(14px,env(safe-area-inset-right));width:44px;height:44px}}
+@media print{.to-top{display:none}}
+@media (prefers-reduced-motion:reduce){.to-top{transition:none}}
 .us-off{display:inline-flex;align-items:center;gap:4px;margin-right:8px;font-size:.875rem;color:var(--muted)}

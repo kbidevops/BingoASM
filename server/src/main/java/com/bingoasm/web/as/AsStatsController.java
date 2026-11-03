@@ -23,6 +23,12 @@ public class AsStatsController {
         return ApiResponse.ok(stats.monthly(AuthContext.get(), year, rceptTy, regionId));
     }
 
+    /** 장비별 누적 수리비와 교체 검토 대상 (수리비 ≥ 취득가 50% 또는 내용연수 경과). */
+    @GetMapping("/repairs")
+    public ApiResponse repairs(@RequestParam(required = false) String rceptTy, @RequestParam(required = false) Long regionId) {
+        return ApiResponse.ok(stats.repairs(AuthContext.get(), rceptTy, regionId));
+    }
+
     @GetMapping("/satisfaction")
     public ApiResponse satisfaction(@RequestParam(required = false) Integer year, @RequestParam(required = false) String rceptTy,
                                     @RequestParam(required = false) Long regionId,

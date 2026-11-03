@@ -44,14 +44,16 @@ public class AsDataSeeder implements CommandLineRunner {
     private final PostRepository posts;
     private final PostCommentRepository comments;
     private final ContactRepository contacts;
+    private final AsContractRepository contracts;
+    private final AsBudgetRepository budgets;
     private final BCryptPasswordEncoder encoder;
 
     public AsDataSeeder(OrgRepository orgs, UserRepository users, CategoryRepository categories, BuildingRepository buildings, FloorRepository floors,
                         FileRepository files, AssetRepository assets, RegionRepository regions, SchoolRepository schools, VendorRepository vendors,
                         SchoolVendorRepository schoolVendors, WirelessDeviceRepository devices, RoomRepository rooms, AsRequestRepository requests,
                         AsHistoryRepository histories, PostRepository posts, PostCommentRepository comments, ContactRepository contacts,
-                        BCryptPasswordEncoder encoder, AsCostItemRepository costItems) {
-        this.costItems = costItems;
+                        BCryptPasswordEncoder encoder, AsCostItemRepository costItems, AsContractRepository contracts, AsBudgetRepository budgets) {
+        this.costItems = costItems; this.contracts = contracts; this.budgets = budgets;
         this.orgs = orgs; this.users = users; this.categories = categories; this.buildings = buildings; this.floors = floors; this.files = files;
         this.assets = assets; this.regions = regions; this.schools = schools; this.vendors = vendors; this.schoolVendors = schoolVendors;
         this.devices = devices; this.rooms = rooms; this.requests = requests; this.histories = histories; this.posts = posts; this.comments = comments;
@@ -178,7 +180,10 @@ public class AsDataSeeder implements CommandLineRunner {
         m3.requestTypeCode = "2"; m3.deviceName = "교사동 3층 복도 AP"; requests.save(m3);
         done("M", haemi, eduAdmin, "최민호", "W", "직접입력", "본관 2층 복도 AP 전원이 들어오지 않음", "본관 2층 복도", at(55, 10, 0), hanbit, netEng, at(55, 10, 20), at(54, 14, 0), at(54, 15, 30), "PoE 인젝터 고장", "PoE 인젝터 교체", "6", "부속품불량", 85000L, null, null);
         done("M", bonghwang, school01, null, "S", "속도느림", "1층 교무실 무선 속도 저하", "본관 1층 교무실", at(90, 9, 0), hanbit, netEng, at(90, 9, 30), at(89, 10, 0), at(89, 10, 40), "채널 간섭", "채널·출력 재설정", "3", "설정오류", 0L, 5, "좋았습니다.");
-        done("M", hongju, eduAdmin, "정유진", "P", "접속불량", "1층 복도 AP 간헐 끊김", "본관 1층 복도", at(150, 9, 0), hanbit, netEng, at(150, 9, 30), at(148, 10, 0), at(148, 12, 0), "케이블 불량", "UTP 케이블 재포설", "4", "케이블불량", 120000L, 3, "조치는 됐지만 시간이 걸렸습니다.");
+        AsRequest m6 = done("M", hongju, eduAdmin, "정유진", "P", "접속불량", "1층 복도 AP 간헐 끊김", "본관 1층 복도", at(150, 9, 0), hanbit, netEng, at(150, 9, 30), at(148, 10, 0), at(148, 12, 0), "케이블 불량", "UTP 케이블 재포설", "4", "케이블불량", 120000L, 3, "조치는 됐지만 시간이 걸렸습니다.");
+        // 유상 청구 한 건은 학교 확인·지급까지 끝난 상태로 둔다.
+        m6.billStatus = "PAID"; m6.billConfirmedAt = at(140, 10, 0); m6.billConfirmedBy = eduAdmin.userId; m6.billPaidAt = at(130, 0, 0); m6.billPaidBy = eduAdmin.userId;
+        requests.save(m6);
 
         // 스쿨넷(S)
         AsRequest s1 = req("S", bonghwang, school01, "71", "전체", null, "오전 9시부터 교육망·행정망 모두 인터넷이 되지 않습니다. 라우터 WAN 램프가 꺼져 있습니다.", "본관 1층 통신실", at(0, 9, 5), hanbit, netEng, "A");
@@ -186,6 +191,16 @@ public class AsDataSeeder implements CommandLineRunner {
         requests.save(s1); hist(s1, null, "A", "REQUEST", "AS 신청 등록", school01, s1.requestAt);
         done("S", hongju, eduAdmin, "정유진", "72", "일부", "별관만 인터넷 불가", "별관 1층 통신실", at(30, 9, 0), hanbit, netEng, at(30, 9, 20), at(30, 11, 0), at(30, 12, 0), "광 컨버터 고장", "광 컨버터 교체", "1", "장비불량", 150000L, 5, "당일 처리 감사합니다.");
         done("S", geumseong, eduAdmin, "김수현", "73", "기타", "학교 홈페이지 접속만 안 됨", "본관 1층 교무실", at(100, 10, 0), hanbit, netEng, at(100, 10, 30), at(99, 10, 0), at(99, 10, 30), "DNS 설정", "DNS 설정 변경", "3", "설정오류", 0L, 4, null);
+
+        // ----- 유지보수 계약·예산 (금액은 예시) -----
+        AsContract ct = new AsContract();
+        ct.orgId = o; ct.vendorId = hanbit.vendorId; ct.contractName = "2026년 무선망·스쿨넷 유지관리 용역(예시)";
+        ct.startDate = LocalDate.of(2026, 1, 1); ct.endDate = LocalDate.of(2026, 12, 31); ct.amount = 48_000_000L;
+        ct.serviceTypes = "M,S"; ct.allRegions = true; ct.note = "예시 계약입니다. 실제 계약으로 바꿔 주세요."; ct.createdAt = at(300, 9, 0); ct.updatedAt = ct.createdAt;
+        contracts.save(ct);
+        budget(2026, null, null, 60_000_000L, "AS 전체 예산(예시)");
+        budget(2026, null, "M", 36_000_000L, null);
+        budget(2026, rCheonan.regionId, null, 8_000_000L, null);
 
         // ----- 게시판 -----
         Post n1 = post("NOTICE", eduAdmin, "[공지] 2026학년도 AS 운영 안내", "2026학년도 무선망·스쿨넷 AS 운영 방식을 안내드립니다.\n- 신청: 원클릭 AS 시스템 > 각 메뉴의 AS 신청\n- 처리: 담당 업체 접수 후 방문\n- 처리 완료 후 만족도 평가를 부탁드립니다.", "긴급", null, null, null, null, false, at(30, 9, 0));
@@ -315,6 +330,11 @@ public class AsDataSeeder implements CommandLineRunner {
         hist(r, "R", "C", "REPORT", "처리 보고서 등록: " + processContent, eng, completedAt);
         if (score != null) hist(r, "C", "C", "EVALUATE", "만족도 평가 " + score + "점", applicant, r.evaluatedAt);
         return r;
+    }
+
+    private void budget(int year, Long regionId, String ty, long amount, String note) {
+        AsBudget b = new AsBudget(); b.orgId = o; b.budgetYear = year; b.regionId = regionId; b.rceptTy = ty; b.amount = amount; b.note = note;
+        budgets.save(b);
     }
 
     private void costItem(AsRequest r, int sort, String type, String name, long amount) {

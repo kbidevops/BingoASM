@@ -121,8 +121,13 @@ export interface AsRow {
   hasReport?: boolean;
   processTypeName?: string;
   processAmount?: number;
+  /** 유상 건의 청구 단계. 무상이면 없음. */
+  billStatus?: BillStatus;
+  billStatusName?: string;
   evalScore?: number;
 }
+
+export type BillStatus = "BILLED" | "CONFIRMED" | "PAID";
 
 export interface AsDetail extends AsRow {
   school?: { schoolName: string; address?: string; tel?: string; contractStatus?: string };
@@ -143,7 +148,9 @@ export interface AsDetail extends AsRow {
     files?: FileInfo[];
   };
   attachments?: FileInfo[];
-  evaluation?: { score: number; opinion?: string; evaluatedAt?: string };
+  /** 유상 청구 진행 (처리 보고서가 유상일 때). */
+  bill?: { status: BillStatus; statusName: string; amount?: number; confirmedAt?: string; confirmedBy?: string; paidAt?: string; paidBy?: string; files?: FileInfo[] };
+  evaluation?:{ score: number; opinion?: string; evaluatedAt?: string };
   histories?: { historyId: number; statusName?: string; action: string; content?: string; workerName?: string; createdAt: string }[];
   allowedActions: string[];
 }

@@ -43,6 +43,7 @@ public final class AsCodes {
         COST_TYPE_NAME.put("PART", "부품"); COST_TYPE_NAME.put("LABOR", "공임"); COST_TYPE_NAME.put("TRAVEL", "출장"); COST_TYPE_NAME.put("ETC", "기타");
     }
     public static final Map<String, String> CHARGE_TYPE_NAME = Map.of("FREE", "무상(계약 포함)", "PAID", "유상(별도 청구)");
+    public static final Map<String, String> BILL_STATUS_NAME = Map.of("BILLED", "청구", "CONFIRMED", "학교 확인", "PAID", "지급 완료");
 
     public static final Map<String, Board> BOARDS = new LinkedHashMap<>();
     static {

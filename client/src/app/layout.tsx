@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import MobileSelect from "@/components/MobileSelect";
+import ScrollTop from "@/components/ScrollTop";
 import SiteHeader from "@/components/SiteHeader";
 import { ToastProvider } from "@/components/ui";
 import { AuthProvider } from "@/lib/auth";
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <p>Copyright © Chungcheongnam-do Office of Education. All Rights Reserved.</p>
                 </div>
               </footer>
+              <ScrollTop />
               <MobileSelect />
             </ToastProvider>
           </ScrapProvider>

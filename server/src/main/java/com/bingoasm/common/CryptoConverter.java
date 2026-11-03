@@ -22,7 +22,7 @@ public class CryptoConverter implements AttributeConverter<String, String> {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CryptoConverter.class);
     private static final String PREFIX = "enc:";
     /** Same default as application.yml; used only until Spring hands over the configured key. */
-    static final String DEFAULT_KEY = "bingoasm-dev-data-key-change-me-0123456789";
+    public static final String DEFAULT_KEY = "bingoasm-dev-data-key-change-me-0123456789";
     private static volatile byte[] key;
     private static volatile String keySource;
 
@@ -41,20 +41,31 @@ public class CryptoConverter implements AttributeConverter<String, String> {
     public CryptoConverter() {}
 
     static synchronized void setKey(String secret, String source) {
+        key = keyOf(secret);
+        keySource = source;
+        if (DEFAULT_KEY.equals(secret)) log.warn("DATA_KEY is the built-in default ({}): set DATA_KEY before production", source);
+        else log.info("Personal-data encryption key loaded from {}", source);
+    }
+
+    public static String keySource() { return keySource; }
+
+    /** AES key derived from a DATA_KEY secret (SHA-256). */
+    public static byte[] keyOf(String secret) {
         try {
-            key = MessageDigest.getInstance("SHA-256").digest(secret.getBytes(StandardCharsets.UTF_8));
-            keySource = source;
-            if (DEFAULT_KEY.equals(secret)) log.warn("DATA_KEY is the built-in default ({}): set DATA_KEY before production", source);
-            else log.info("Personal-data encryption key loaded from {}", source);
+            return MessageDigest.getInstance("SHA-256").digest(secret.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
     }
 
-    public static String keySource() { return keySource; }
+    @Override
+    public String convertToDatabaseColumn(String plain) { return encrypt(key, plain); }
 
     @Override
-    public String convertToDatabaseColumn(String plain) {
+    public String convertToEntityAttribute(String db) { return decrypt(key, db); }
+
+    /** Encrypts with the given key. Null/empty and already-encrypted values pass through. Also used by tools.H2ToPostgres. */
+    public static String encrypt(byte[] key, String plain) {
         if (plain == null || plain.isEmpty()) return plain;
         if (plain.startsWith(PREFIX)) return plain; // already encrypted (re-save of a raw value)
         try {
@@ -72,8 +83,8 @@ public class CryptoConverter implements AttributeConverter<String, String> {
         }
     }
 
-    @Override
-    public String convertToEntityAttribute(String db) {
+    /** Decrypts with the given key. Plain legacy values (no prefix) pass through. */
+    public static String decrypt(byte[] key, String db) {
         if (db == null || !db.startsWith(PREFIX)) return db;
         try {
             byte[] in = Base64.getDecoder().decode(db.substring(PREFIX.length()));

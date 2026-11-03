@@ -120,8 +120,14 @@ public class AsRequestService {
                 .with("hasReport", r.visitAt != null || r.processContent != null)
                 .with("processTypeCode", r.processTypeCode).with("processTypeName", r.processTypeCode == null ? null : AsCodes.PROCESS_TYPE_NAME.get(r.processTypeCode))
                 .with("processAmount", r.processAmount).with("chargeType", r.chargeType)
+                .with("billStatus", r.billStatus()).with("billStatusName", r.billStatus() == null ? null : AsCodes.BILL_STATUS_NAME.get(r.billStatus()))
                 .with("evalScore", r.evalScore).with("evaluatedAt", r.evaluatedAt)
                 .with("attachFileIds", ids(r.attachFileIds));
+    }
+
+    private static String userName(Ref ref, Long userId) {
+        AppUser u = userId == null ? null : ref.users().get(userId);
+        return u == null ? null : u.userName;
     }
 
     private static List<Long> ids(String csv) {
@@ -246,6 +252,11 @@ public class AsRequestService {
                             .with("costType", c.costType).with("costTypeName", AsCodes.COST_TYPE_NAME.get(c.costType)).with("itemName", c.itemName)
                             .with("quantity", c.quantity).with("unitPrice", c.unitPrice).with("amount", c.amount)).toList())
                     .with("fileIds", ids(r.reportFileIds)).with("files", fileInfos(r.reportFileIds)));
+            if (r.billStatus() != null) j.put("bill", Json.obj().with("status", r.billStatus()).with("statusName", AsCodes.BILL_STATUS_NAME.get(r.billStatus()))
+                    .with("amount", r.processAmount)
+                    .with("confirmedAt", r.billConfirmedAt).with("confirmedBy", userName(ref, r.billConfirmedBy))
+                    .with("paidAt", r.billPaidAt).with("paidBy", userName(ref, r.billPaidBy))
+                    .with("files", fileInfos(r.billFileIds)));
         }
         // 신청 첨부는 보고서가 없어도(신청완료·접수완료 상태) 보여야 한다.
         j.put("attachments", fileInfos(r.attachFileIds));
@@ -275,7 +286,18 @@ public class AsRequestService {
         switch (r.status) {
             case "A" -> { if (process) a.addAll(List.of("receive", "return", "transfer")); if (owner || manager) a.addAll(List.of("update", "cancel")); }
             case "R" -> { if (process) a.addAll(List.of("visit", "report", "transfer")); }
-            case "C" -> { if (process) a.add("report"); if (owner && r.evalScore == null && me.can("AS_EVALUATE")) a.add("evaluate"); }
+            case "C" -> {
+                if (process) a.add("report");
+                if (owner && r.evalScore == null && me.can("AS_EVALUATE")) a.add("evaluate");
+                // 유상 청구: 업체가 청구서를 올리고, 학교(또는 교육청)가 금액을 확인한 뒤 지급 완료로 닫는다.
+                String bill = r.billStatus();
+                if (bill != null) {
+                    if ((process || manager) && !"PAID".equals(bill)) a.add("bill-invoice");
+                    if ((owner || manager) && "BILLED".equals(bill)) a.add("bill-confirm");
+                    if ((owner || manager) && "CONFIRMED".equals(bill)) a.add("bill-paid");
+                    if (manager && !"BILLED".equals(bill)) a.add("bill-cancel");
+                }
+            }
             case "X" -> { if (process) a.add("return-cancel"); if (owner || manager) a.add("cancel"); }
             default -> { }
         }
@@ -290,6 +312,19 @@ public class AsRequestService {
 
     private static final long MAX_AMOUNT = 100_000_000L;
     private static final int MAX_COST_LINES = 20;
+    private static final int MAX_REPORT_FILES = 5;
+    private static final int MAX_BILL_FILES = 3;
+
+    /** 첨부 파일 id 목록 → csv (빈 목록은 null). 개수와 실제로 올라간 파일인지 확인한다. */
+    private String attachments(Object raw, int max, String what) {
+        String v = csv(raw);
+        if (Params.blank(v)) return null;
+        List<Long> fid;
+        try { fid = ids(v).stream().distinct().toList(); } catch (NumberFormatException e) { throw ApiException.badRequest(what + " 파일이 올바르지 않습니다."); }
+        if (fid.size() > max) throw ApiException.badRequest(what + " 파일은 " + max + "개까지 첨부할 수 있습니다.");
+        if (files.findAllById(fid).size() != fid.size()) throw ApiException.badRequest(what + " 파일을 찾을 수 없습니다. 다시 올려 주세요.");
+        return fid.stream().map(String::valueOf).collect(Collectors.joining(","));
+    }
 
     /**
      * 보고서 비용 항목을 통째로 바꾼다. 줄마다 구분(PART·LABOR·TRAVEL·ETC)·품목·수량(1~999)·단가(0~1억)를 검사하고, 합계를 돌려준다.
@@ -324,6 +359,12 @@ public class AsRequestService {
         costItems.flush();
         costItems.saveAll(items);
         return total;
+    }
+
+    /** 청구 확인·지급 기록을 지운다. all이면 청구 단계와 청구서 첨부까지 (무상으로 바뀐 경우). */
+    private static void clearBill(AsRequest r, boolean all) {
+        r.billConfirmedAt = null; r.billConfirmedBy = null; r.billPaidAt = null; r.billPaidBy = null;
+        if (all) { r.billStatus = null; r.billFileIds = null; }
     }
 
     private void history(AsRequest r, String prev, String action, String content, Long worker) {
@@ -438,7 +479,8 @@ public class AsRequestService {
     public void act(CurrentUser me, Long sn, String action, Map<String, Object> b) {
         AsRequest r = load(me, sn);
         if (!allowedActions(me, r).contains(action)) {
-            if (!List.of("receive", "return", "return-cancel", "transfer", "cancel", "visit", "report", "evaluate", "assign", "delete", "update").contains(action))
+            if (!List.of("receive", "return", "return-cancel", "transfer", "cancel", "visit", "report", "evaluate", "assign", "delete", "update",
+                    "bill-invoice", "bill-confirm", "bill-paid", "bill-cancel").contains(action))
                 throw ApiException.notFound("지원하지 않는 처리입니다.");
             throw ApiException.conflict("현재 상태(" + AsCodes.STATUS_NAME.get(r.status) + ")에서는 처리할 수 없거나 권한이 없습니다.");
         }
@@ -488,6 +530,9 @@ public class AsRequestService {
             }
             case "report" -> {
                 boolean first = !"C".equals(r.status);
+                Long amountBefore = r.processAmount;
+                String chargeBefore = r.chargeType;
+                String billBefore = r.billStatus();
                 if (b.containsKey("engineerName") && Params.str(b, "engineerName") != null) r.engineerName = Params.str(b, "engineerName");
                 LocalDateTime visitAt = visitTime(b, "visitAt", "visitDate");
                 LocalDateTime endAt = visitTime(b, "visitEndAt", "visitEndDate");
@@ -510,7 +555,13 @@ public class AsRequestService {
                 }
                 // 구분을 안 보내면 비용이 있으면 유상, 없으면 무상.
                 if (r.chargeType == null) r.chargeType = r.processAmount != null && r.processAmount > 0 ? "PAID" : "FREE";
-                if (b.containsKey("fileIds")) r.reportFileIds = csv(b.get("fileIds"));
+                boolean billChanged = !Objects.equals(amountBefore, r.processAmount) || !Objects.equals(chargeBefore, r.chargeType);
+                // 학교가 확인한 청구는 금액·유무상을 바꿀 수 없다 (예외로 비용 항목 저장도 함께 되돌려진다).
+                if (billChanged && ("CONFIRMED".equals(billBefore) || "PAID".equals(billBefore)))
+                    throw ApiException.conflict("학교가 확인한 청구는 금액이나 유상·무상 구분을 바꿀 수 없습니다. 교육청 담당자에게 청구 확인 취소를 요청해 주세요.");
+                if (!"PAID".equals(r.chargeType)) clearBill(r, true);
+                else if (first || billChanged || r.billStatus == null) { clearBill(r, false); r.billStatus = "BILLED"; }
+                if (b.containsKey("fileIds")) r.reportFileIds = attachments(b.get("fileIds"), MAX_REPORT_FILES, "보고서 첨부");
                 if (Params.blank(r.processContent)) throw ApiException.badRequest("처리내용을 입력해주세요.");
                 if (r.visitAt == null) r.visitAt = r.visitPlannedAt != null ? r.visitPlannedAt : Times.now();
                 if (r.visitEndAt == null) r.visitEndAt = Times.now();
@@ -537,6 +588,26 @@ public class AsRequestService {
             case "delete" -> {
                 r.useYn = "N";
                 history(r, prev, "DELETE", "관리자 삭제", me.userId());
+            }
+            case "bill-invoice" -> {
+                r.billFileIds = attachments(b.get("fileIds"), MAX_BILL_FILES, "청구서");
+                history(r, prev, "BILL_INVOICE", r.billFileIds == null ? "청구서 첨부 삭제" : "청구서 첨부 (" + ids(r.billFileIds).size() + "개)", me.userId());
+            }
+            case "bill-confirm" -> {
+                r.billStatus = "CONFIRMED"; r.billConfirmedAt = Times.now(); r.billConfirmedBy = me.userId();
+                history(r, prev, "BILL_CONFIRM", "청구 금액 확인: " + String.format("%,d", Optional.ofNullable(r.processAmount).orElse(0L)) + "원", me.userId());
+            }
+            case "bill-paid" -> {
+                LocalDate paid = Params.date(b, "paidDate");
+                if (paid != null && paid.isAfter(Times.today())) throw ApiException.badRequest("지급일은 오늘 이후일 수 없습니다.");
+                r.billStatus = "PAID"; r.billPaidAt = paid == null ? Times.now() : paid.atStartOfDay(); r.billPaidBy = me.userId();
+                history(r, prev, "BILL_PAID", "지급 완료 · " + r.billPaidAt.toLocalDate(), me.userId());
+            }
+            case "bill-cancel" -> {
+                String reason = Params.str(b, "reason");
+                if (reason == null) throw ApiException.badRequest("취소 사유를 입력해 주세요.");
+                clearBill(r, false); r.billStatus = "BILLED";
+                history(r, prev, "BILL_CANCEL", "청구 확인·지급 취소: " + reason, me.userId());
             }
             case "update" -> { update(me, sn, b); return; }
             default -> throw ApiException.notFound("지원하지 않는 처리입니다.");

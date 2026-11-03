@@ -69,6 +69,15 @@
       <artifactId>javase</artifactId>
       <version>3.5.3</version>
     </dependency>
+    <!-- DB 스키마 변경은 src/main/resources/db/migration 의 SQL 파일로만 (docs/DB_MIGRATIONS.md) -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>

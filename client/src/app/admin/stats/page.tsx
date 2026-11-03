@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { HBar, VBar } from "@/components/admin/charts";
 import { FilterField, FilterForm, Kpis } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
-import { ErrorBox, Icon, Loading, Pager } from "@/components/ui";
+import { ErrorBox, Icon, Loading, NoticeBox, Pager } from "@/components/ui";
 import { api, type Page } from "@/lib/api";
 import { AS_NAME, useAsTypes } from "@/lib/as";
+import { useAuth } from "@/lib/auth";
 import { downloadCsv } from "@/lib/admin";
 import { loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
@@ -21,16 +23,31 @@ export default function StatsPage() {
   );
 }
 
-interface Agg { count: number; done: number; cost: number; paidCost?: number; avgDays?: number | null; avgScore?: number | null }
+interface Agg {
+  count: number; done: number; cost: number; paidCost?: number; avgDays?: number | null; avgScore?: number | null;
+  /** 실제 지출 = 계약 배분(contractCost) + 유상 지급 완료(paidOut). */
+  contractCost?: number; paidOut?: number; spend?: number;
+}
+interface BudgetRow { budgetId: number; regionName: string; rceptTyName: string; amount: number; spent: number; rate?: number | null; note?: string }
 interface Monthly {
   year: number;
   // 유상/무상·비용 항목 필드는 비용 항목 기능 이전 서버에는 없다.
-  total: Agg & { paidCost?: number; freeCost?: number; paidCount?: number; freeCount?: number };
+  total: Agg & { paidCost?: number; freeCost?: number; paidCount?: number; freeCount?: number; zeroCostDone?: number };
+  billing?: Record<"BILLED" | "CONFIRMED" | "PAID", { name: string; count: number; amount: number }>;
   byCostType?: { costType: string; name: string; lines: number; amount: number; paidAmount: number }[];
   months: (Agg & { month: number; returned: number })[];
   byType: (Agg & { rceptTy: string; name: string })[];
   byRegion: (Agg & { regionId: number; regionName: string })[];
   byVendor: (Agg & { vendorId: number; vendorName: string })[];
+  contracts?: { contractId: number; contractName: string; vendorName: string; startDate: string; endDate: string; amount: number; serviceTypeNames: string[]; allocated: number; done: number; perCase?: number | null }[];
+  /** 업체 계정에는 없다. */
+  budget?: { rows: BudgetRow[]; current?: number | null; spent: number; rate?: number | null; cumulative: number[] } | null;
+}
+interface Repairs {
+  threshold: number;
+  replaceCount: number;
+  total: number;
+  rows: { kind: "ASSET" | "DEVICE"; id: number; code?: string; name?: string; schoolName?: string; rceptTyName: string; repairs: number; cost: number; paidCost: number; price?: number | null; ratio?: number | null; acquiredAt?: string; lifeYears?: number | null; reasons: string[]; replace: boolean; lastAt?: string; lastAsvcSn: number }[];
 }
 interface Satisfaction {
   summary: { completed: number; evaluated: number; responseRate: number; avgScore?: number | null; distribution: Record<string, number> };
@@ -46,6 +63,7 @@ const won = (v?: number | null) => { const n = v ?? 0; return n >= 100_000_000 ?
 
 function Stats() {
   const asTypes = useAsTypes();
+  const { can } = useAuth();
   const thisYear = new Date().getFullYear();
   const [regions, setRegions] = useState<Region[]>([]);
   const [tab, setTab] = useState<"count" | "cost" | "sat">("count");
@@ -54,6 +72,7 @@ function Stats() {
   const [m, setM] = useState<Monthly | null>(null);
   const [prev, setPrev] = useState<Monthly | null>(null);
   const [s, setS] = useState<Satisfaction | null>(null);
+  const [rp, setRp] = useState<Repairs | null>(null);
   const [sPage, setSPage] = useState(1);
   const [err, setErr] = useState("");
 
@@ -72,6 +91,12 @@ function Stats() {
     if (tab !== "sat") return;
     api.get<Satisfaction>("/api/as/stats/satisfaction", { ...q, page: sPage, size: 10 }).then(setS).catch((e) => setErr(e.message));
   }, [tab, q, sPage]);
+  useEffect(() => {
+    if (tab !== "cost") return;
+    setRp(null);
+    // 수리비 누적은 연도와 상관없이 전체 기간.
+    api.get<Repairs>("/api/as/stats/repairs", { rceptTy: q.rceptTy, regionId: q.regionId }).then(setRp).catch(() => setRp({ threshold: 0.5, replaceCount: 0, total: 0, rows: [] }));
+  }, [tab, q.rceptTy, q.regionId]);
 
   const delta = (a: number, b?: number) => {
     if (!b) return undefined;
@@ -122,24 +147,7 @@ function Stats() {
           <AggTable title="업체별 처리 현황" name="업체" score rows={m.byVendor.map((x) => ({ key: x.vendorId, label: x.vendorName, a: x }))} csv={`AS건수통계_업체별_${m.year}`} />
         </>
       ) : tab === "cost" ? (
-        <>
-          <Kpis items={[
-            [`${m.year}년 AS 비용`, won(m.total.cost), "원", delta(m.total.cost, prev?.total.cost)],
-            ["유상 청구", won(m.total.paidCost), "원", `${(m.total.paidCount ?? 0).toLocaleString()}건 · 학교에 별도 청구`],
-            ["무상 처리", won(m.total.freeCost), "원", `${(m.total.freeCount ?? 0).toLocaleString()}건 · 계약·SLA 포함`],
-            ["건당 평균 비용", m.total.done ? won(Math.round(m.total.cost / m.total.done)) : "-", "원"],
-          ]} />
-          <div className="stg">
-            <VBar title="월별 AS 비용" unit="원" fmt={won} bars={m.months.map((x) => ({ label: `${x.month}월`, value: x.cost, tip: `${m.year}년 ${x.month}월 · ${x.cost.toLocaleString()}원 (유상 ${(x.paidCost ?? 0).toLocaleString()}원)` }))} />
-            <HBar title="비용 항목별" unit="원" fmt={won} bars={(m.byCostType ?? []).filter((x) => x.amount).map((x) => ({ label: x.name, value: x.amount, tip: `${x.name} · ${x.amount.toLocaleString()}원 (${x.lines}줄, 유상 ${x.paidAmount.toLocaleString()}원)` }))} />
-          </div>
-          <div className="stg2">
-            <HBar title="구분별 AS 비용" unit="원" fmt={won} bars={m.byType.filter((x) => asTypes.includes(x.rceptTy as RceptTy)).map((x) => ({ label: x.name, value: x.cost, tip: `${x.name} · ${x.cost.toLocaleString()}원 (유상 ${(x.paidCost ?? 0).toLocaleString()}원)` }))} />
-            <CostTypeTable rows={m.byCostType ?? []} year={m.year} />
-          </div>
-          <AggTable title="지역별 AS 비용" name="지역" cost rows={m.byRegion.map((x) => ({ key: x.regionId, label: x.regionName, a: x }))} csv={`AS비용통계_지역별_${m.year}`} />
-          <AggTable title="업체별 AS 비용" name="업체" cost rows={m.byVendor.map((x) => ({ key: x.vendorId, label: x.vendorName, a: x }))} csv={`AS비용통계_업체별_${m.year}`} />
-        </>
+        <CostTab m={m} prev={prev} rp={rp} asTypes={asTypes} canManage={can("COST_MANAGE")} delta={delta} />
       ) : !s ? <Loading /> : (
         <>
           <Kpis items={[
@@ -195,10 +203,202 @@ function Stats() {
   );
 }
 
+const pct = (n?: number | null) => (n == null ? "-" : n.toFixed(1) + "%");
+
+/**
+ * AS비용 통계. 실제 지출 = 유지보수 계약(기간으로 나눈 몫) + 유상 청구 중 지급 완료. 보고서의 무상 금액은 계약 안에서 한 일을
+ * 금액으로 환산한 값이라 지출이 아니다 — 따로 "계약 내 처리"로 보여 준다.
+ */
+function CostTab({ m, prev, rp, asTypes, canManage, delta }: {
+  m: Monthly; prev: Monthly | null; rp: Repairs | null; asTypes: RceptTy[]; canManage: boolean; delta: (a: number, b?: number) => string | undefined;
+}) {
+  const t = m.total;
+  const spend = t.spend ?? 0;
+  const contracts = m.contracts ?? [];
+  const b = m.billing;
+  const budget = m.budget;
+  const old = t.spend === undefined; // 계약·예산 기능 이전 서버
+  return (
+    <>
+      <details className="cost-how">
+        <summary>실제 지출은 어떻게 계산하나요?</summary>
+        <ul className="dash">
+          <li><b>실제 지출</b> = 유지보수 계약 금액 중 이 기간 몫 + 유상 청구 중 <b>지급 완료</b>된 금액.</li>
+          <li>계약 금액은 계약 기간의 일수로 나눠 연·월에 배분합니다. 지역·구분으로 보면 계약이 맡은 지역 수·구분 수로 똑같이 나눕니다.</li>
+          <li><b>계약 내 처리(무상)</b> 금액은 계약 안에서 한 일을 금액으로 환산한 값이라 지출에 넣지 않습니다.</li>
+          <li>유상 청구는 업체 청구 → 학교 확인 → 지급 완료 순서로 진행되며, AS 상세에서 처리합니다.</li>
+        </ul>
+        {canManage && <p style={{ margin: "6px 0 0" }}><Link href="/admin/costs">계약·예산 관리</Link>에서 계약과 예산을 등록합니다.</p>}
+      </details>
+      {!old && !contracts.length && (
+        <NoticeBox>
+          {m.year}년에 등록된 유지보수 계약이 없어 실제 지출에 계약 금액이 빠져 있습니다.{" "}
+          {canManage ? <Link href="/admin/costs">계약 등록하기</Link> : "도교육청 담당자에게 계약 등록을 요청해 주세요."}
+        </NoticeBox>
+      )}
+      <Kpis items={[
+        [`${m.year}년 실제 지출`, won(spend), "원", delta(spend, prev?.total.spend) ?? `계약 ${won(t.contractCost)} + 유상 지급 ${won(t.paidOut)}`],
+        ["유지보수 계약", won(t.contractCost), "원", contracts.length ? `계약 ${contracts.length}건의 ${m.year}년 몫` : "등록된 계약 없음"],
+        ["유상 청구", won(t.paidCost), "원", b ? `청구 ${b.BILLED.count} · 확인 ${b.CONFIRMED.count} · 지급 ${b.PAID.count}건` : `${(t.paidCount ?? 0).toLocaleString()}건`],
+        budget
+          ? ["예산 집행률", budget.rate == null ? "-" : budget.rate.toFixed(1), budget.rate == null ? "" : "%", budget.current ? `예산 ${won(budget.current)}원 중` : "이 조건의 예산 미설정"]
+          : ["건당 실제 비용", t.done ? won(Math.round(spend / t.done)) : "-", t.done ? "원" : "", `처리완료 ${t.done.toLocaleString()}건 기준`],
+      ]} />
+      <Kpis items={[
+        ["계약 내 처리(무상)", won(t.freeCost), "원", `${(t.freeCount ?? 0).toLocaleString()}건 · 환산 금액, 지출 아님`],
+        ...(budget ? [["건당 실제 비용", t.done ? won(Math.round(spend / t.done)) : "-", t.done ? "원" : "", `처리완료 ${t.done.toLocaleString()}건 기준`] as [string, string, string, string]] : []),
+        ["비용 0원 처리완료", t.done ? ((((t.zeroCostDone ?? 0) / t.done) * 100).toFixed(0)) : "-", t.done ? "%" : "", `${(t.zeroCostDone ?? 0).toLocaleString()}건 · 금액 입력 누락일 수 있음`],
+        ["교체 검토 장비", rp ? rp.replaceCount.toLocaleString() : "…", "대", `수리비 ≥ 취득가 ${Math.round((rp?.threshold ?? 0.5) * 100)}% 또는 내용연수 경과`],
+      ]} />
+      <div className="stg">
+        <VBar title="월별 실제 지출" unit="원" fmt={won} bars={m.months.map((x) => ({
+          label: `${x.month}월`, value: x.spend ?? 0,
+          tip: `${m.year}년 ${x.month}월 · ${(x.spend ?? 0).toLocaleString()}원 (계약 ${(x.contractCost ?? 0).toLocaleString()} + 유상 지급 ${(x.paidOut ?? 0).toLocaleString()})`,
+        }))} />
+        {budget?.current ? (
+          <VBar title={`예산 대비 누계 (예산 ${won(budget.current)}원)`} unit="원" fmt={won} bars={budget.cumulative.map((v, i) => ({
+            // 반쪽 폭 차트라 "월"을 빼야 10·11·12월 라벨이 줄바꿈되지 않는다.
+            label: String(m.months[i]?.month ?? i + 1), value: v, tip: `${m.months[i]?.month ?? i + 1}월까지 ${v.toLocaleString()}원 · 예산의 ${((v / budget.current!) * 100).toFixed(1)}%`,
+          }))} />
+        ) : (
+          <HBar title="구분별 실제 지출" unit="원" fmt={won} bars={m.byType.filter((x) => asTypes.includes(x.rceptTy as RceptTy)).map((x) => ({
+            label: x.name, value: x.spend ?? 0, tip: `${x.name} · ${(x.spend ?? 0).toLocaleString()}원 (계약 ${(x.contractCost ?? 0).toLocaleString()} + 유상 지급 ${(x.paidOut ?? 0).toLocaleString()})`,
+          }))} />
+        )}
+      </div>
+      {budget && <BudgetTable rows={budget.rows} year={m.year} canManage={canManage} />}
+      <ContractTable rows={contracts} year={m.year} />
+      <div className="stg2">
+        <BillingTable billing={b} />
+        <CostTypeTable rows={m.byCostType ?? []} year={m.year} />
+      </div>
+      <AggTable title="지역별 AS 비용" name="지역" cost rows={m.byRegion.map((x) => ({ key: x.regionId, label: x.regionName, a: x }))} csv={`AS비용통계_지역별_${m.year}`} />
+      <AggTable title="업체별 AS 비용" name="업체" cost rows={m.byVendor.map((x) => ({ key: x.vendorId, label: x.vendorName, a: x }))} csv={`AS비용통계_업체별_${m.year}`} />
+      <RepairTable rp={rp} />
+    </>
+  );
+}
+
+function TableHead({ title, csv, head, rows, children }: { title: string; csv?: string; head?: string[]; rows?: (string | number)[][]; children?: React.ReactNode }) {
+  return (
+    <div className="glh">
+      <span>{title}</span>
+      <span className="glr">
+        {children}
+        {csv && head && rows && <button className="btn sm sec" type="button" disabled={!rows.length} onClick={() => downloadCsv(csv, head, rows)}>엑셀출력 <Icon name="down" /></button>}
+      </span>
+    </div>
+  );
+}
+
+/** 예산 줄마다 집행액·집행률. */
+function BudgetTable({ rows, year, canManage }: { rows: BudgetRow[]; year: number; canManage: boolean }) {
+  const head = ["지역", "구분", "예산(원)", "집행(원)", "잔액(원)", "집행률"];
+  const cells = (r: BudgetRow) => [r.regionName, r.rceptTyName, r.amount.toLocaleString(), r.spent.toLocaleString(), (r.amount - r.spent).toLocaleString(), pct(r.rate)];
+  return (
+    <>
+      <TableHead title={`${year}년 예산 집행 현황`} csv={`AS예산집행_${year}`} head={head} rows={rows.map(cells)}>
+        {canManage && <Link className="btn sm sec" href="/admin/costs?tab=budget">예산 설정</Link>}
+      </TableHead>
+      <div className="tw">
+        <table className="cards">
+          <thead><tr>{head.map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.length ? rows.map((r) => (
+              <tr key={r.budgetId}>
+                {cells(r).slice(0, 5).map((c, i) => <td key={i} data-label={head[i]} className={i > 1 ? "num" : undefined}>{c}</td>)}
+                <td data-label="집행률">
+                  <span className={"bgt" + ((r.rate ?? 0) > 100 ? " over" : "")}>
+                    <span className="bgt-bar" aria-hidden="true"><b style={{ width: `${Math.min(100, r.rate ?? 0)}%` }}></b></span>
+                    {pct(r.rate)}
+                  </span>
+                </td>
+              </tr>
+            )) : <tr><td colSpan={head.length}>{year}년 예산이 없습니다.{canManage ? " 예산 설정에서 입력하면 집행률이 나옵니다." : ""}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/** 계약별: 올해 배분액과 그 업체가 계약 범위에서 처리완료한 건수 → 건당 실제 비용. */
+function ContractTable({ rows, year }: { rows: NonNullable<Monthly["contracts"]>; year: number }) {
+  const head = ["계약", "업체", "구분", "계약 기간", "계약 금액(원)", `${year}년 배분(원)`, "처리완료", "건당 비용(원)"];
+  const cells = (r: (typeof rows)[number]) => [r.contractName, r.vendorName, r.serviceTypeNames.join(", "), `${r.startDate} ~ ${r.endDate}`,
+    r.amount.toLocaleString(), r.allocated.toLocaleString(), r.done.toLocaleString(), r.perCase == null ? "-" : r.perCase.toLocaleString()];
+  return (
+    <>
+      <TableHead title="계약별 실적" csv={`AS계약실적_${year}`} head={head} rows={rows.map(cells)} />
+      <div className="tw">
+        <table className="cards">
+          <thead><tr>{head.map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.length ? rows.map((r) => (
+              <tr key={r.contractId}>{cells(r).map((c, i) => <td key={i} data-label={head[i]} className={i === 0 ? "tl" : i > 3 ? "num" : undefined}>{c}</td>)}</tr>
+            )) : <tr><td colSpan={head.length}>이 기간에 해당하는 계약이 없습니다.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function BillingTable({ billing }: { billing?: Monthly["billing"] }) {
+  const keys = ["BILLED", "CONFIRMED", "PAID"] as const;
+  return (
+    <div className="vtab">
+      <div className="glh" style={{ margin: "0 0 8px" }}><h4 style={{ margin: 0 }}>유상 청구 진행</h4></div>
+      <div className="tw">
+        <table className="cards">
+          <thead><tr><th scope="col">단계</th><th scope="col">건수</th><th scope="col">금액(원)</th></tr></thead>
+          <tbody>
+            {billing ? keys.map((k) => (
+              <tr key={k}><td data-label="단계">{billing[k].name}</td><td data-label="건수" className="num">{billing[k].count.toLocaleString()}</td><td data-label="금액(원)" className="num">{billing[k].amount.toLocaleString()}</td></tr>
+            )) : <tr><td colSpan={3}>자료가 없습니다.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint" style={{ margin: "6px 0 0" }}>지급 완료만 실제 지출에 들어갑니다. 청구·확인 단계는 AS 상세에서 처리합니다.</p>
+    </div>
+  );
+}
+
+/** 장비별 누적 수리비 (모든 연도). 교체 검토 대상을 위로. */
+function RepairTable({ rp }: { rp: Repairs | null }) {
+  const head = ["장비", "학교", "구분", "수리 횟수", "누적 수리비(원)", "취득가(원)", "취득가 대비", "판단"];
+  const cells = (r: Repairs["rows"][number]) => [`${r.code ? r.code + " " : ""}${r.name ?? "-"}`, r.schoolName ?? "-", r.rceptTyName, r.repairs.toLocaleString(),
+    r.cost.toLocaleString(), r.price == null ? "-" : r.price.toLocaleString(), r.ratio == null ? "-" : Math.round(r.ratio * 100) + "%",
+    r.replace ? "교체 검토 · " + r.reasons.join(", ") : r.kind === "DEVICE" ? "취득가 정보 없음" : "-"];
+  return (
+    <>
+      <TableHead title={`장비별 누적 수리비${rp ? ` · ${rp.total.toLocaleString()}대` : ""}`} csv="AS장비별수리비" head={head} rows={(rp?.rows ?? []).map(cells)} />
+      {!rp ? <Loading /> : (
+        <div className="tw">
+          <table className="cards">
+            <thead><tr>{head.map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead>
+            <tbody>
+              {rp.rows.length ? rp.rows.map((r) => (
+                <tr key={r.kind + r.id} className={r.replace ? "rp-warn" : undefined}>
+                  {cells(r).map((c, i) => <td key={i} data-label={head[i]} className={i === 0 || i === 7 ? "tl" : i > 2 && i < 7 ? "num" : undefined}>{i === 7 && r.replace ? <b>{c}</b> : c}</td>)}
+                </tr>
+              )) : <tr><td colSpan={head.length}>AS 신청에 장비(자산·무선장비)가 연결되고 비용이 입력된 처리 건이 없습니다.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="hint" style={{ margin: "6px 0 0" }}>모든 연도 합계입니다. 수리비는 무상(계약 내) 환산 금액도 포함합니다 — 교체가 나은지는 들어간 수리 가치 전체로 판단합니다.</p>
+    </>
+  );
+}
+
 function AggTable({ title, name, rows, csv, cost, score }: { title: string; name: string; rows: { key: number; label: string; a: Agg }[]; csv: string; cost?: boolean; score?: boolean }) {
-  const head = cost ? [name, "처리완료", "비용(원)", "유상 청구(원)", "건당 평균(원)"] : [name, "접수", "처리완료", "완료율", "평균 처리기간", ...(score ? ["평균 만족도"] : [])];
+  const head = cost
+    ? [name, "처리완료", "계약 배분(원)", "유상 지급(원)", "실제 지출(원)", "건당 실제 비용(원)", "유상 청구(원)", "보고서 금액(원)"]
+    : [name, "접수", "처리완료", "완료율", "평균 처리기간", ...(score ? ["평균 만족도"] : [])];
   const cells = (a: Agg) => cost
-    ? [a.done.toLocaleString(), a.cost.toLocaleString(), (a.paidCost ?? 0).toLocaleString(), a.done ? Math.round(a.cost / a.done).toLocaleString() : "-"]
+    ? [a.done.toLocaleString(), (a.contractCost ?? 0).toLocaleString(), (a.paidOut ?? 0).toLocaleString(), (a.spend ?? 0).toLocaleString(),
+      a.done ? Math.round((a.spend ?? 0) / a.done).toLocaleString() : "-", (a.paidCost ?? 0).toLocaleString(), a.cost.toLocaleString()]
     : [a.count.toLocaleString(), a.done.toLocaleString(), rate(a) + "%", num(a.avgDays) + "일", ...(score ? [num(a.avgScore, 2)] : [])];
   return (
     <>

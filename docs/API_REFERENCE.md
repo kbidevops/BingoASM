@@ -58,6 +58,7 @@
 | `WDEVICE_MANAGE` | 무선망장비관리 | × | × | × | ○ |
 | `SCHOOL_MANAGE` / `VENDOR_MANAGE` | 학교 / 업체 관리 | × | × | × | ○ |
 | `REGION_MANAGE` | 지역(교육지원청) 관리 | × | × | × | ○ |
+| `COST_MANAGE` | 계약·예산 관리 | × | × | × | ○ |
 | `BOARD_ADMIN` | 공지·SLA 작성, 게시판 진행상태, 문의처 편집 | × | × | × | ○ |
 | `SPACE_MANAGE` | 건물·층·실(도면) 관리 | ○ | × | × | ○ |
 | `INVENTORY` | 재물조사(QR) | ○ | × | × | ○ |
@@ -155,7 +156,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | GET | `/api/as/requests/{sn}` | 〃 + 스코프 | 상세: 신청 내용, 업체·기사, 처리 보고서(`report`), 첨부(`attachments`, `reportFiles`), 평가, `histories`, **`allowedActions`**(현재 사용자가 지금 할 수 있는 처리) |
 | POST | `/api/as/requests` | `AS_{ty}_REQUEST` / `SMART_REQUEST` | 신청. 아래 필드 |
 | PUT | `/api/as/requests/{sn}` | 작성자(A 상태) | 신청 수정 |
-| POST | `/api/as/requests/{sn}/{action}` | 상태·역할에 따라 | `receive {visitPlannedAt}` · `return {reason}` · `return-cancel` · `transfer {rceptTy, content}` · `cancel` · `visit {visitPlannedAt}` · `report {...}` · `evaluate {score 1~5, opinion}` · `assign {vendorId, engineerUserId?}` · `delete` |
+| POST | `/api/as/requests/{sn}/{action}` | 상태·역할에 따라 | `receive {visitPlannedAt}` · `return {reason}` · `return-cancel` · `transfer {rceptTy, content}` · `cancel` · `visit {visitPlannedAt}` · `report {...}` · `evaluate {score 1~5, opinion}` · `assign {vendorId, engineerUserId?}` · `delete` · 유상 청구: `bill-invoice {fileIds}`(기사·관리자) · `bill-confirm`(학교·관리자) · `bill-paid {paidDate?}`(학교·관리자, 확인 후) · `bill-cancel {reason}`(관리자, 청구 단계로 되돌림) |
 | DELETE | `/api/as/requests/{sn}` | `AS_MANAGE` | 관리자 삭제 |
 
 신청 필드 (cbe.go.kr 폼과 1:1):
@@ -174,6 +175,8 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | `attachFileIds` | `POST /api/files` 결과의 id 배열 | 〃 | 〃 | 〃 |
 
 처리 보고서(`report`) 필드: `engineerName`, `visitAt`, `visitEndAt`, `troubleSymptom`(장애증상), `inspectContent`(점검내용), `processTypeCode`(1 장비불량 … 8 기타), `processContent`(처리내용, 필수), `processAmount`(비용), `fileIds`.
+
+유상(`chargeType=PAID`) 보고서는 청구(`BILLED`) → 학교 확인(`CONFIRMED`) → 지급 완료(`PAID`)로 진행합니다(상세의 `bill`, 목록의 `billStatus`). 확인·지급된 청구는 보고서의 금액·유무상을 바꿀 수 없고(409), 관리자가 `bill-cancel`로 되돌린 뒤 고칩니다. 예전 유상 보고서는 청구 단계로 봅니다.
 
 규칙(cbe.go.kr과 동일): 정보기기 AS는 유지관리 표준계약 체결(`contractStatus=CONTRACTED`) 학교만 · 담당 업체가 없는 학교는 신청 불가 · 접수에는 방문예정일시 필수 · 반려에는 사유 필수 · 이관은 대상 유형의 업체로 재배정되며 상태 A로 돌아감 · 평가는 신청자만 1회.
 
@@ -200,8 +203,20 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 
 | 경로 | 내용 |
 |---|---|
-| `GET /monthly?year&rceptTy&regionId` | 월별 건수·완료·반려·비용·평균 처리일, 유형별·지역별·업체별 집계(업체 관리자는 자기 업체만) |
+| `GET /monthly?year&rceptTy&regionId` | 월별 건수·완료·반려·비용·평균 처리일, 유형별·지역별·업체별 집계(업체 관리자는 자기 업체만). 각 집계에 `contractCost`(계약 배분), `paidOut`(유상 지급 완료), `spend`(실제 지출 = 둘의 합). 그 밖에 `billing`(청구 단계별 건수·금액), `contracts`(계약별 배분액·처리완료·건당 비용), `budget`(예산 줄별 집행액·집행률, 월별 누계. 업체 계정은 없음), `total.zeroCostDone` |
+| `GET /repairs?rceptTy&regionId` | 장비별 누적 수리비(모든 연도). 자산은 취득가 대비 비율, 수리비 ≥ 취득가 50% 또는 내용연수 경과면 `replace:true` |
 | `GET /satisfaction?year&rceptTy&regionId&page&size` | 완료 대비 평가율, 점수 분포, 업체별·기사별 평균, 평가 목록 |
+
+실제 지출에서 계약 금액은 계약 기간 일수로 나눠 연·월에 배분하고, 지역·구분으로 볼 때는 계약이 맡은 지역 수·구분 수로 똑같이 나눕니다. 보고서의 무상 금액은 계약 안에서 한 일의 환산 금액이라 지출에 넣지 않습니다.
+
+### 3.4 계약·예산 (`/api/as/cost`, 권한 `COST_MANAGE`, 도교육청만)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET / POST | `/api/as/cost/contracts` | 유지보수 계약 목록·등록. `{vendorId, contractName, startDate, endDate, amount, serviceTypes:[C,M,S,T], allRegions, regionIds:[], note}` |
+| PUT / DELETE | `/api/as/cost/contracts/{id}` | 수정·삭제 |
+| GET | `/api/as/cost/budgets?year` | 그 해 예산 줄 |
+| PUT | `/api/as/cost/budgets?year` | 그 해 예산을 통째로 바꿈. `[{regionId?, rceptTy?, amount, note?}]` (비우면 전체). 같은 지역·구분은 한 줄만 |
 
 ---
 
@@ -342,7 +357,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | 기존 `users` | + `school_id`, `vendor_id`, `otp_enabled`, `locked_until`, `password_changed_at`; `email`·`mobile` 암호화 |
 | 기존 `assets`, `buildings`, `asset_categories`, `orgs` | + `school_id`, `room_id`, `life_years` / `school_id` / `life_years` / `asset_no_prefix` |
 
-JPA `ddl-auto: update`라 기존 H2·PostgreSQL DB에 그대로 기동하면 테이블·컬럼이 추가되고, 학교가 하나도 없으면 `AsDataSeeder`가 데모 데이터를 넣습니다.
+테이블은 Flyway 마이그레이션(`server/src/main/resources/db/migration`)이 만들고, Hibernate는 검사(`ddl-auto: validate`)만 합니다. 학교가 하나도 없으면 `AsDataSeeder`가 데모 데이터를 넣습니다. 스키마 변경 방법과 Flyway 이전 DB의 첫 기동 절차는 [DB_MIGRATIONS.md](DB_MIGRATIONS.md).
 
 ---
 
@@ -356,6 +371,7 @@ JPA `ddl-auto: update`라 기존 H2·PostgreSQL DB에 그대로 기동하면 테
 | `QR_BASE_URL` | http://localhost:8080 | 라벨 QR과 로그인 QR에 들어갈 주소 (휴대폰이 접속할 수 있는 주소) |
 | `ASSET_LINK` / `ROOM_LINK` | `/assets/by-no/{assetNo}` / `/rooms/{roomId}` | `/a/`, `/r/` 공개 주소가 보낼 프런트 라우트 |
 | `PORT`, `DATA_DIR`, `SPRING_PROFILES_ACTIVE=postgres`, `DB_URL/DB_USER/DB_PASSWORD` | 기존 | 기존과 같음 |
+| `DDL_AUTO` | `validate` | Hibernate 스키마 처리. 평소에는 비워 둡니다. Flyway 이전부터 쓰던 DB의 첫 기동에만 `update` ([DB_MIGRATIONS.md](DB_MIGRATIONS.md)) |
 
 ---
 

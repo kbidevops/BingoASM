@@ -239,7 +239,7 @@ sequenceDiagram
 - 기본은 H2 파일 DB(`server/data/bingoasm.mv.db`)입니다. 따로 설치할 것이 없고, PostgreSQL 호환 모드로 동작합니다.
 - 운영에서는 `SPRING_PROFILES_ACTIVE=postgres`와 `DB_URL`, `DB_USER`, `DB_PASSWORD`로 PostgreSQL을 씁니다. 코드 변경은 없습니다. PostgreSQL 16에서 전체 기능을 검증했습니다.
 - 로컬 PostgreSQL은 `docker-compose.yml`로 띄웁니다 (`npm run db:up`, 계정 bingoasm/bingoasm, 포트 5432, 데이터는 Docker 볼륨 `bingoasm-pgdata`).
-- 테이블은 JPA 엔티티로부터 자동 생성됩니다(`ddl-auto=update`). 운영에서 스키마를 엄격히 관리하려면 Flyway 같은 마이그레이션 도구로 바꾸는 것을 권장합니다.
+- 스키마는 Flyway가 관리합니다. `server/src/main/resources/db/migration`의 `V1__baseline.sql`, `V2__…sql` 순서로 기동 때 적용되고, Hibernate는 엔티티와 DB가 맞는지 검사(`ddl-auto=validate`)만 합니다. 같은 SQL이 H2와 PostgreSQL 모두에서 돌아갑니다. 작성 방법은 [DB_MIGRATIONS.md](DB_MIGRATIONS.md).
 - DB가 비어 있으면 `DataSeeder`가 참조 시스템과 같은 데모 데이터를 넣습니다. ID 순서까지 원본과 같게 맞췄습니다.
 - 엔티티 사이 관계는 JPA 연관관계 대신 ID 컬럼(예: `assetId`, `processorId`)으로 저장하고, 이름 조회는 `RefData`가 요청마다 기관의 참조 테이블을 한 번에 읽어 처리합니다(N+1 조회 방지).
 - 목록 검색은 JPA Specification으로 조건을 조합하고 DB에서 정렬·페이지네이션합니다. 서비스 검색어는 자산번호를 서브쿼리로 함께 찾습니다.

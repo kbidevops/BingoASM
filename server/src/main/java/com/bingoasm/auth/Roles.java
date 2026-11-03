@@ -17,7 +17,7 @@ public final class Roles {
             "AS_M_REQUEST", "AS_M_VIEW", "AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA");
     public static final List<String> PORTAL_ADMIN = List.of(
             "AS_MANAGE", "WDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS",
-            "BOARD_ADMIN", "AS_PROCESS", "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE", "REGION_MANAGE");
+            "BOARD_ADMIN", "AS_PROCESS", "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE", "REGION_MANAGE", "COST_MANAGE");
     /**
      * AS 처리 기능: 접수 · 반려(반려 취소 포함) · 이관 · 신청 취소 · 삭제. 역할마다 지금 할 수 있는 것을 기본으로 주고,
      * 사용자별로 끌 수 있다. 상태·소속 조건(AsRequestService.allowedActions)은 그대로라 켠다고 범위가 넓어지지 않는다.
@@ -74,7 +74,7 @@ public final class Roles {
                     "AS_C_REQUEST", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR", "AS_M_REQUEST", "AS_M_VIEW",
                     "AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA", "AS_MANAGE", "WDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
                     "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS", "BOARD_ADMIN", "AS_PROCESS", "AS_EVALUATE",
-                    "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "AS_RECEIVE", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "REGION_MANAGE")),
+                    "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "AS_RECEIVE", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "REGION_MANAGE", "COST_MANAGE")),
             Map.entry("SUPER_ADMIN", List.of("ORG_READ", "ORG_WRITE")),
             Map.entry("SCHOOL_USER", SCHOOL_USER_PERMS),
             Map.entry("AS_ENGINEER", AS_ENGINEER_PERMS),
