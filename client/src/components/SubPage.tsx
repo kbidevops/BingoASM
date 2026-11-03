@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { findMenu, visibleMenu } from "@/lib/menu";
+import { findMenu, visibleMenu, type MenuItem } from "@/lib/menu";
 import { Icon, Loading } from "./ui";
 
 /**
@@ -83,12 +83,7 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
       </div>
       <div className={"wrap" + (showSide ? " lay" : "")}>
         {showSide && (
-          <aside className="side">
-            <b>{group!.title}</b>
-            {group!.items.map((it) => (
-              <Link key={it.href} href={it.href} className={it.href === here ? "on" : ""} aria-current={it.href === here ? "page" : undefined}>{it.title}</Link>
-            ))}
-          </aside>
+          <SideMenu title={group!.title} items={group!.items} here={here} />
         )}
         <div>
           {body}
@@ -96,6 +91,40 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
         </div>
       </div>
     </main>
+  );
+}
+
+/** Side menu of the current group. On mobile (CSS) the list collapses into a dropdown under a button naming the current page. */
+function SideMenu({ title, items, here }: { title: string; items: MenuItem[]; here: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const current = items.find((it) => it.href === here);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); toggle.current?.focus(); } };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <aside className="side" ref={box}>
+      <b>{title}</b>
+      <button ref={toggle} type="button" className="side-tog" aria-expanded={open} aria-controls="side-list" aria-label={`${title} 메뉴: ${current?.title ?? "선택"}`} onClick={() => setOpen((v) => !v)}>
+        {current?.title ?? title}
+      </button>
+      <div id="side-list" className={"side-list" + (open ? " open" : "")}>
+        {items.map((it) => (
+          <Link key={it.href} href={it.href} className={it.href === here ? "on" : ""} aria-current={it.href === here ? "page" : undefined} onClick={() => setOpen(false)}>{it.title}</Link>
+        ))}
+      </div>
+    </aside>
   );
 }
 

@@ -12,7 +12,7 @@ import { loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
 import type { Region } from "@/lib/types";
 
-/** 업체관리 (/api/as/vendors): 유지관리 업체, 담당 분야(serviceTypes), 소속 기사. */
+/** 업체관리 (/api/as/vendors): 유지관리 업체, 담당 지역, 담당 분야(serviceTypes), 소속 기사. 문의처 안내의 유지보수 사업자와는 별개다. */
 export default function VendorsPage() {
   return (
     <SubPage perm="VENDOR_MANAGE">
@@ -29,12 +29,14 @@ function Vendors() {
   const [regions, setRegions] = useState<Region[]>([]);
   const [all, setAll] = useState<Vendor[] | null>(null);
   const [err, setErr] = useState("");
-  const empty = { regionId: "", keyword: "" };
+  const empty = { keyword: "" };
+  const [region, setRegion] = useState<number | null>(null);
   const [draft, setDraft] = useState(empty);
   const [filter, setFilter] = useState(empty);
   const [ty, setTy] = useState("");
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<Vendor | "new" | null>(null);
+  const [del, setDel] = useState<Vendor | null>(null);
 
   const load = useCallback(() => {
     setErr("");
@@ -44,9 +46,9 @@ function Vendors() {
   useEffect(load, [load]);
 
   const shown = useMemo(() => (all ?? []).filter((v) =>
-    (!filter.regionId || String(v.regionId ?? "") === filter.regionId) &&
+    (region == null || covers(v, region)) &&
     (!filter.keyword.trim() || v.vendorName.includes(filter.keyword.trim())) &&
-    (!ty || v.serviceTypes.includes(ty))), [all, filter, ty]);
+    (!ty || v.serviceTypes.includes(ty))), [all, filter, ty, region]);
 
   if (err) return <ErrorBox message={err} onRetry={load} />;
   if (!all) return <Loading />;
@@ -54,7 +56,7 @@ function Vendors() {
   const pages = Math.max(1, Math.ceil(shown.length / size));
   const cur = Math.min(page, pages);
   const vis = shown.slice((cur - 1) * size, cur * size);
-  const head = ["지역", "업체명", "연락처", "담당 분야", "사업자번호", "기사 수", "최근 수정", "관리"];
+  const head = ["담당 지역", "업체명", "연락처", "담당 분야", "사업자번호", "기사 수", "최근 수정", "관리"];
 
   return (
     <>
@@ -65,20 +67,26 @@ function Vendors() {
         active={ty}
         onPick={(v) => { setTy(v); setPage(1); }}
       />
-      <FilterForm onSubmit={() => { setFilter(draft); setPage(1); }} onReset={() => { setDraft(empty); setFilter(empty); setTy(""); }}>
-        <FilterField id="vd-reg" label="지역">
-          <select id="vd-reg" value={draft.regionId} onChange={(e) => setDraft({ ...draft, regionId: e.target.value })}>
-            <option value="">전체</option>
-            {regions.map((r) => <option key={r.regionId} value={r.regionId}>{r.regionName}</option>)}
-          </select>
-        </FilterField>
+      <div className="pills vd-regions" role="group" aria-label="담당 지역">
+        <button type="button" aria-pressed={region == null} onClick={() => { setRegion(null); setPage(1); }}>전체 <b>{all.length}</b></button>
+        {regions.map((r) => {
+          const n = all.filter((v) => covers(v, r.regionId)).length;
+          return (
+            <button key={r.regionId} type="button" className={n ? "" : "vd-none"} aria-pressed={region === r.regionId}
+              title={n ? undefined : "담당 업체가 없는 지역입니다"} onClick={() => { setRegion(r.regionId); setPage(1); }}>
+              {r.regionName.replace(/교육지원청$/, "")} <b>{n}</b>{!n && <span className="sr"> 담당 업체 없음</span>}
+            </button>
+          );
+        })}
+      </div>
+      <FilterForm onSubmit={() => { setFilter(draft); setPage(1); }} onReset={() => { setDraft(empty); setFilter(empty); setTy(""); setRegion(null); }}>
         <FilterField id="vd-q" label="업체명">
           <input id="vd-q" placeholder="업체명 입력" value={draft.keyword} onChange={(e) => setDraft({ ...draft, keyword: e.target.value })} />
         </FilterField>
       </FilterForm>
       <ListHead total={shown.length} page={cur} pages={pages}>
         <button className="btn sm sec" type="button" disabled={!shown.length}
-          onClick={() => downloadCsv("업체관리", head.slice(0, -1), shown.map((v) => [v.regionName, v.vendorName, v.tel, v.serviceTypeNames.join(", "), v.bizNo, v.engineerCount, fmtDate(v.updatedAt)]))}>
+          onClick={() => downloadCsv("업체관리", head.slice(0, -1), shown.map((v) => [v.regionName, v.vendorName, v.tel, TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => AS_NAME[t]).join(", "), v.bizNo, v.engineerCount, fmtDate(v.updatedAt)]))}>
           엑셀출력 <Icon name="down" />
         </button>
         {canEdit && <button className="btn sm" type="button" onClick={() => setEdit("new")}>업체 등록</button>}
@@ -89,14 +97,21 @@ function Vendors() {
           <tbody>
             {vis.length ? vis.map((v) => (
               <tr key={v.vendorId}>
-                <td data-label="지역">{v.regionName}</td>
+                <td data-label="담당 지역">{regionLabel(v)}</td>
                 <td data-label="업체명" className="tl">{v.vendorName}</td>
                 <td data-label="연락처">{v.tel ? <a href={"tel:" + v.tel}>{v.tel}</a> : "-"}</td>
-                <td data-label="담당 분야">{TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => <span key={t} className="chip" style={{ marginRight: 4 }}>{AS_NAME[t]}</span>)}</td>
+                <td data-label="담당 분야">{TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => <span key={t} className="chip" style={{ marginRight: 4 }}>{AS_NAME[t]}</span>)}{!v.serviceTypes.length && <span className="hint">없음</span>}</td>
                 <td data-label="사업자번호">{v.bizNo ?? "-"}</td>
                 <td data-label="기사 수">{v.engineerCount}</td>
                 <td data-label="최근 수정">{fmtDate(v.updatedAt)}</td>
-                <td data-label="관리">{canEdit ? <button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button> : <span className="hint">조회만</span>}</td>
+                <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
+                  {canEdit ? (
+                    <>
+                      <button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button>{" "}
+                      <button className="btn sm sec" type="button" onClick={() => setDel(v)}>삭제</button>
+                    </>
+                  ) : <span className="hint">조회만</span>}
+                </td>
               </tr>
             )) : <tr><td colSpan={head.length}>조회된 업체가 없습니다.</td></tr>}
           </tbody>
@@ -104,21 +119,73 @@ function Vendors() {
       </div>
       <Pager page={cur} totalPages={pages} onPage={setPage} />
       {edit && <VendorForm vendor={edit === "new" ? null : edit} regions={regions} onClose={() => setEdit(null)} onSaved={(m) => { setEdit(null); toast(m); load(); }} />}
+      {del && <DeleteVendor vendor={del} onClose={() => setDel(null)} onDeleted={(m) => { setDel(null); toast(m); load(); }} />}
     </>
   );
 }
 
+/** Shows what deleting a vendor affects. With AS still in progress the server refuses, so only an explanation is offered. */
+function DeleteVendor({ vendor, onClose, onDeleted }: { vendor: Vendor; onClose: () => void; onDeleted: (m: string) => void }) {
+  const [usage, setUsage] = useState<{ schools: number; users: number; openRequests: number; allRequests: number } | null>(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get<NonNullable<typeof usage>>(`/api/as/vendors/${vendor.vendorId}/usage`).then(setUsage).catch((e) => setMsg((e as Error).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendor.vendorId]);
+
+  const remove = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await api.del(`/api/as/vendors/${vendor.vendorId}`);
+      onDeleted(`${vendor.vendorName}을(를) 삭제했습니다.`);
+    } catch (e) {
+      setMsg((e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`업체 삭제 · ${vendor.vendorName}`} onClose={onClose}>
+      {!usage ? (msg ? <FormMsg kind="bad" text={msg} /> : <Loading />) : usage.openRequests > 0 ? (
+        <>
+          <FormMsg kind="bad" text={`처리 중인 AS가 ${usage.openRequests}건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 업체로 옮겨 주세요.`} />
+          <div style={{ textAlign: "center", marginTop: 10 }}><button type="button" className="btn sm sec" onClick={onClose}>닫기</button></div>
+        </>
+      ) : (
+        <>
+          <ul className="dash" style={{ margin: 0 }}>
+            <li>학교 배정 {usage.schools}곳이 해제됩니다. 해당 학교는 새 업체를 지정할 때까지 그 분야의 AS를 신청할 수 없습니다.</li>
+            <li>소속 계정 {usage.users}개가 사용 중지됩니다.</li>
+            <li>지난 AS 기록 {usage.allRequests}건은 그대로 남습니다.</li>
+            <li>문의처 안내의 유지보수 사업자는 바뀌지 않습니다.</li>
+          </ul>
+          {msg && <FormMsg kind="bad" text={msg} />}
+          <Confirm text={`${vendor.vendorName}을(를) 삭제할까요? 되돌리는 기능은 없습니다.`} busy={busy} onYes={remove} onNo={onClose} />
+        </>
+      )}
+    </Modal>
+  );
+}
+
+const covers = (v: Vendor, regionId: number) => v.allRegions || v.regions.some((r) => r.regionId === regionId);
+const regionLabel = (v: Vendor) => v.allRegions ? "전체" : v.regions.length ? v.regions.map((r) => r.regionName.replace(/교육지원청$/, "")).join(", ") : "미지정";
+
 function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | null; regions: Region[]; onClose: () => void; onSaved: (m: string) => void }) {
   const TYPES = useAsTypes();
   const [v, setV] = useState({
-    vendorName: vendor?.vendorName ?? "", regionId: vendor?.regionId ? String(vendor.regionId) : "", bizNo: vendor?.bizNo ?? "",
+    vendorName: vendor?.vendorName ?? "", bizNo: vendor?.bizNo ?? "",
     tel: vendor?.tel ?? "", address: vendor?.address ?? "", serviceTypes: vendor?.serviceTypes ?? [] as string[],
+    allRegions: vendor?.allRegions ?? false,
   });
+  const [picked, setPicked] = useState<number[]>(() => (vendor?.regions ?? []).map((r) => r.regionId));
   const [engineers, setEngineers] = useState<Engineer[] | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const [del, setDel] = useState(false);
-  const set = (k: "vendorName" | "regionId" | "bizNo" | "tel" | "address") => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
+  const set = (k: "vendorName" | "bizNo" | "tel" | "address") => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
+  const toggleRegion = (id: number, on: boolean) => setPicked((p) => (on ? [...p, id] : p.filter((x) => x !== id)));
 
   useEffect(() => {
     if (vendor) api.get<Engineer[]>(`/api/as/vendors/${vendor.vendorId}/engineers`).then(setEngineers).catch(() => setEngineers([]));
@@ -127,9 +194,13 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!v.vendorName.trim()) return setMsg("업체명을 입력해 주세요.");
+    if (!v.allRegions && !picked.length) return setMsg("담당 지역을 하나 이상 선택해 주세요.");
     if (!v.serviceTypes.length) return setMsg("담당 분야를 하나 이상 선택해 주세요.");
     setBusy(true);
-    const body = { ...v, vendorName: v.vendorName.trim(), regionId: v.regionId ? Number(v.regionId) : null, serviceTypes: v.serviceTypes.join(",") };
+    const body = {
+      ...v, vendorName: v.vendorName.trim(), serviceTypes: v.serviceTypes.join(","),
+      regions: v.allRegions ? [] : picked.map((regionId) => ({ regionId })),
+    };
     try {
       if (vendor) await api.put(`/api/as/vendors/${vendor.vendorId}`, body);
       else await api.post("/api/as/vendors", body);
@@ -139,28 +210,25 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
       setBusy(false);
     }
   };
-  const remove = async () => {
-    setBusy(true);
-    try {
-      await api.del(`/api/as/vendors/${vendor!.vendorId}`);
-      onSaved("업체를 삭제했습니다.");
-    } catch (er) {
-      setMsg((er as Error).message);
-      setBusy(false);
-      setDel(false);
-    }
-  };
 
   return (
     <Modal title={vendor ? `업체 수정 · ${vendor.vendorName}` : "업체 등록"} wide onClose={onClose}>
       <form className="ft2" noValidate onSubmit={save}>
         <table className="ftab"><tbody>
           <FormRow label="업체명" required><input aria-label="업체명" value={v.vendorName} onChange={set("vendorName")} /></FormRow>
-          <FormRow label="지역">
-            <select aria-label="지역" value={v.regionId} onChange={set("regionId")}>
-              <option value="">전체 (도 단위)</option>
-              {regions.map((r) => <option key={r.regionId} value={r.regionId}>{r.regionName}</option>)}
-            </select>
+          <FormRow label="담당 지역" required>
+            <label className="vd-all">
+              <input type="checkbox" checked={v.allRegions} onChange={(e) => setV({ ...v, allRegions: e.target.checked })} /> 전체 지역
+            </label>
+            {!v.allRegions && (
+              <div className="vd-pick">
+                {regions.map((r) => (
+                  <label key={r.regionId}>
+                    <input type="checkbox" checked={picked.includes(r.regionId)} onChange={(e) => toggleRegion(r.regionId, e.target.checked)} /> {r.regionName.replace(/교육지원청$/, "")}
+                  </label>
+                ))}
+              </div>
+            )}
           </FormRow>
           <FormRow label="담당 분야" required>
             {TYPES.map((t) => (
@@ -186,11 +254,9 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
         </tbody></table>
         <FormMsg kind={msg ? "bad" : undefined} text={msg} />
         <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-          {vendor && <button type="button" className="btn sm sec" onClick={() => setDel(true)}>삭제</button>}
           <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
           <button type="submit" className="btn sm" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
         </div>
-        {del && <Confirm text={`${vendor!.vendorName}을(를) 삭제할까요? 담당 학교·AS가 연결되어 있으면 삭제되지 않습니다.`} onYes={remove} onNo={() => setDel(false)} busy={busy} />}
       </form>
     </Modal>
   );

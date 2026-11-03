@@ -188,7 +188,7 @@ st, j, _ = call("POST", "/api/as/inventory", {"schoolId": 1}, token=N); check("�
 st, j, _ = call("GET", "/api/as/requests/codes", token=S)
 c = data((st, j, None))
 check("codes: 4 types, 4 statuses, process types 1~8", st == 200 and len(c["rceptTypes"]) == 4 and len(c["statuses"]) == 4 and len(c["processTypes"]) == 8, j)
-st, j, _ = call("GET", "/api/as/regions", token=S); check("regions: 10 (충북 교육지원청)", st == 200 and len(data((st, j, None))) == 10, j)
+st, j, _ = call("GET", "/api/as/regions", token=S); check("regions: 14 (충남 교육지원청)", st == 200 and len(data((st, j, None))) == 14, j)
 st, j, _ = call("GET", "/api/as/schools", token=E); schools = data((st, j, None))
 check("schools: admin sees 8", st == 200 and len(schools) == 8, len(schools) if st == 200 else j)
 bh = next(s for s in schools if s["schoolName"] == "봉황초등학교")
@@ -227,8 +227,8 @@ st, j, _ = call("GET", "/api/as/requests?rceptTy=M&status=A", token=N); lst = da
 check("AS list (engineer, M, A) contains new request", st == 200 and any(x["asvcSn"] == sn for x in lst["content"]), j)
 st, j, _ = call("GET", "/api/as/requests?rceptTy=M&searchType=school&keyword=봉황", token=N); lst = data((st, j, None))
 check("AS list: search by school name", st == 200 and lst["totalElements"] >= 1 and all("봉황" in x["schoolName"] for x in lst["content"]), j)
-st, j, _ = call("GET", "/api/as/requests?rceptTy=M&searchType=region&keyword=청주", token=E); lst = data((st, j, None))
-check("AS list: search by region name", st == 200 and lst["totalElements"] >= 1 and all("청주" in x["regionName"] for x in lst["content"]), j)
+st, j, _ = call("GET", "/api/as/requests?rceptTy=M&searchType=region&keyword=천안", token=E); lst = data((st, j, None))
+check("AS list: search by region name", st == 200 and lst["totalElements"] >= 1 and all("천안" in x["regionName"] for x in lst["content"]), j)
 st, j, _ = call("GET", "/api/as/requests?rceptTy=M&fromDate=2026-10-01&toDate=2026-10-31", token=E); lst = data((st, j, None))
 check("AS list: date range filter", st == 200 and all(x["requestAt"].startswith("2026-10") for x in lst["content"]), j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/receive", {}, token=N)
@@ -306,12 +306,12 @@ st, j, _ = call("DELETE", f"/api/as/boards/DISPOSAL/{dp['postId']}", token=S2); 
 st, j, _ = call("DELETE", f"/api/as/boards/DISPOSAL/{dp['postId']}", token=S); check("DISPOSAL delete by author", st == 200, j)
 st, j, _ = call("GET", "/api/as/boards/VENDOR?searchType=title&keyword=점검", token=V); check("VENDOR search", st == 200 and data((st, j, None))["totalElements"] >= 1, j)
 st, j, _ = call("GET", "/api/as/contacts", token=S); ct = data((st, j, None))
-check("contacts grouped: 도교육청 first + 10 교육지원청, 담당업무 포함", st == 200 and ct[0]["regionName"] == "도교육청" and len(ct) == 11 and ct[1]["groups"][0]["items"][0]["duties"], j)
+check("contacts grouped: 도교육청 first + 14 교육지원청, 담당업무 포함", st == 200 and ct[0]["regionName"] == "도교육청" and len(ct) == 15 and ct[1]["groups"][0]["items"][0]["duties"], j)
 st, j, _ = call("PUT", "/api/as/contacts", [{"groupName": "g", "itemName": "i", "tel": "1"}], token=S); check("contacts replace by school user → 403", st == 403, j)
 
 # ---------- 7. 통계 ----------
 st, j, _ = call("GET", "/api/as/stats/monthly?year=2026", token=E); stt = data((st, j, None))
-check("stats monthly: total ≥ 9, 4 types, regions, vendors", st == 200 and stt["total"]["count"] >= 9 and len(stt["byType"]) == 4 and len(stt["byRegion"]) == 10 and len(stt["byVendor"]) >= 1, j)
+check("stats monthly: total ≥ 9, 4 types, regions, vendors", st == 200 and stt["total"]["count"] >= 9 and len(stt["byType"]) == 4 and len(stt["byRegion"]) == 14 and len(stt["byVendor"]) >= 1, j)
 st, j, _ = call("GET", "/api/as/stats/monthly?year=2026&rceptTy=M", token=V); sv = data((st, j, None))
 check("stats monthly (vendor admin): only own vendor rows", st == 200 and all(v["vendorName"] == "한빛네트웍스" for v in sv["byVendor"]), j)
 st, j, _ = call("GET", "/api/as/stats/satisfaction?year=2026", token=E); sat = data((st, j, None))
@@ -446,15 +446,15 @@ st, j, _ = call("GET", "/api/services", token=A); check("legacy: service request
 st, j, _ = call("GET", "/api/places/buildings", token=A); check("legacy: places buildings", st == 200 and len(data((st, j, None))) >= 3, j)
 st, j, _ = call("GET", "/api/as/requests?rceptTy=M", token=A); check("sys admin sees AS requests", st == 200 and data((st, j, None))["totalElements"] >= 5, j)
 
-# ---------- 14. 교육지원청 담당자 (REGION_ADMIN, 청주교육지원청) ----------
+# ---------- 14. 교육지원청 담당자 (REGION_ADMIN, 천안교육지원청) ----------
 R = login("regionadmin", "user1234!")
 st, j, _ = call("GET", "/api/auth/me", token=R); rme = data((st, j, None))
-check("region admin: me has regionName 청주교육지원청", st == 200 and rme["regionName"] == "청주교육지원청" and "AS_MANAGE" in rme["permissions"] and "VENDOR_MANAGE" not in rme["permissions"], j)
+check("region admin: me has regionName 천안교육지원청", st == 200 and rme["regionName"] == "천안교육지원청" and "AS_MANAGE" in rme["permissions"] and "VENDOR_MANAGE" not in rme["permissions"], j)
 st, j, _ = call("GET", "/api/as/schools", token=R); rs = data((st, j, None))
-check("region admin: sees only 청주 schools (4)", st == 200 and len(rs) == 4 and all(x["regionName"] == "청주교육지원청" for x in rs), j)
-st, j, _ = call("GET", "/api/as/regions", token=R); check("region admin: regions = own only", st == 200 and [x["regionName"] for x in data((st, j, None))] == ["청주교육지원청"], j)
+check("region admin: sees only 천안 schools (4)", st == 200 and len(rs) == 4 and all(x["regionName"] == "천안교육지원청" for x in rs), j)
+st, j, _ = call("GET", "/api/as/regions", token=R); check("region admin: regions = own only", st == 200 and [x["regionName"] for x in data((st, j, None))] == ["천안교육지원청"], j)
 st, j, _ = call("GET", "/api/as/requests?size=200", token=R); rl = data((st, j, None))
-check("region admin: AS list only 청주 schools", st == 200 and rl["totalElements"] >= 1 and all(x["regionName"] == "청주교육지원청" for x in rl["content"]), j)
+check("region admin: AS list only 천안 schools", st == 200 and rl["totalElements"] >= 1 and all(x["regionName"] == "천안교육지원청" for x in rl["content"]), j)
 st, j, _ = call("GET", "/api/as/requests?size=200", token=E); other = [x for x in data((st, j, None))["content"] if x["schoolName"] == "온천중학교"]
 st, j, _ = call("GET", f"/api/as/requests/{other[0]['asvcSn']}", token=R); check("region admin: other district request → 404", st == 404, j)
 st, j, _ = call("GET", f"/api/as/schools/{oc['schoolId']}", token=R); check("region admin: other district school → 403", st == 403, j)
@@ -463,7 +463,7 @@ st, j, _ = call("POST", "/api/as/regions", {"regionName": "가짜교육지원청
 st, j, _ = call("GET", f"/api/assets?schoolId={oc['schoolId']}&size=1", token=R); check("region admin: other district assets → 0", st == 200 and data((st, j, None))["totalElements"] == 0, j)
 st, j, _ = call("GET", "/api/assets?size=500", token=R); ra = data((st, j, None))
 check("region admin: assets only in district", st == 200 and ra["totalElements"] >= 1 and all(x["schoolId"] in {y["schoolId"] for y in rs} for x in ra["content"]), j)
-st, j, _ = call("GET", f"/api/as/wireless-devices?size=200", token=R); check("region admin: devices only in district", st == 200 and all(x["regionName"] == "청주교육지원청" for x in data((st, j, None))["content"]), j)
+st, j, _ = call("GET", f"/api/as/wireless-devices?size=200", token=R); check("region admin: devices only in district", st == 200 and all(x["regionName"] == "천안교육지원청" for x in data((st, j, None))["content"]), j)
 st, j, _ = call("GET", "/api/as/stats/monthly", token=R); ms = data((st, j, None))
 check("region admin: stats count only district", st == 200 and 0 < ms["total"]["count"] <= rl["totalElements"], j)
 st, j, _ = call("GET", "/api/as/vendors", token=R); check("region admin: can read vendors (for school mapping)", st == 200, j)
@@ -479,13 +479,13 @@ print("\n== 15. 지역 ↔ 기관 일관성")
 st, j, _ = call("POST", "/api/as/schools", {"schoolName": "지역없는학교", "schoolType": "ELEM"}, token=A); check("school without region → 400", st == 400, j)
 st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}", {"regionId": None}, token=A); check("school region cleared → 400", st == 400, j)
 st, j, _ = call("POST", "/api/as/boards/DISPOSAL", {"title": "지역 바꿔 올리기", "content": "x", "regionId": oc["regionId"]}, token=S); xp = data((st, j, None))
-check("school post ignores other regionId (stays 청주)", st == 200 and xp["regionId"] == bh["regionId"] and xp["regionName"] == "청주교육지원청", j)
+check("school post ignores other regionId (stays 천안)", st == 200 and xp["regionId"] == bh["regionId"] and xp["regionName"] == "천안교육지원청", j)
 if st == 200: call("DELETE", f"/api/as/boards/DISPOSAL/{xp['postId']}", token=S)
 st, j, _ = call("POST", "/api/as/boards/VENDOR", {"title": "지역 지정 글", "content": "x", "regionId": oc["regionId"]}, token=N); vp = data((st, j, None))
 check("non-school post keeps chosen region", st == 200 and vp["regionId"] == oc["regionId"], j)
 if st == 200: call("DELETE", f"/api/as/boards/VENDOR/{vp['postId']}", token=N)
 st, j, _ = call("POST", "/api/as/boards/VENDOR", {"title": "x", "content": "x", "regionId": 999999}, token=N); check("unknown region on post → 400", st == 400, j)
-st, j, _ = call("GET", "/api/auth/me", token=S); check("me: school user region derived from school", st == 200 and data((st, j, None))["regionName"] == "청주교육지원청", j)
+st, j, _ = call("GET", "/api/auth/me", token=S); check("me: school user region derived from school", st == 200 and data((st, j, None))["regionName"] == "천안교육지원청", j)
 st, j, _ = call("POST", "/api/users", {"loginId": "affil01", "userName": "소속테스트", "password": "Affil!2026xy", "schoolId": bh["schoolId"], "regionId": oc["regionId"]}, token=A); au = data((st, j, None))
 check("user with school: stored regionId cleared", st == 200 and au["schoolId"] == bh["schoolId"] and au.get("regionId") is None, j)
 st, j, _ = call("PUT", f"/api/users/{au['userId']}/roles", {"roles": ["REGION_ADMIN"]}, token=A); check("REGION_ADMIN on a school account → 400", st == 400, j)
@@ -615,6 +615,26 @@ st, j, _ = call("POST", f"/api/as/requests/{sn5}/cancel", {}, token=S); check("a
 # ---------- 교육청별 AS 서비스 ----------
 print("\n== 교육청별 AS 서비스")
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["M", "S"]}, token=A); check("as-services: 무선망·스쿨넷 only", st == 200, j)
+def types_listed():
+    st, j, _ = call("GET", "/api/as/requests?size=100", token=E)
+    d = data((st, j, None))
+    return st, d["totalElements"], {x["rceptTy"] for x in d["content"]}
+st, total_off, tys = types_listed(); check("장애접수관리: unused services hidden", st == 200 and tys <= {"M", "S"} and total_off > 0, tys)
+st, j, _ = call("GET", "/api/as/requests?rceptTy=C", token=E); check("장애접수관리: asking for an unused service returns nothing", st == 200 and data((st, j, None))["totalElements"] == 0, j)
+st, j, _ = call("GET", "/api/as/requests/summary", token=E); sm = data((st, j, None)); check("summary: unused services count 0", st == 200 and sm["byType"]["C"]["total"] == 0 and sm["byType"]["T"]["total"] == 0, sm)
+call("PUT", "/api/org/as-services", {"asTypes": ["C", "M", "S", "T"]}, token=A)
+st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "숨김테스트업체", "serviceTypes": ["C"], "allRegions": True}, token=A); hv = data((st, j, None))
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A)
+bh_map = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", bh_map + [{"rceptTy": "C", "vendorId": hv["vendorId"]}], token=A); check("장애접수관리: 정보기기 vendor assigned for the test", st == 200, j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "C", "faultTypeCode": "11", "symptom": "숨김 확인(테스트)", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S); check("장애접수관리: 정보기기 request while the service is on", st == 200, j)
+st, total_on, tys_on = types_listed(); check("장애접수관리: 정보기기 listed while on", st == 200 and total_on == total_off + 1 and "C" in tys_on, tys_on)
+call("PUT", "/api/org/as-services", {"asTypes": ["M", "S"]}, token=A)
+st, total2, tys2 = types_listed(); check("장애접수관리: hidden again when off", st == 200 and total2 == total_off and "C" not in tys2, tys2)
+call("PUT", "/api/org/as-services", {"asTypes": ["C", "M", "S", "T"]}, token=A)
+st, total3, tys3 = types_listed(); check("장애접수관리: record comes back when on again", st == 200 and total3 == total_on and "C" in tys3, tys3)
+call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", bh_map, token=A)
+call("PUT", "/api/org/as-services", {"asTypes": ["M", "S"]}, token=A)
 st, j, _ = call("GET", "/api/site"); site = data((st, j, None))
 check("site: public, services M·S", st == 200 and site["asTypes"] == ["M", "S"], j)
 check("site: unused services' menus listed off", {"AS_C_REQUEST", "BOARD_DISPOSAL", "SMART_REQUEST"} <= set(site["disabledPerms"]) and "AS_M_REQUEST" not in site["disabledPerms"], site)
@@ -717,14 +737,14 @@ st, j, _ = call("GET", f"/api/as/contacts/providers?schoolId={other['schoolId']}
 check("providers: school without 담당업체 → rows without vendor", st == 200 and all(not x.get("vendorName") for x in data((st, j, None))["items"]), j)
 
 st, j, _ = call("GET", "/api/as/contacts", token=R); before = data((st, j, None))
-mine = next(g for g in before if g["regionName"] == "청주교육지원청"); theirs = next(g for g in before if g["regionName"] == "충주교육지원청")
-rows = [{"groupName": "청주교육지원청 정보지원팀", "itemName": "정보지원팀장", "tel": "000-0000-0000", "duties": ["원클릭 AS 총괄", "무선망"]},
+mine = next(g for g in before if g["regionName"] == "천안교육지원청"); theirs = next(g for g in before if g["regionName"] == "공주교육지원청")
+rows = [{"groupName": "천안교육지원청 정보지원팀", "itemName": "정보지원팀장", "tel": "000-0000-0000", "duties": ["원클릭 AS 총괄", "무선망"]},
         {"groupName": "유지보수 사업자", "itemName": "테스트네트웍스", "tel": "000-1111-2222"}]
 st, j, _ = call("PUT", f"/api/as/contacts/sections/{mine['regionId']}", rows, token=R); after = data((st, j, None))
-cj = next(g for g in after if g["regionName"] == "청주교육지원청") if st == 200 else {}
-check("contacts: region admin replaces own district", st == 200 and [x["groupName"] for x in cj["groups"]] == ["청주교육지원청 정보지원팀", "유지보수 사업자"]
+cj = next(g for g in after if g["regionName"] == "천안교육지원청") if st == 200 else {}
+check("contacts: region admin replaces own district", st == 200 and [x["groupName"] for x in cj["groups"]] == ["천안교육지원청 정보지원팀", "유지보수 사업자"]
       and cj["groups"][0]["items"][0]["duties"] == ["원클릭 AS 총괄", "무선망"], j)
-check("contacts: other sections untouched", st == 200 and next(g for g in after if g["regionName"] == "충주교육지원청") == theirs and after[0] == before[0], j)
+check("contacts: other sections untouched", st == 200 and next(g for g in after if g["regionName"] == "공주교육지원청") == theirs and after[0] == before[0], j)
 st, j, _ = call("PUT", f"/api/as/contacts/sections/{theirs['regionId']}", rows, token=R); check("contacts: region admin other district → 403", st == 403, j)
 st, j, _ = call("PUT", "/api/as/contacts/sections/province", rows, token=R); check("contacts: region admin 도교육청 section → 403", st == 403, j)
 st, j, _ = call("PUT", f"/api/as/contacts/sections/{mine['regionId']}", rows, token=S); check("contacts: school user → 403", st == 403, j)
@@ -733,7 +753,186 @@ st, j, _ = call("PUT", "/api/as/contacts/sections/abc", rows, token=E); check("c
 def back(g):
     return [{"groupName": gr["groupName"], "itemName": it["itemName"], "tel": it.get("tel"), "note": it.get("note"), "duties": it.get("duties") or []} for gr in g["groups"] for it in gr["items"]]
 st, j, _ = call("PUT", f"/api/as/contacts/sections/{mine['regionId']}", back(mine), token=E)
-check("contacts: 도교육청 admin can edit any district (restored)", st == 200 and back(next(g for g in data((st, j, None)) if g["regionName"] == "청주교육지원청")) == back(mine), j)
+check("contacts: 도교육청 admin can edit any district (restored)", st == 200 and back(next(g for g in data((st, j, None)) if g["regionName"] == "천안교육지원청")) == back(mine), j)
+
+# ----- 업체 담당 지역 / 유지보수 사업자는 별개 -----
+def vgroup(sections, name):
+    sec = next(g for g in sections if g["regionName"] == name)
+    return next((gr["items"] for gr in sec["groups"] if gr["groupName"] == "유지보수 사업자"), [])
+st, j, _ = call("GET", "/api/as/contacts", token=E); ct0 = data((st, j, None))
+counts = {"천안교육지원청": 3, "공주교육지원청": 3, "보령교육지원청": 3, "아산교육지원청": 3, "서산교육지원청": 3, "논산계룡교육지원청": 3, "금산교육지원청": 3, "부여교육지원청": 3, "서천교육지원청": 3, "청양교육지원청": 3, "홍성교육지원청": 3, "예산교육지원청": 3, "태안교육지원청": 3, "당진교육지원청": 3}
+check("vendors: 유지보수 사업자 per region", {k: len(vgroup(ct0, k)) for k in counts} == counts, {k: len(vgroup(ct0, k)) for k in counts})
+check("vendors: 유지보수 사업자 are text rows", all("contactId" in it for k in counts for it in vgroup(ct0, k)), j)
+cj_id = mine["regionId"]; cu_id = theirs["regionId"]
+st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "멀티지역테스트", "tel": "000-1", "serviceTypes": ["M"], "allRegions": False, "regions": [{"regionId": cj_id}, {"regionId": cu_id}]}, token=A); mv = data((st, j, None))
+check("vendors: multi-region create", st == 200 and sorted(r["regionId"] for r in mv["regions"]) == sorted([cj_id, cu_id]), j)
+st, j, _ = call("GET", "/api/as/contacts", token=E); ct1 = data((st, j, None))
+check("vendors: 업체관리 vendor does not appear on 문의처", ct1 == ct0, j)
+st, j, _ = call("GET", f"/api/as/vendors?regionId={cu_id}", token=E); check("vendors: region filter finds multi-region vendor", st == 200 and any(v["vendorName"] == "멀티지역테스트" for v in data((st, j, None))), j)
+other_id = next(g for g in ct1 if g["regionName"] == "보령교육지원청")["regionId"]
+st, j, _ = call("GET", f"/api/as/vendors?regionId={other_id}", token=E); check("vendors: region filter excludes other regions", st == 200 and not any(v["vendorName"] == "멀티지역테스트" for v in data((st, j, None))), j)
+st, j, _ = call("PUT", f"/api/as/vendors/{mv['vendorId']}", {"allRegions": True}, token=A); check("vendors: 전체 지역 clears regions", st == 200 and data((st, j, None))["allRegions"] is True and data((st, j, None))["regions"] == [], j)
+st, j, _ = call("GET", f"/api/as/vendors?regionId={other_id}", token=E); check("vendors: 전체 지역 vendor found in any region", st == 200 and any(v["vendorName"] == "멀티지역테스트" for v in data((st, j, None))), j)
+st, j, _ = call("DELETE", f"/api/as/vendors/{mv['vendorId']}", token=A); check("vendors: delete test vendor", st == 200, j)
+st, j, _ = call("GET", "/api/as/contacts", token=E); check("vendors: deleting a vendor leaves 문의처 alone", data((st, j, None)) == ct0, j)
+st, j, _ = call("GET", "/api/as/vendors", token=E); before_v = len(data((st, j, None)))
+cj_sec = next(g for g in ct0 if g["regionName"] == "천안교육지원청")
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{cj_id}", back(cj_sec) + [{"groupName": "유지보수 사업자", "itemName": "문의처전용업체", "tel": "043-222", "note": "메모"}], token=R)
+got = vgroup(data((st, j, None)), "천안교육지원청") if st == 200 else []
+check("vendors: region admin adds a 유지보수 사업자", st == 200 and got[-1]["itemName"] == "문의처전용업체" and got[-1]["note"] == "메모", j)
+st, j, _ = call("GET", "/api/as/vendors", token=E); check("vendors: 유지보수 사업자 does not create a vendor", len(data((st, j, None))) == before_v and not any(v["vendorName"] == "문의처전용업체" for v in data((st, j, None))), j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{cj_id}", back(cj_sec), token=R); check("vendors: 유지보수 사업자 restored", st == 200 and back(next(g for g in data((st, j, None)) if g["regionName"] == "천안교육지원청")) == back(cj_sec), j)
+
+# ----- 사용자 관리: admin과 도교육청만 -----
+import time as _t
+_t.sleep(61)  # 로그인 시도 제한(분당 20회)을 비운다
+for who, tok_ in (("학교", S), ("교육지원청", R), ("기사", N), ("업체 관리자", V)):
+    st, j, _ = call("GET", "/api/users", token=tok_); check(f"users: {who} cannot list → 403", st == 403, j)
+    st, j, _ = call("POST", "/api/users", {"loginId": "x1", "userName": "x", "password": "Delete!2026xy"}, token=tok_); check(f"users: {who} cannot create → 403", st == 403, j)
+st, j, _ = call("GET", "/api/users?size=500", token=E); ul = data((st, j, None))["content"]; check("users: 도교육청 can list", st == 200 and any(x["loginId"] == "school01" for x in ul), j)
+s01 = next(x for x in ul if x["loginId"] == "school01"); check("users: list shows type and affiliation", s01["memberType"] == "학교 담당자" and s01["affiliation"] == "봉황초등학교" and s01["locked"] is False, s01)
+adm = next(x for x in ul if x["loginId"] == "admin"); edu = next(x for x in ul if x["loginId"] == "eduadmin")
+st, j, _ = call("GET", "/api/users/processors", token=S); check("users: processors list has no phone numbers", st == 200 and not any("mobile" in x or "email" in x for x in data((st, j, None))), j)
+
+base = {"userName": "관리시험", "password": "Delete!2026xy"}
+st, j, _ = call("POST", "/api/users", {**base, "loginId": "umsys1", "roles": ["SYS_ADMIN"]}, token=E); check("users: 도교육청 cannot create SYS_ADMIN → 403", st == 403, j)
+st, j, _ = call("POST", "/api/users", {**base, "loginId": "umsup1", "roles": ["SUPER_ADMIN"]}, token=E); check("users: 도교육청 cannot create SUPER_ADMIN → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/users/{edu['userId']}/roles", {"roles": ["EDU_ADMIN", "SYS_ADMIN"]}, token=E); check("users: 도교육청 cannot raise itself → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/users/{edu['userId']}", {"roles": ["EDU_ADMIN", "SUPER_ADMIN"]}, token=E); check("users: 도교육청 cannot raise itself via update → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/users/{adm['userId']}", {"password": "Taken!2026xyz"}, token=E); check("users: 도교육청 cannot reset admin password → 403", st == 403, j)
+st, j, _ = call("DELETE", f"/api/users/{adm['userId']}", token=E); check("users: 도교육청 cannot delete admin → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/users/{adm['userId']}/menu-perms", {"denied": ["AS_MANAGE"]}, token=E); check("users: 도교육청 cannot change admin menus → 403", st == 403, j)
+st, j, _ = call("POST", f"/api/users/{adm['userId']}/unlock", {}, token=E); check("users: 도교육청 cannot touch admin unlock → 403", st == 403, j)
+st, j, _ = call("DELETE", f"/api/users/{adm['userId']}", token=A); check("users: cannot delete yourself", st == 400, j)
+st, j, _ = call("PUT", f"/api/users/{adm['userId']}", {"status": "DISABLED"}, token=A); check("users: cannot disable yourself", st == 400, j)
+st, j, _ = call("PUT", f"/api/users/{edu['userId']}", {"roles": ["SCHOOL_USER"], "schoolId": bh["schoolId"]}, token=E); check("users: cannot change your own role", st == 400, j)
+st, j, _ = call("POST", "/api/users", {**base, "loginId": "umsys2", "roles": ["SYS_ADMIN"]}, token=A); sy = data((st, j, None)); check("users: admin can create SYS_ADMIN", st == 200, j)
+st, j, _ = call("PUT", f"/api/users/{sy['userId']}", {"userName": "탈취"}, token=E); check("users: 도교육청 cannot edit another SYS_ADMIN → 403", st == 403, j)
+st, j, _ = call("DELETE", f"/api/users/{sy['userId']}", token=A); check("users: admin can delete SYS_ADMIN", st == 200, j)
+
+st, j, _ = call("POST", "/api/users", {**base, "loginId": "umcrud1", "roles": ["SCHOOL_USER"], "schoolId": bh["schoolId"], "email": "a@b.kr", "mobile": "010-1111-2222"}, token=E); um = data((st, j, None)); check("users: 도교육청 creates 학교 담당자", st == 200 and um["affiliation"] == "봉황초등학교", j)
+st, j, _ = call("POST", "/api/users", {**base, "loginId": "umcrud1", "roles": ["SCHOOL_USER"], "schoolId": bh["schoolId"]}, token=E); check("users: duplicate id → 409", st == 409, j)
+st, j, _ = call("POST", "/api/users", {"loginId": "umweak", "userName": "x", "password": "123", "roles": ["SCHOOL_USER"], "schoolId": bh["schoolId"]}, token=E); check("users: weak password refused", st == 400, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Delete!2026xy"}); check("users: new account logs in", st == 200, j)
+st, j, _ = call("PUT", f"/api/users/{um['userId']}", {"roles": ["AS_ENGINEER"], "schoolId": None, "vendorId": hanbit["vendorId"], "positionName": "기사"}, token=E); um2 = data((st, j, None)); check("users: role and affiliation change together", st == 200 and um2["roles"] == ["AS_ENGINEER"] and um2["affiliation"] == "한빛네트웍스" and um2["schoolId"] is None if st == 200 and "schoolId" in um2 else st == 200 and um2["roles"] == ["AS_ENGINEER"] and um2["affiliation"] == "한빛네트웍스", j)
+st, j, _ = call("PUT", f"/api/users/{um['userId']}", {"roles": ["AS_ENGINEER"], "vendorId": None}, token=E); check("users: engineer without vendor → 400", st == 400, j)
+st, j, _ = call("PUT", f"/api/users/{um['userId']}", {"password": "Changed!2026xy"}, token=E); check("users: password change", st == 200, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Delete!2026xy"}); check("users: old password refused", st != 200, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Changed!2026xy"}); check("users: new password works", st == 200, j)
+st, j, _ = call("PUT", f"/api/users/{um['userId']}", {"status": "LOCKED"}, token=E); st2, j2, _ = call("GET", "/api/users?keyword=umcrud1", token=E); check("users: locked shows", data((st2, j2, None))["content"][0]["locked"] is True, j2)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Changed!2026xy"}); check("users: locked cannot log in", st != 200, j)
+st, j, _ = call("POST", f"/api/users/{um['userId']}/unlock", {}, token=E); check("users: unlock", st == 200 and data((st, j, None))["locked"] is False and data((st, j, None))["status"] == "ACTIVE", j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Changed!2026xy"}); check("users: unlocked logs in", st == 200, j)
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); um_map = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", [{**m, "engineerUserId": um["userId"]} if m["rceptTy"] == "M" else m for m in um_map], token=A); check("users: assigned as school's engineer", st == 200, j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "사용자 삭제 시험", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S); ureq = data((st, j, None)); check("users: open AS for that engineer", st == 200, j)
+st, j, _ = call("DELETE", f"/api/users/{um['userId']}", token=E); check("users: delete refused with open AS → 409", st == 409, j)
+st, j, _ = call("POST", f"/api/as/requests/{ureq['asvcSn']}/cancel", {}, token=S); check("users: AS cancelled", st == 200, j)
+st, j, _ = call("DELETE", f"/api/users/{um['userId']}", token=E); check("users: delete", st == 200, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Changed!2026xy"}); check("users: deleted cannot log in", st != 200, j)
+st, j, _ = call("GET", "/api/users?keyword=umcrud1", token=E); check("users: deleted stays, marked DISABLED", data((st, j, None))["content"][0]["status"] == "DISABLED", j)
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); check("users: removed as the school's engineer", not any(v.get("engineerUserId") == um["userId"] for v in data((st, j, None))["vendors"]), j)
+st, j, _ = call("PUT", f"/api/users/{um['userId']}", {"status": "ACTIVE"}, token=E); check("users: can be restored", st == 200, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Changed!2026xy"}); check("users: restored logs in", st == 200, j)
+call("DELETE", f"/api/users/{um['userId']}", token=E)
+call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", um_map, token=A)
+
+# ----- 업체 담당 지역과 학교 배정 -----
+st, j, _ = call("GET", "/api/as/vendors", token=A); hb = next(v for v in data((st, j, None)) if v["vendorName"] == "한빛네트웍스"); check("cover: sample vendor is 전체 지역", hb["allRegions"] is True, hb)
+st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "지역시험업체", "serviceTypes": ["M"], "allRegions": False, "regions": [{"regionId": bh["regionId"]}]}, token=A); cv = data((st, j, None))
+oc_map = lambda: [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data(call("GET", f"/api/as/schools/{oc['schoolId']}", token=A))["vendors"] if v.get("vendorId")]
+oc0 = oc_map()
+st, j, _ = call("PUT", f"/api/as/schools/{oc['schoolId']}/vendors", [m for m in oc0 if m["rceptTy"] != "M"] + [{"rceptTy": "M", "vendorId": cv["vendorId"]}], token=A); check("cover: school outside the vendor's region → 400", st == 400 and "담당하지" in j.get("message", ""), j)
+check("cover: refused save keeps assignments", oc_map() == oc0 or len(oc_map()) == len(oc0), oc_map())
+call("PUT", f"/api/as/schools/{oc['schoolId']}/vendors", oc0, token=A)
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); bh0 = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", [m for m in bh0 if m["rceptTy"] != "M"] + [{"rceptTy": "M", "vendorId": cv["vendorId"]}], token=A); check("cover: school in the vendor's region → ok", st == 200, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{cv['vendorId']}", {"allRegions": False, "regions": [{"regionId": oc["regionId"]}]}, token=A); check("cover: region with assigned schools cannot be removed → 409", st == 409 and bh["schoolName"] in j.get("message", ""), j)
+st, j, _ = call("PUT", f"/api/as/vendors/{cv['vendorId']}", {"allRegions": False, "regions": [{"regionId": bh["regionId"]}, {"regionId": oc["regionId"]}]}, token=A); check("cover: adding a region is fine", st == 200 and len(data((st, j, None))["regions"]) == 2, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{cv['vendorId']}", {"allRegions": True}, token=A); check("cover: 전체 지역 is fine", st == 200, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{cv['vendorId']}", {"allRegions": False, "regions": [{"regionId": oc["regionId"]}]}, token=A); check("cover: leaving 전체 지역 also protects assigned schools → 409", st == 409, j)
+st, j, _ = call("PUT", f"/api/as/vendors/{cv['vendorId']}", {"allRegions": False, "regions": [{"regionId": bh["regionId"]}]}, token=A); check("cover: keeping the used region is fine", st == 200, j)
+# A school that moves region is the way an assignment ends up outside: it stays saved and is flagged.
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}", {"regionId": oc["regionId"]}, token=A); check("cover: school moved to another region", st == 200, j)
+st, j, _ = call("GET", f"/api/as/contacts/providers?schoolId={bh['schoolId']}", token=E); pm = next(x for x in data((st, j, None))["items"] if x["rceptTy"] == "M"); check("cover: vendor outside the region shows as no vendor on 문의처", not pm.get("vendorName") and not pm.get("engineerName"), pm)
+st, j, _ = call("GET", f"/api/as/contacts/providers?schoolId={bh['schoolId']}", token=E); ps = next(x for x in data((st, j, None))["items"] if x["rceptTy"] == "S"); check("cover: 전체 지역 vendor still shown", ps.get("vendorName") == "한빛네트웍스", ps)
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); cur = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", cur, token=A); check("cover: existing outside assignment can be saved unchanged", st == 200, j)
+call("PUT", f"/api/as/schools/{bh['schoolId']}", {"regionId": cj_id}, token=A)
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", bh0, token=A); check("cover: assignments restored", st == 200, j)
+st, j, _ = call("DELETE", f"/api/as/vendors/{cv['vendorId']}", token=A); check("cover: test vendor removed", st == 200, j)
+
+# ----- 업체 삭제 -----
+st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "삭제기능시험업체", "tel": "043-1", "serviceTypes": ["M", "S"], "allRegions": False, "regions": [{"regionId": cj_id}]}, token=A); dx = data((st, j, None))
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); dx_map = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", [m for m in dx_map if m["rceptTy"] != "M"] + [{"rceptTy": "M", "vendorId": dx["vendorId"]}], token=A); check("vendor delete: school assigned", st == 200, j)
+st, j, _ = call("POST", "/api/users", {"loginId": "delvendor01", "userName": "삭제시험기사", "password": "Delete!2026xy", "roles": ["AS_ENGINEER"], "vendorId": dx["vendorId"]}, token=A); check("vendor delete: engineer created", st == 200, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "delvendor01", "password": "Delete!2026xy"}); check("vendor delete: engineer can log in before", st == 200, j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "업체 삭제 시험", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S); dreq = data((st, j, None)); check("vendor delete: open request", st == 200 and dreq.get("asvcSn"), j)
+st, j, _ = call("GET", f"/api/as/vendors/{dx['vendorId']}/usage", token=A); u0 = data((st, j, None)); check("vendor delete: usage", st == 200 and u0["schools"] == 1 and u0["users"] == 1 and u0["openRequests"] == 1, u0)
+st, j, _ = call("GET", f"/api/as/vendors/{dx['vendorId']}/usage", token=R); check("vendor delete: 교육지원청 usage → 403", st == 403, j)
+st, j, _ = call("DELETE", f"/api/as/vendors/{dx['vendorId']}", token=R); check("vendor delete: 교육지원청 → 403", st == 403, j)
+st, j, _ = call("DELETE", f"/api/as/vendors/{dx['vendorId']}", token=A); check("vendor delete: open AS → 409", st == 409, j)
+st, j, _ = call("POST", f"/api/as/requests/{dreq['asvcSn']}/cancel", {}, token=S); check("vendor delete: request cancelled", st == 200, j)
+st, j, _ = call("GET", f"/api/as/requests/{dreq['asvcSn']}", token=A)
+keeps_status = data((st, j, None)).get("status") if st == 200 else None
+st, j, _ = call("GET", f"/api/as/vendors/{dx['vendorId']}/usage", token=A); u1 = data((st, j, None)); check("vendor delete: nothing open after cancel", st == 200 and u1["openRequests"] == 0, (keeps_status, u1))
+st, j, _ = call("GET", "/api/as/contacts", token=E); ct_before = data((st, j, None))
+st, j, _ = call("DELETE", f"/api/as/vendors/{dx['vendorId']}", token=A); check("vendor delete: succeeds", st == 200, j)
+st, j, _ = call("GET", "/api/as/vendors", token=E); check("vendor delete: gone from list", not any(v["vendorId"] == dx["vendorId"] for v in data((st, j, None))), j)
+st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); check("vendor delete: school assignment removed", not any(v.get("vendorId") == dx["vendorId"] for v in data((st, j, None))["vendors"]), j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "delvendor01", "password": "Delete!2026xy"}); check("vendor delete: engineer account disabled", st != 200, j)
+st, j, _ = call("GET", "/api/as/contacts", token=E); check("vendor delete: 문의처 unchanged", data((st, j, None)) == ct_before, j)
+st, j, _ = call("GET", f"/api/as/vendors/{dx['vendorId']}/usage", token=A); check("vendor delete: deleted vendor → 404", st == 404, j)
+st, j, _ = call("DELETE", f"/api/as/vendors/{dx['vendorId']}", token=A); check("vendor delete: twice → 404", st == 404, j)
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", dx_map, token=A); check("vendor delete: school mapping restored", st == 200, j)
+
+# ----- 지역(교육지원청) 관리: admin과 도교육청만 -----
+for who, tok_ in (("admin", A), ("도교육청", E)):
+    st, j, _ = call("POST", "/api/as/regions", {"regionName": f"시험지역{who}"}, token=tok_); rg = data((st, j, None)); check(f"regions: {who} can add", st == 200, j)
+    st, j, _ = call("PUT", f"/api/as/regions/{rg['regionId']}", {"regionName": f"시험지역{who}2"}, token=tok_); check(f"regions: {who} can rename", st == 200 and data((st, j, None))["regionName"] == f"시험지역{who}2", j)
+    for other, tok2 in (("교육지원청", R), ("학교", S), ("기사", N)):
+        st, j, _ = call("PUT", f"/api/as/regions/{rg['regionId']}", {"regionName": "탈취"}, token=tok2); check(f"regions: {other} cannot rename → 403", st == 403, j)
+        st, j, _ = call("DELETE", f"/api/as/regions/{rg['regionId']}", token=tok2); check(f"regions: {other} cannot delete → 403", st == 403, j)
+    st, j, _ = call("DELETE", f"/api/as/regions/{rg['regionId']}", token=tok_); check(f"regions: {who} can delete", st == 200, j)
+st, j, _ = call("DELETE", f"/api/as/regions/{mine['regionId']}", token=E); check("regions: region with schools cannot be deleted → 409", st == 409, j)
+st, j, _ = call("POST", "/api/as/regions", {"regionName": "천안교육지원청"}, token=E); check("regions: duplicate name → 409", st == 409, j)
+st, j, _ = call("GET", "/api/as/regions/usage", token=E); us = data((st, j, None)); ucj = next(x for x in us if x["regionName"] == "천안교육지원청")
+check("regions: usage counts", st == 200 and ucj["schools"] >= 1 and ucj["users"] >= 1 and "contacts" not in ucj, ucj)
+for other, tok2 in (("교육지원청", R), ("학교", S), ("기사", N)):
+    st, j, _ = call("GET", "/api/as/regions/usage", token=tok2); check(f"regions: {other} cannot read usage → 403", st == 403, j)
+    st, j, _ = call("PUT", "/api/as/regions/order", [x["regionId"] for x in us], token=tok2); check(f"regions: {other} cannot reorder → 403", st == 403, j)
+st, j, _ = call("GET", "/api/auth/me", token=A); check("regions: admin has REGION_MANAGE", "REGION_MANAGE" in data((st, j, None))["permissions"], j)
+st, j, _ = call("GET", "/api/auth/me", token=E); check("regions: 도교육청 has REGION_MANAGE", "REGION_MANAGE" in data((st, j, None))["permissions"], j)
+st, j, _ = call("GET", "/api/auth/me", token=R); check("regions: 교육지원청 lacks REGION_MANAGE", "REGION_MANAGE" not in data((st, j, None))["permissions"], j)
+order0 = [x["regionId"] for x in us]
+st, j, _ = call("PUT", "/api/as/regions/order", order0[1:], token=E); check("regions: incomplete order → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/as/regions/order", list(reversed(order0)), token=E); check("regions: reorder", st == 200 and [x["regionId"] for x in data((st, j, None))] == list(reversed(order0)), j)
+st, j, _ = call("GET", "/api/as/contacts", token=E); check("regions: 문의처 follows the order", [g["regionId"] for g in data((st, j, None)) if g.get("regionId")] == list(reversed(order0)), j)
+st, j, _ = call("PUT", "/api/as/regions/order", order0, token=E); check("regions: order restored", st == 200, j)
+st, j, _ = call("POST", "/api/as/regions", {"regionName": "삭제시험교육지원청"}, token=E); dr = data((st, j, None)); check("regions: new region goes last", st == 200 and dr["sortOrder"] == max(x.get("sortOrder") or 0 for x in us) + 1, j)
+st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "삭제시험업체", "serviceTypes": ["M"], "allRegions": False, "regions": [{"regionId": dr["regionId"]}, {"regionId": cj_id}]}, token=A); dv = data((st, j, None))
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{dr['regionId']}", [{"groupName": "유지보수 사업자", "itemName": "삭제시험문의처", "tel": "1"}], token=E)
+st, j, _ = call("GET", "/api/as/regions/usage", token=E); ud = next(x for x in data((st, j, None)) if x["regionId"] == dr["regionId"]); check("regions: usage sees vendor", ud["vendors"] == 1 and ud["schools"] == 0, ud)
+st, j, _ = call("GET", "/api/as/contacts", token=E); ct_keep = [g for g in data((st, j, None)) if g.get("regionId") != dr["regionId"]]
+st, j, _ = call("DELETE", f"/api/as/regions/{dr['regionId']}", token=E); check("regions: region with 문의처 rows can be deleted", st == 200, j)
+st, j, _ = call("GET", "/api/as/vendors", token=E); dv2 = next(v for v in data((st, j, None)) if v["vendorId"] == dv["vendorId"]); check("regions: vendor kept, region link removed", [r["regionId"] for r in dv2["regions"]] == [cj_id], dv2)
+st, j, _ = call("GET", "/api/as/contacts", token=E); ct_after = data((st, j, None))
+gone = next((g for g in ct_after if g.get("regionId") == dr["regionId"]), None)
+check("regions: deleted region stays on 문의처, marked", gone is not None and gone["deleted"] is True and gone["groups"][0]["items"][0]["itemName"] == "삭제시험문의처", gone)
+check("regions: other 문의처 untouched", [g for g in ct_after if g.get("regionId") != dr["regionId"]] == ct_keep, j)
+st, j, _ = call("GET", "/api/as/regions", token=E); check("regions: deleted region not in the region list", not any(x["regionId"] == dr["regionId"] for x in data((st, j, None))), j)
+st, j, _ = call("PUT", f"/api/as/regions/{dr['regionId']}", {"regionName": "수정시도"}, token=E); check("regions: deleted region cannot be renamed → 404", st == 404, j)
+st, j, _ = call("DELETE", f"/api/as/regions/{dr['regionId']}", token=E); check("regions: deleted twice → 404", st == 404, j)
+st, j, _ = call("POST", "/api/users", {"loginId": "delregion01", "userName": "x", "password": "Delete!2026xy", "roles": ["REGION_ADMIN"], "regionId": dr["regionId"]}, token=A); check("regions: deleted region cannot get a 담당자 → 400", st == 400, j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{dr['regionId']}", [{"groupName": "유지보수 사업자", "itemName": "삭제후수정", "tel": "2"}], token=R); check("regions: 교육지원청 cannot edit a deleted region → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{dr['regionId']}", [{"groupName": "유지보수 사업자", "itemName": "삭제후수정", "tel": "2"}], token=E); check("regions: 도교육청 can still edit it on 문의처", st == 200 and next(g for g in data((st, j, None)) if g.get("regionId") == dr["regionId"])["groups"][0]["items"][0]["itemName"] == "삭제후수정", j)
+st, j, _ = call("POST", "/api/as/regions", {"regionName": "삭제시험교육지원청"}, token=E); check("regions: same name revives it", st == 200 and data((st, j, None))["regionId"] == dr["regionId"], j)
+st, j, _ = call("GET", "/api/as/contacts", token=E); rv = next(g for g in data((st, j, None)) if g.get("regionId") == dr["regionId"]); check("regions: revived region keeps its 문의처", rv["deleted"] is False and rv["groups"][0]["items"][0]["itemName"] == "삭제후수정", rv)
+st, j, _ = call("DELETE", f"/api/as/regions/{dr['regionId']}", token=E); check("regions: delete again", st == 200, j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{dr['regionId']}", [], token=E); check("regions: removed from 문의처", st == 200 and not any(g.get("regionId") == dr["regionId"] for g in data((st, j, None))), j)
+st, j, _ = call("GET", "/api/as/regions/usage", token=E); check("regions: deleted region gone", not any(x["regionId"] == dr["regionId"] for x in data((st, j, None))), j)
+call("DELETE", f"/api/as/vendors/{dv['vendorId']}", token=A)
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")

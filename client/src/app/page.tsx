@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import { AS_LIST_HREF } from "@/lib/as";
-import type { AsRow, AsSummary, Page, PostRow, RceptTy } from "@/lib/types";
+import type { AsRow, AsSummary, ContactGroup, Page, PostRow } from "@/lib/types";
 
 export default function HomePage() {
   const { status } = useAuth();
@@ -120,26 +120,18 @@ const QUICK = [
   },
 ] as const;
 
-/** [what, who, tel, AS 서비스 it belongs to — shown only when the 교육청 uses it]. */
-const TELS: [string, string, string, RceptTy?][] = [
-  [
-    "원클릭AS시스템 · 학교 정보화기기 유지관리",
-    "충청남도교육청",
-    "041-640-7114",
-  ],
-  ["스마트기기(이로미) 유지보수", "TGS(스마트기기)", "1566-8797", "T"],
-  ["스쿨넷 회선 장애", "LG UPLUS(스쿨넷)", "1644-3668", "S"],
-  ["학내망(무선)", "충청남도교육청", "041-640-7114", "M"],
-];
+/** Contacts shown on the home page: the first rows of 도교육청 in 문의처 안내, so the two never disagree. */
+const HOME_CONTACTS = 4;
 
 function HomeAuthed() {
-  const { me, can, asTypes } = useAuth();
+  const { me, can } = useAuth();
   const canScan = useCanQuickScan();
   const [scan, setScan] = useState(false);
   const [summary, setSummary] = useState<AsSummary | null>(null);
   const [mine, setMine] = useState<AsRow[] | null>(null);
   const [notice, setNotice] = useState<PostRow[] | null>(null);
   const [qna, setQna] = useState<PostRow[] | null>(null);
+  const [tels, setTels] = useState<{ group: string; name: string; tel?: string }[] | null>(null);
   const canViewAs = [
     "AS_C_VIEW",
     "AS_M_VIEW",
@@ -168,6 +160,13 @@ function HomeAuthed() {
         .get<Page<PostRow>>("/api/as/boards/QNA", { size: 5 })
         .then((p) => setQna(p.content))
         .catch(() => setQna([]));
+    if (can("PORTAL_CONTACT"))
+      api
+        .get<ContactGroup[]>("/api/as/contacts")
+        .then((d) => setTels((d.find((x) => x.regionName === "도교육청")?.groups ?? [])
+          .flatMap((g) => g.items.map((it) => ({ group: g.groupName, name: it.itemName, tel: it.tel })))
+          .slice(0, HOME_CONTACTS)))
+        .catch(() => setTels([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -302,7 +301,6 @@ function HomeAuthed() {
                           {p.fieldName && (
                             <span className="chip">{p.fieldName}</span>
                           )}
-                          {p.secret ? "🔒 " : ""}
                           {p.title}
                         </Link>
                         <time>{fmtDate(p.createdAt)}</time>
@@ -314,23 +312,28 @@ function HomeAuthed() {
                 </ul>
               </section>
             )}
-            <section className="hm-card hm-tel" aria-labelledby="ht-t">
-              <div className="hm-ch">
-                <h2 id="ht-t">문의처</h2>
-                <Link href="/contact">전체보기 +</Link>
-              </div>
-              <ul className="hm-l">
-                {TELS.filter(([, , , ty]) => !ty || asTypes.includes(ty)).map(([a, b, t]) => (
-                  <li key={a}>
-                    <span>
-                      <small>{a}</small>
-                      {b}
-                    </span>
-                    <a href={"tel:" + t}>{t}</a>
-                  </li>
-                ))}
-              </ul>
-            </section>
+            {can("PORTAL_CONTACT") && (
+              <section className="hm-card hm-tel" aria-labelledby="ht-t">
+                <div className="hm-ch">
+                  <h2 id="ht-t">문의처</h2>
+                  <Link href="/contact">전체보기 +</Link>
+                </div>
+                {!tels ? <Loading /> : (
+                  <ul className="hm-l">
+                    {tels.map((t, i) => (
+                      <li key={i}>
+                        <span>
+                          <small>{t.group}</small>
+                          {t.name}
+                        </span>
+                        {t.tel ? <a href={"tel:" + t.tel.split(/[,~]/)[0].trim()}>{t.tel}</a> : "-"}
+                      </li>
+                    ))}
+                    {!tels.length && <li className="hint">등록된 문의처가 없습니다.</li>}
+                  </ul>
+                )}
+              </section>
+            )}
           </div>
         </div>
       </div>

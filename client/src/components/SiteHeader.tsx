@@ -268,7 +268,7 @@ export default function SiteHeader() {
             width={154}
             height={44}
           />
-          <i></i>원클릭AS시스템
+          <i></i><span className="logo-t">원클릭AS시스템</span>
         </Link>
         <nav id="gnb" aria-label="메인메뉴">
           <ul>

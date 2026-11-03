@@ -56,7 +56,9 @@ export interface SchoolFull extends School {
 export interface Vendor {
   vendorId: number;
   vendorName: string;
-  regionId?: number;
+  allRegions: boolean;
+  regions: { regionId: number; regionName: string }[];
+  /** "전체", "미지정", or the region names joined */
   regionName: string;
   bizNo?: string;
   tel?: string;

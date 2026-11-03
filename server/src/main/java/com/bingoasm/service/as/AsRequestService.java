@@ -92,7 +92,8 @@ public class AsRequestService {
     public record Ref(Map<Long, School> schools, Map<Long, Region> regions, Map<Long, Vendor> vendors, Map<Long, AppUser> users) {}
 
     public Ref ref(Long orgId) {
-        return new Ref(schoolService.schoolMap(orgId), schoolService.regionMap(orgId), schoolService.vendorMap(orgId),
+        // 삭제된 업체도 포함한다: 지난 AS 기록에는 처리한 업체 이름이 남아야 한다.
+        return new Ref(schoolService.schoolMap(orgId), schoolService.regionMap(orgId), schoolService.allVendorMap(orgId),
                 users.findByOrgIdOrderByUserIdAsc(orgId).stream().collect(Collectors.toMap(u -> u.userId, Function.identity())));
     }
 
@@ -154,8 +155,11 @@ public class AsRequestService {
                         : s.regionId != null && schoolService.regionMap(me.orgId()).getOrDefault(s.regionId, new Region()).regionName != null
                         && schoolService.regionMap(me.orgId()).get(s.regionId).regionName.contains(Optional.ofNullable(f.keyword()).orElse("")))
                 .map(s -> s.schoolId).collect(Collectors.toSet());
+        // 교육청이 쓰지 않는 서비스의 신청은 목록·엑셀에서 빠진다. 기록은 남아 다시 켜면 그대로 보인다.
+        List<String> inUse = permissions.asTypes(me.orgId());
         return scope(me).and((root, q, cb) -> {
             List<Predicate> p = new ArrayList<>();
+            p.add(root.get("rceptTy").in(inUse));
             if (!Params.blank(f.rceptTy())) p.add(cb.equal(root.get("rceptTy"), f.rceptTy()));
             if (!Params.blank(f.status())) p.add(cb.equal(root.get("status"), f.status()));
             if (f.fromDate() != null) p.add(cb.greaterThanOrEqualTo(root.get("requestAt"), f.fromDate().atStartOfDay()));
@@ -203,7 +207,8 @@ public class AsRequestService {
     /** 유형×상태 건수. 학교·업체 범위가 그대로 적용된다. */
     @Transactional(readOnly = true)
     public Json summary(CurrentUser me) {
-        List<AsRequest> list = requests.findAll(scope(me));
+        List<String> inUse = permissions.asTypes(me.orgId());
+        List<AsRequest> list = requests.findAll(scope(me)).stream().filter(r -> inUse.contains(r.rceptTy)).toList();
         Json byType = Json.obj();
         for (String ty : AsCodes.RCEPT_TYPES) {
             Json st = Json.obj();

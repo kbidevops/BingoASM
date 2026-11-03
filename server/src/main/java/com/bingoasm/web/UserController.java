@@ -18,7 +18,7 @@ public class UserController {
     }
 
     @GetMapping("/api/users")
-    @RequirePerm({"USER_READ", "ASSET_WRITE"})
+    @RequirePerm("USER_READ")
     public ApiResponse list(@RequestParam(required = false) String keyword, @RequestParam(required = false) Long deptId,
                             @RequestParam(required = false) String role, @RequestParam(required = false) String status,
                             @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
@@ -40,6 +40,21 @@ public class UserController {
     @RequirePerm("USER_WRITE")
     public ApiResponse update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return ApiResponse.ok(users.update(AuthContext.get(), id, body));
+    }
+
+    /** 삭제: 기록이 계정을 가리키므로 지우지 않고 사용 중지한다. */
+    @DeleteMapping("/api/users/{id}")
+    @RequirePerm("USER_WRITE")
+    public ApiResponse delete(@PathVariable Long id) {
+        users.delete(AuthContext.get(), id);
+        return ApiResponse.ok(null);
+    }
+
+    /** 로그인 실패 잠금 해제. */
+    @PostMapping("/api/users/{id}/unlock")
+    @RequirePerm("USER_WRITE")
+    public ApiResponse unlock(@PathVariable Long id) {
+        return ApiResponse.ok(users.unlock(AuthContext.get(), id));
     }
 
     @PutMapping("/api/users/{id}/roles")

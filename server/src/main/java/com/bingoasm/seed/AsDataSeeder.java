@@ -73,12 +73,12 @@ public class AsDataSeeder implements CommandLineRunner {
         o = org.orgId;
         if (org.assetNoPrefix == null || org.assetNoPrefix.isBlank()) { org.assetNoPrefix = "CB"; orgs.save(org); }
 
-        // ----- 지역: 충청남도교육청 산하 교육지원청 10곳 (괴산·증평은 한 곳) -----
-        List<String> names = List.of("청주", "충주", "제천", "보은", "옥천", "영동", "진천", "괴산증평", "음성", "단양");
+        // ----- 지역: 충청남도교육청 산하 교육지원청 14곳 -----
+        List<String> names = List.of("천안", "공주", "보령", "아산", "서산", "논산계룡", "금산", "부여", "서천", "청양", "홍성", "예산", "태안", "당진");
         Map<String, Region> rg = new LinkedHashMap<>();
         for (int k = 0; k < names.size(); k++) rg.put(names.get(k) + "교육지원청", region(names.get(k) + "교육지원청", k + 1));
-        Region rCheongju = rg.get("청주교육지원청"), rChungju = rg.get("충주교육지원청"), rJecheon = rg.get("제천교육지원청"),
-                rOkcheon = rg.get("옥천교육지원청"), rJincheon = rg.get("진천교육지원청");
+        Region rCheonan = rg.get("천안교육지원청"), rGongju = rg.get("공주교육지원청"), rBoryeong = rg.get("보령교육지원청"),
+                rSeosan = rg.get("서산교육지원청"), rGeumsan = rg.get("금산교육지원청");
 
         // ----- 분류 내용연수 -----
         Map<String, Integer> life = Map.of("컴퓨터", 5, "프린터", 5, "네트워크 장비", 6, "서버/스토리지", 6, "주변기기", 5);
@@ -87,18 +87,19 @@ public class AsDataSeeder implements CommandLineRunner {
                 cPrinter = category("프린터·복합기", 5, 14), cBoard = category("전자칠판", 7, 15), cTablet = category("태블릿", 5, 16);
 
         // ----- 학교 (이름·주소·전화는 모두 가상) -----
-        School bonghwang = school(rCheongju, "M1010001", "봉황초등학교", "ELEM", "충북 청주시 상당구 봉황로 12", "043-200-1100", 18, "CONTRACTED");
-        School geumseong = school(rCheongju, "M1010002", "미래중학교", "MID", "충북 청주시 서원구 미래로 45", "043-200-1200", 12, "CONTRACTED");
-        School sanseong = school(rCheongju, "M1010003", "푸른고등학교", "HIGH", "충북 청주시 흥덕구 푸른로 7", "043-200-1300", 24, "CONTRACTED");
-        School baekje = school(rCheongju, "M1010004", "새봄초등학교", "ELEM", "충북 청주시 청원구 새봄로 88", "043-200-1400", 10, "CONTRACTED");
-        School oncheon = school(rChungju, "M1020001", "온천중학교", "MID", "충북 충주시 수안보면 온천대로 101", "043-800-2100", 15, "CONTRACTED");
-        School haemi = school(rJecheon, "M1030001", "솔빛고등학교", "HIGH", "충북 제천시 솔빛로 3", "043-600-3100", 20, "CONTRACTED");
-        School hongju = school(rOkcheon, "M1050001", "향수초등학교", "ELEM", "충북 옥천군 옥천읍 향수길 55", "043-700-4100", 14, "CONTRACTED");
-        School gyeryong = school(rJincheon, "M1070001", "가람특수학교", "SPECIAL", "충북 진천군 진천읍 가람로 9", "043-500-5100", 6, "CONTRACTED");
+        School bonghwang = school(rCheonan, "M1010001", "봉황초등학교", "ELEM", "충남 천안시 동남구 봉황로 12", "041-000-1100", 18, "CONTRACTED");
+        School geumseong = school(rCheonan, "M1010002", "미래중학교", "MID", "충남 천안시 서북구 미래로 45", "041-000-1200", 12, "CONTRACTED");
+        School sanseong = school(rCheonan, "M1010003", "푸른고등학교", "HIGH", "충남 천안시 서북구 푸른로 7", "041-000-1300", 24, "CONTRACTED");
+        School baekje = school(rCheonan, "M1010004", "새봄초등학교", "ELEM", "충남 천안시 동남구 새봄로 88", "041-000-1400", 10, "CONTRACTED");
+        School oncheon = school(rGongju, "M1020001", "온천중학교", "MID", "충남 공주시 유구읍 온천대로 101", "041-000-2100", 15, "CONTRACTED");
+        School haemi = school(rBoryeong, "M1030001", "솔빛고등학교", "HIGH", "충남 보령시 솔빛로 3", "041-000-3100", 20, "CONTRACTED");
+        School hongju = school(rSeosan, "M1050001", "향수초등학교", "ELEM", "충남 서산시 읍내동 향수길 55", "041-000-4100", 14, "CONTRACTED");
+        School gyeryong = school(rGeumsan, "M1070001", "가람특수학교", "SPECIAL", "충남 금산군 금산읍 가람로 9", "041-000-5100", 6, "CONTRACTED");
         List<School> allSchools = List.of(bonghwang, geumseong, sanseong, baekje, oncheon, haemi, hongju, gyeryong);
 
         // ----- 업체 (가상) -----
-        Vendor hanbit = vendor(rCheongju, "한빛네트웍스", "312-81-00011", "043-210-7000", "충북 청주시 흥덕구 직지대로 120", "M,S");
+        // 예시 학교 모두를 맡으므로 전체 지역 업체다 (담당 지역 밖의 학교는 배정할 수 없다).
+        Vendor hanbit = vendor(null, "한빛네트웍스", "312-81-00011", "041-000-7000", "충남 천안시 서북구 직지대로 120", "M,S");
 
         // ----- 사용자 -----
         AppUser school01 = user("school01", "한보람", "정보부장", "school01@example.go.kr", "010-2000-0001", List.of("SCHOOL_USER"), bonghwang.schoolId, null, false);
@@ -106,9 +107,9 @@ public class AsDataSeeder implements CommandLineRunner {
         AppUser netEng = user("netengineer", "강민재", "기술과장", "net@hanbit.example.com", "010-3000-0001", List.of("AS_ENGINEER"), null, hanbit.vendorId, false);
         AppUser vendorAdmin = user("vendoradmin", "서정우", "대표", "ceo@hanbit.example.com", "010-3000-0009", List.of("VENDOR_ADMIN"), null, hanbit.vendorId, false);
         AppUser eduAdmin = user("eduadmin", "신현아", "주무관", "edu@example.go.kr", "010-4000-0001", List.of("EDU_ADMIN"), null, null, true);
-        // 교육지원청 담당자: 청주교육지원청 관내 학교(봉황초·미래중·푸른고·새봄초)만 다룬다
+        // 교육지원청 담당자: 천안교육지원청 관내 학교(봉황초·미래중·푸른고·새봄초)만 다룬다
         AppUser regionAdmin = user("regionadmin", "문가온", "정보지원팀 주무관", "region@example.go.kr", "010-4000-0002", List.of("REGION_ADMIN"), null, null, false);
-        regionAdmin.regionId = rCheongju.regionId; users.save(regionAdmin);
+        regionAdmin.regionId = rCheonan.regionId; users.save(regionAdmin);
 
         // ----- 학교별 담당 업체·기사 -----
         for (School s : allSchools) {
@@ -131,7 +132,7 @@ public class AsDataSeeder implements CommandLineRunner {
 
         // ----- 공간: 봉황초 본관(도면), 온천중 본관 -----
         StoredFile plan = planFile();
-        Building bhMain = building(bonghwang, "본관", "충북 청주시 상당구 봉황로 12");
+        Building bhMain = building(bonghwang, "본관", "충남 천안시 동남구 봉황로 12");
         Floor bh1 = floor(bhMain, 1, "1층", null), bh2 = floor(bhMain, 2, "2층", plan.fileId), bh3 = floor(bhMain, 3, "3층", null);
         Room bhOffice = room(bonghwang, bhMain, bh1, "101", "교무실", "OFFICE", "교감", null);
         Room bhAdmin = room(bonghwang, bhMain, bh1, "102", "행정실", "OFFICE", "행정실장", null);
@@ -141,7 +142,7 @@ public class AsDataSeeder implements CommandLineRunner {
         Room bh12 = room(bonghwang, bhMain, bh2, "203", "1-2 교실", "CLASS", "1-2 담임", new double[]{62, 12, 20, 30});
         Room bhSci = room(bonghwang, bhMain, bh3, "301", "과학실", "LAB", "과학부장", null);
         Room bhLib = room(bonghwang, bhMain, bh3, "302", "도서실", "ETC", "사서", null);
-        Building ocMain = building(oncheon, "본관", "충북 충주시 수안보면 온천대로 101");
+        Building ocMain = building(oncheon, "본관", "충남 공주시 유구읍 온천대로 101");
         Floor oc1 = floor(ocMain, 1, "1층", null), oc2 = floor(ocMain, 2, "2층", null);
         Room ocOffice = room(oncheon, ocMain, oc1, "101", "교무실", "OFFICE", "교감", null);
         Room ocInfo = room(oncheon, ocMain, oc2, "201", "정보실", "LAB", "정보부장", null);
@@ -193,17 +194,17 @@ public class AsDataSeeder implements CommandLineRunner {
         post("NOTICE", eduAdmin, "QR 라벨 인쇄 및 재물조사 안내", "자산 상세 > 라벨 인쇄로 QR 라벨을 출력할 수 있습니다. 재물조사는 실 QR을 찍은 뒤 자산 라벨을 순서대로 스캔하면 됩니다.", "일반", null, null, null, null, false, at(10, 9, 30));
         Post q1 = post("QNA", school01, "무선 AP 원격 재부팅은 어떻게 신청하나요?", "무선망 AS신청에서 요청유형을 어떻게 골라야 하는지 궁금합니다.", "질문", "WIRELESS", null, bonghwang.schoolId, null, false, at(8, 14, 0));
         comment(q1, eduAdmin, "무선망 AS신청 > 요청유형에서 '무선 AP 원격 재부팅 요청'을 선택하고 대상 장비를 고르시면 업체에서 원격으로 처리합니다.", at(8, 16, 30));
-        Post cs1 = post("CONSULT", school01, "컴퓨터실 네트워크 재구성 컨설팅 요청", "컴퓨터실 PC 30대 증설에 따른 네트워크 구성 자문을 요청합니다.", null, null, rCheongju.regionId, bonghwang.schoolId, "WAIT", false, at(4, 10, 0));
-        Post d1 = post("DISPOSAL", school01, "불용 PC 12대 수거 신청", "내용연수 경과 PC 12대, 모니터 10대 수거 요청드립니다. 행정실 앞 복도에 모아 두었습니다.", null, null, rCheongju.regionId, bonghwang.schoolId, "RECEIVED", false, at(9, 9, 0));
+        Post cs1 = post("CONSULT", school01, "컴퓨터실 네트워크 재구성 컨설팅 요청", "컴퓨터실 PC 30대 증설에 따른 네트워크 구성 자문을 요청합니다.", null, null, rCheonan.regionId, bonghwang.schoolId, "WAIT", false, at(4, 10, 0));
+        Post d1 = post("DISPOSAL", school01, "불용 PC 12대 수거 신청", "내용연수 경과 PC 12대, 모니터 10대 수거 요청드립니다. 행정실 앞 복도에 모아 두었습니다.", null, null, rCheonan.regionId, bonghwang.schoolId, "RECEIVED", false, at(9, 9, 0));
         d1.visitDate = LocalDate.of(2026, 11, 5); posts.save(d1);
         comment(d1, eduAdmin, "11월 5일 오전 수거 예정입니다. 하드디스크 분리 여부를 확인해 주세요.", at(8, 13, 0));
-        Post d2 = post("DISPOSAL", school02, "불용 프린터 3대 수거", "프린터 3대 수거 요청", null, null, rChungju.regionId, oncheon.schoolId, "DONE", false, at(40, 9, 0));
+        Post d2 = post("DISPOSAL", school02, "불용 프린터 3대 수거", "프린터 3대 수거 요청", null, null, rGongju.regionId, oncheon.schoolId, "DONE", false, at(40, 9, 0));
         d2.visitDate = LocalDate.of(2026, 9, 30); posts.save(d2);
-        post("VENDOR", vendorAdmin, "10월 정기 점검 일정 공유", "한빛네트웍스 10월 무선망 정기 점검 일정을 공유합니다. 청주지역 10/28~10/30, 충주지역 11/3.", "의견사항", null, rCheongju.regionId, null, null, false, at(6, 15, 0));
-        post("VENDOR", netEng, "AP 펌웨어 일괄 업데이트 문의", "Aruba AP-515 펌웨어 8.10 업데이트를 도교육청 차원에서 일괄 적용할지 문의드립니다.", "업무질의", null, rCheongju.regionId, null, null, false, at(3, 9, 0));
+        post("VENDOR", vendorAdmin, "10월 정기 점검 일정 공유", "한빛네트웍스 10월 무선망 정기 점검 일정을 공유합니다. 천안지역 10/28~10/30, 공주지역 11/3.", "의견사항", null, rCheonan.regionId, null, null, false, at(6, 15, 0));
+        post("VENDOR", netEng, "AP 펌웨어 일괄 업데이트 문의", "Aruba AP-515 펌웨어 8.10 업데이트를 도교육청 차원에서 일괄 적용할지 문의드립니다.", "업무질의", null, rCheonan.regionId, null, null, false, at(3, 9, 0));
         post("SLA", eduAdmin, "2026년 3분기 스쿨넷 SLA 결과", "3분기 스쿨넷 가용률 99.93%, 평균 장애 복구 2.1시간. 세부 자료는 첨부 참조.", null, null, null, null, null, false, at(15, 9, 0));
 
-        // ----- 문의처: cbe.go.kr 문의처 안내의 도교육청·교육지원청 공개 연락처 (seed/contacts-chungbuk.json) -----
+        // ----- 문의처: cbe.go.kr 문의처 안내의 도교육청·교육지원청 공개 연락처 (seed/contacts-chungnam.json) -----
         int i = 0;
         for (Map<String, Object> c : contactSeed()) {
             Region r = c.get("region") == null ? null : rg.get((String) c.get("region"));
@@ -340,7 +341,7 @@ public class AsDataSeeder implements CommandLineRunner {
     }
 
     private static List<Map<String, Object>> contactSeed() {
-        try (var in = new org.springframework.core.io.ClassPathResource("seed/contacts-chungbuk.json").getInputStream()) {
+        try (var in = new org.springframework.core.io.ClassPathResource("seed/contacts-chungnam.json").getInputStream()) {
             return new com.fasterxml.jackson.databind.ObjectMapper().readValue(in, new com.fasterxml.jackson.core.type.TypeReference<>() {});
         } catch (java.io.IOException e) {
             log.warn("문의처 시드 파일을 읽지 못했습니다: {}", e.getMessage());

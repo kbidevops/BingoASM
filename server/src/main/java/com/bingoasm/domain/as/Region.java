@@ -12,4 +12,9 @@ public class Region {
     @Column(length = 100, nullable = false)
     public String regionName;
     public Integer sortOrder;
+    /** N = 지역 관리에서 삭제됨. 다른 화면에서는 사라지고, 문의처 안내에는 항목이 남아 있는 동안 나온다. */
+    @Column(length = 1)
+    public String useYn = "Y";
+
+    public boolean active() { return !"N".equals(useYn); }
 }

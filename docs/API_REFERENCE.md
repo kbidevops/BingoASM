@@ -31,6 +31,8 @@
 - 원클릭 AS 역할과 기존 자산관리 역할(`REQUESTER`·`RECEIVER`·`PROCESSOR`)은 함께 줄 수 없다.
 - 학교 계정의 지역은 학교에서 정해지므로 계정의 `regionId`는 비워진다.
 - `POST /api/users`에 `roles`를 함께 보내면 그 역할로 만든다 (`ROLE_GRANT` 필요). 없으면 기존 기본값 `REQUESTER`.
+- 사용자 API(목록·등록·수정·역할·메뉴 권한·잠금 해제·삭제)는 `admin`과 도교육청만. `SYS_ADMIN`·`SUPER_ADMIN`을 주거나 그 계정을 고치는 일은 통합 관리자(`SUPER_ADMIN`)만. 본인 계정은 삭제·사용 중지·역할 변경 불가.
+- `PUT /api/users/{id}`에 `roles`를 함께 보내면 역할과 소속을 한 번에 바꾼다. `DELETE /api/users/{id}`는 계정을 사용 중지한다(담당 중인 AS가 있으면 409). `POST /api/users/{id}/unlock`은 로그인 실패 잠금을 푼다.
 
 ### 1.2 권한 코드
 
@@ -54,7 +56,8 @@
 | `AS_MANAGE` | AS신청관리(배정·삭제) | × | × | ○(자기 업체) | ○ |
 | `AS_STATS` | AS통계관리 | × | × | ○(자기 업체) | ○ |
 | `WDEVICE_MANAGE` | 무선망장비관리 | × | × | × | ○ |
-| `SCHOOL_MANAGE` / `VENDOR_MANAGE` | 학교·지역 / 업체 관리 | × | × | × | ○ |
+| `SCHOOL_MANAGE` / `VENDOR_MANAGE` | 학교 / 업체 관리 | × | × | × | ○ |
+| `REGION_MANAGE` | 지역(교육지원청) 관리 | × | × | × | ○ |
 | `BOARD_ADMIN` | 공지·SLA 작성, 게시판 진행상태, 문의처 편집 | × | × | × | ○ |
 | `SPACE_MANAGE` | 건물·층·실(도면) 관리 | ○ | × | × | ○ |
 | `INVENTORY` | 재물조사(QR) | ○ | × | × | ○ |
@@ -179,14 +182,17 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | 메서드 | 경로 | 권한 |
 |---|---|---|
 | GET | `/api/as/regions` | 로그인 |
-| POST / PUT / DELETE | `/api/as/regions[/{id}]` | `SCHOOL_MANAGE` |
+| GET | `/api/as/regions/usage` | `REGION_MANAGE` — 지역별 `schools, users, vendors` 수 |
+| POST / PUT / DELETE | `/api/as/regions[/{id}]` | `REGION_MANAGE` — 기관·담당자가 있으면 삭제 불가(409), 업체 담당 지역은 함께 정리. 문의처 항목은 남아 `deleted:true`로 나오고, 항목을 모두 지우면 사라진다. 같은 이름으로 추가하면 되살아난다 |
+| PUT | `/api/as/regions/order` | `REGION_MANAGE` — 모든 지역 id를 새 순서대로 |
 | GET | `/api/as/schools?keyword&regionId&contractStatus` | 로그인 (학교 사용자는 자기 학교) |
 | GET | `/api/as/schools/{id}` | 〃 — 유형별 담당 업체·기사(`vendors`), 자산 수, 담당자 |
 | POST / PUT / DELETE | `/api/as/schools[/{id}]` | `SCHOOL_MANAGE` — `{schoolName, regionId, schoolType ELEM/MID/HIGH/SPECIAL/ETC, address, tel, classCount, contractStatus NONE/CONTRACTED, memo}` |
 | PUT | `/api/as/schools/{id}/vendors` | `SCHOOL_MANAGE`/`VENDOR_MANAGE` — `[{rceptTy, vendorId, engineerUserId}]` |
 | GET | `/api/as/vendors?regionId&rceptTy` | 로그인 |
-| POST / PUT / DELETE | `/api/as/vendors[/{id}]` | `VENDOR_MANAGE` — `{vendorName, regionId, bizNo, tel, address, serviceTypes:"M,S"}` |
+| POST / PUT / DELETE | `/api/as/vendors[/{id}]` | `VENDOR_MANAGE`, 도교육청만 — `{vendorName, allRegions, regions:[{regionId}], bizNo, tel, address, serviceTypes:"M,S"}`. DELETE는 처리 중인 AS가 있으면 409, 아니면 학교 배정·담당 지역을 지우고 소속 계정을 사용 중지 |
 | GET | `/api/as/vendors/{id}/engineers` | 관리자·기사 |
+| GET | `/api/as/vendors/{id}/usage` | `VENDOR_MANAGE`, 도교육청만 — 삭제 전 확인: `schools, users, openRequests, allRequests` |
 | GET | `/api/as/wireless-devices?schoolId&regionId&deviceType&status&keyword` | 장비관리·무선망 신청/조회·기사 |
 | POST / PUT / DELETE | `/api/as/wireless-devices[/{id}]` | `WDEVICE_MANAGE` — `{schoolId, deviceCode, deviceName, deviceType AP/SWITCH/CONTROLLER, modelName, ipAddress, macAddress, location, installedAt, lastCheckedAt, status NORMAL/FAULT/REPLACED, note}` |
 
@@ -322,7 +328,8 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 |---|---|
 | `as_regions` | 교육지원청 (도교육청은 `regionId` 없음) |
 | `schools` | 학교: 지역, 학교코드, 유형, 계약 상태 |
-| `vendors` | 유지관리 업체: `serviceTypes` (C,M,S,T csv) |
+| `vendors` | 유지관리 업체: `serviceTypes` (C,M,S,T csv), `allRegions` |
+| `vendor_regions` | 업체 × 담당 지역 |
 | `school_vendors` | 학교 × 유형 → 업체·기사 |
 | `wireless_devices` | 무선망 장비 |
 | `as_requests`, `as_histories` | AS 신청과 처리 이력 |

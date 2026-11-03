@@ -80,7 +80,7 @@ function PostBody({ slug, id }: { slug: BoardSlug; id: number }) {
               {p.status && <PostBadge status={p.status} name={p.statusName} />}
             </div>
           )}
-          <h3>{p.secret ? "🔒 " : ""}{p.title}</h3>
+          <h3>{p.title}</h3>
           <dl>{meta.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
         </header>
         <div className="pbody" style={{ whiteSpace: "pre-wrap" }}>{p.content}</div>

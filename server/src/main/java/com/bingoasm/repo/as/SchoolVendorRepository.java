@@ -9,5 +9,6 @@ public interface SchoolVendorRepository extends JpaRepository<SchoolVendor, Long
     List<SchoolVendor> findBySchoolIdIn(Collection<Long> schoolIds);
     Optional<SchoolVendor> findBySchoolIdAndRceptTy(Long schoolId, String rceptTy);
     List<SchoolVendor> findByVendorId(Long vendorId);
+    List<SchoolVendor> findByEngineerUserId(Long engineerUserId);
     void deleteBySchoolId(Long schoolId);
 }

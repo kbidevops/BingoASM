@@ -22,19 +22,36 @@ public class SchoolService {
     private final SchoolRepository schools;
     private final VendorRepository vendors;
     private final SchoolVendorRepository schoolVendors;
+    private final com.bingoasm.repo.as.VendorRegionRepository vendorRegions;
+    private final com.bingoasm.repo.as.AsRequestRepository requests;
     private final UserRepository users;
     private final AssetRepository assets;
 
-    public SchoolService(RegionRepository regions, SchoolRepository schools, VendorRepository vendors, SchoolVendorRepository schoolVendors,
+    public SchoolService(com.bingoasm.repo.as.VendorRegionRepository vendorRegions, com.bingoasm.repo.as.AsRequestRepository requests, RegionRepository regions, SchoolRepository schools, VendorRepository vendors, SchoolVendorRepository schoolVendors,
                          UserRepository users, AssetRepository assets) {
-        this.regions = regions; this.schools = schools; this.vendors = vendors; this.schoolVendors = schoolVendors;
+        this.vendorRegions = vendorRegions; this.requests = requests; this.regions = regions; this.schools = schools; this.vendors = vendors; this.schoolVendors = schoolVendors;
         this.users = users; this.assets = assets;
     }
 
     // ---------- lookups shared with other services ----------
 
     public Map<Long, Region> regionMap(Long orgId) {
-        return regions.findByOrgIdOrderBySortOrderAsc(orgId).stream().collect(Collectors.toMap(r -> r.regionId, Function.identity()));
+        // 순서를 지킨다: 문의처처럼 이 맵을 그대로 나열하는 화면이 있다.
+        return activeRegions(orgId).stream().collect(Collectors.toMap(r -> r.regionId, Function.identity(), (a, b) -> a, LinkedHashMap::new));
+    }
+
+    private List<Region> activeRegions(Long orgId) {
+        return regions.findByOrgIdOrderBySortOrderAsc(orgId).stream().filter(Region::active).toList();
+    }
+
+    /** 삭제된 지역까지. 문의처 안내만 쓴다. */
+    public Map<Long, Region> allRegionMap(Long orgId) {
+        return regions.findByOrgIdOrderBySortOrderAsc(orgId).stream().collect(Collectors.toMap(r -> r.regionId, Function.identity(), (a, b) -> a, LinkedHashMap::new));
+    }
+
+    /** 삭제된 업체까지 (useYn과 무관). 이름을 보여 주는 용도. */
+    public Map<Long, Vendor> allVendorMap(Long orgId) {
+        return vendors.findAll().stream().filter(v -> orgId.equals(v.orgId)).collect(Collectors.toMap(v -> v.vendorId, Function.identity()));
     }
 
     public Map<Long, School> schoolMap(Long orgId) {
@@ -92,7 +109,7 @@ public class SchoolService {
     // ---------- regions ----------
 
     public List<Json> regions(CurrentUser me) {
-        return regions.findByOrgIdOrderBySortOrderAsc(me.orgId()).stream()
+        return activeRegions(me.orgId()).stream()
                 .filter(r -> !me.scope().region() || r.regionId.equals(me.scope().regionId()))
                 .map(r -> Json.obj().with("regionId", r.regionId).with("regionName", r.regionName).with("sortOrder", r.sortOrder)).toList();
     }
@@ -104,22 +121,54 @@ public class SchoolService {
 
     public Json saveRegion(CurrentUser me, Long id, Map<String, Object> b) {
         requireProvinceAdmin(me);
-        Region r = id == null ? new Region() : regions.findById(id).filter(x -> x.orgId.equals(me.orgId())).orElseThrow(() -> ApiException.notFound("지역을 찾을 수 없습니다."));
         String name = Params.str(b, "regionName");
         if (name == null) throw ApiException.badRequest("지역명을 입력해 주세요.");
+        // 삭제한 지역과 같은 이름으로 추가하면 그 지역을 되살린다. 문의처 항목이 다시 이어진다.
+        Region revived = id != null ? null : regions.findByOrgIdOrderBySortOrderAsc(me.orgId()).stream().filter(x -> !x.active() && name.equals(x.regionName)).findFirst().orElse(null);
+        Region r = id == null ? (revived != null ? revived : new Region()) : regions.findById(id).filter(x -> x.orgId.equals(me.orgId()) && x.active()).orElseThrow(() -> ApiException.notFound("지역을 찾을 수 없습니다."));
+        List<Region> all = activeRegions(me.orgId());
+        if (all.stream().anyMatch(x -> name.equals(x.regionName) && !x.regionId.equals(id))) throw ApiException.conflict("이미 있는 지역명입니다.");
         r.orgId = me.orgId(); r.regionName = name;
+        if (revived != null) { r.useYn = "Y"; r.sortOrder = null; }
         Integer so = Params.integer(b, "sortOrder");
-        r.sortOrder = so != null ? so : r.sortOrder != null ? r.sortOrder : (int) regions.count() + 1;
+        r.sortOrder = so != null ? so : r.sortOrder != null ? r.sortOrder : all.stream().mapToInt(x -> x.sortOrder == null ? 0 : x.sortOrder).max().orElse(0) + 1;
         regions.save(r);
         return Json.obj().with("regionId", r.regionId).with("regionName", r.regionName).with("sortOrder", r.sortOrder);
     }
 
     public void deleteRegion(CurrentUser me, Long id) {
         requireProvinceAdmin(me);
-        Region r = regions.findById(id).filter(x -> x.orgId.equals(me.orgId())).orElseThrow(() -> ApiException.notFound("지역을 찾을 수 없습니다."));
+        Region r = regions.findById(id).filter(x -> x.orgId.equals(me.orgId()) && x.active()).orElseThrow(() -> ApiException.notFound("지역을 찾을 수 없습니다."));
         if (schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(me.orgId(), "Y").stream().anyMatch(s -> id.equals(s.regionId)))
             throw ApiException.conflict("이 지역에 속한 기관이 있어 삭제할 수 없습니다.");
-        regions.delete(r);
+        if (users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream().anyMatch(u -> id.equals(u.regionId)))
+            throw ApiException.conflict("이 지역의 담당자 계정이 있어 삭제할 수 없습니다.");
+        // 문의처는 건드리지 않는다: 항목이 남아 있는 동안 문의처 안내에 "삭제됨"으로 나온다 (ContactService.grouped).
+        vendorRegions.deleteAll(vendorRegions.findByOrgIdAndRegionId(me.orgId(), id));
+        r.useYn = "N";
+    }
+
+    @Transactional(readOnly = true)
+    public List<Json> regionUsage(CurrentUser me) {
+        requireProvinceAdmin(me);
+        Long org = me.orgId();
+        Map<Long, Long> sc = schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(org, "Y").stream().filter(s -> s.regionId != null).collect(Collectors.groupingBy(s -> s.regionId, Collectors.counting()));
+        Map<Long, Long> us = users.findByOrgIdOrderByUserIdAsc(org).stream().filter(u -> u.regionId != null).collect(Collectors.groupingBy(u -> u.regionId, Collectors.counting()));
+        Set<Long> active = vendors.findByOrgIdAndUseYnOrderByVendorNameAsc(org, "Y").stream().map(v -> v.vendorId).collect(Collectors.toSet());
+        Map<Long, Long> vs = vendorRegions.findByOrgIdOrderBySortOrderAsc(org).stream().filter(l -> active.contains(l.vendorId)).collect(Collectors.groupingBy(l -> l.regionId, Collectors.counting()));
+        return activeRegions(org).stream().map(r -> Json.obj().with("regionId", r.regionId).with("regionName", r.regionName).with("sortOrder", r.sortOrder)
+                .with("schools", sc.getOrDefault(r.regionId, 0L)).with("users", us.getOrDefault(r.regionId, 0L))
+                .with("vendors", vs.getOrDefault(r.regionId, 0L))).toList();
+    }
+
+    /** ids: 이 기관의 모든 지역을 새 순서대로. */
+    public List<Json> orderRegions(CurrentUser me, List<Long> ids) {
+        requireProvinceAdmin(me);
+        Map<Long, Region> rm = regionMap(me.orgId());
+        if (ids == null || ids.size() != rm.size() || !new HashSet<>(ids).equals(rm.keySet())) throw ApiException.badRequest("모든 지역을 한 번씩 보내 주세요.");
+        int i = 0;
+        for (Long id : ids) rm.get(id).sortOrder = ++i;
+        return regions(me);
     }
 
     // ---------- schools ----------
@@ -231,6 +280,10 @@ public class SchoolService {
         loadSchool(me, schoolId);
         requireSchoolAdmin(me, "담당 업체·기사 지정");
         Map<Long, Vendor> vm = vendorMap(me.orgId());
+        School school = schools.findById(schoolId).orElseThrow();
+        // 이전에 지정된 배정은 담당 지역 밖이어도 그대로 저장된다. 학교의 다른 정보를 고치다 AS 배정이 끊기지 않도록.
+        Map<String, Long> before = new HashMap<>();
+        for (SchoolVendor sv : schoolVendors.findBySchoolId(schoolId)) before.put(sv.rceptTy, sv.vendorId);
         schoolVendors.deleteBySchoolId(schoolId);
         // Hibernate flushes INSERTs before DELETEs; without this, re-saving an existing (school, type) hits the unique key.
         schoolVendors.flush();
@@ -241,6 +294,8 @@ public class SchoolService {
             Vendor v = vm.get(vid);
             if (v == null) throw ApiException.badRequest("업체가 올바르지 않습니다.");
             if (!v.serviceTypeList().contains(ty)) throw ApiException.badRequest(v.vendorName + "은(는) " + AsCodes.RCEPT_TY_NAME.get(ty) + " 유지관리 업체가 아닙니다.");
+            if (!vid.equals(before.get(ty)) && !vendorCovers(v, school.regionId))
+                throw ApiException.badRequest(v.vendorName + "은(는) " + school.schoolName + "의 지역을 담당하지 않습니다. 업체관리에서 담당 지역을 확인해 주세요.");
             SchoolVendor sv = new SchoolVendor();
             sv.schoolId = schoolId; sv.rceptTy = ty; sv.vendorId = vid;
             Long eid = Params.lng(r, "engineerUserId");
@@ -255,10 +310,14 @@ public class SchoolService {
 
     // ---------- vendors ----------
 
-    public Json vendorView(Vendor v, Map<Long, Region> rm, long engineerCount) {
-        Region r = v.regionId == null ? null : rm.get(v.regionId);
-        return Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName).with("regionId", v.regionId)
-                .with("regionName", r == null ? "전체" : r.regionName).with("bizNo", v.bizNo).with("tel", v.tel).with("address", v.address)
+    public Json vendorView(Vendor v, Map<Long, Region> rm, List<com.bingoasm.domain.as.VendorRegion> links, long engineerCount) {
+        boolean all = Boolean.TRUE.equals(v.allRegions);
+        List<com.bingoasm.domain.as.VendorRegion> mine = all ? List.of() : links.stream().filter(l -> rm.containsKey(l.regionId))
+                .sorted(Comparator.comparing((com.bingoasm.domain.as.VendorRegion l) -> rm.get(l.regionId).sortOrder, Comparator.nullsLast(Comparator.naturalOrder()))).toList();
+        return Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName).with("allRegions", all)
+                .with("regions", mine.stream().map(l -> Json.obj().with("regionId", l.regionId).with("regionName", rm.get(l.regionId).regionName)).toList())
+                .with("regionName", all ? "전체" : mine.isEmpty() ? "미지정" : String.join(", ", mine.stream().map(l -> rm.get(l.regionId).regionName).toList()))
+                .with("bizNo", v.bizNo).with("tel", v.tel).with("address", v.address)
                 .with("serviceTypes", v.serviceTypeList())
                 .with("serviceTypeNames", v.serviceTypeList().stream().map(t -> AsCodes.RCEPT_TY_NAME.getOrDefault(t, t)).toList())
                 .with("engineerCount", engineerCount).with("updatedAt", v.updatedAt != null ? v.updatedAt : v.createdAt);
@@ -269,10 +328,11 @@ public class SchoolService {
         Map<Long, Region> rm = regionMap(me.orgId());
         Map<Long, Long> eng = users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream().filter(u -> u.vendorId != null && "ACTIVE".equals(u.status))
                 .collect(Collectors.groupingBy(u -> u.vendorId, Collectors.counting()));
+        Map<Long, List<com.bingoasm.domain.as.VendorRegion>> links = vendorRegions.findByOrgIdOrderBySortOrderAsc(me.orgId()).stream().collect(Collectors.groupingBy(l -> l.vendorId));
         return vendors.findByOrgIdAndUseYnOrderByVendorNameAsc(me.orgId(), "Y").stream()
-                .filter(v -> regionId == null || v.regionId == null || regionId.equals(v.regionId))
+                .filter(v -> regionId == null || Boolean.TRUE.equals(v.allRegions) || links.getOrDefault(v.vendorId, List.of()).stream().anyMatch(l -> regionId.equals(l.regionId)))
                 .filter(v -> Params.blank(rceptTy) || v.serviceTypeList().contains(rceptTy))
-                .map(v -> vendorView(v, rm, eng.getOrDefault(v.vendorId, 0L))).toList();
+                .map(v -> vendorView(v, rm, links.getOrDefault(v.vendorId, List.of()), eng.getOrDefault(v.vendorId, 0L))).toList();
     }
 
     private Vendor loadVendor(CurrentUser me, Long id) {
@@ -282,7 +342,6 @@ public class SchoolService {
     private void applyVendor(CurrentUser me, Vendor v, Map<String, Object> b) {
         if (b.containsKey("vendorName")) v.vendorName = Params.str(b, "vendorName");
         if (Params.blank(v.vendorName)) throw ApiException.badRequest("업체명을 입력해 주세요.");
-        if (b.containsKey("regionId")) v.regionId = Params.lng(b, "regionId");
         if (b.containsKey("bizNo")) v.bizNo = Params.str(b, "bizNo");
         if (b.containsKey("tel")) v.tel = Params.str(b, "tel");
         if (b.containsKey("address")) v.address = Params.str(b, "address");
@@ -295,6 +354,63 @@ public class SchoolService {
         v.updatedAt = Times.now();
     }
 
+    /**
+     * 담당 지역 저장. body: { allRegions, regions:[{regionId}] } 또는 예전 형식 { regionId } (없으면 전체). 빠진 지역은 지운다.
+     */
+    /** 이 업체가 그 지역을 담당하는가. */
+    public boolean vendorCovers(Vendor v, Long regionId) {
+        return Boolean.TRUE.equals(v.allRegions) || vendorRegions.findByVendorId(v.vendorId).stream().anyMatch(l -> l.regionId.equals(regionId));
+    }
+
+    /** 담당 지역에서 빠지는 지역에 이 업체가 배정된 학교가 있으면 거절한다. 그대로 두면 담당 지역 밖의 학교가 AS를 계속 보내게 된다. */
+    private void refuseRemovingUsedRegions(CurrentUser me, Vendor v, Set<Long> kept, boolean keepsAll) {
+        if (keepsAll || v.vendorId == null || v.allRegions == null) return;
+        Set<Long> before = new HashSet<>();
+        if (Boolean.TRUE.equals(v.allRegions)) before.addAll(regionMap(me.orgId()).keySet());
+        else for (var l : vendorRegions.findByVendorId(v.vendorId)) before.add(l.regionId);
+        before.removeAll(kept);
+        Map<Long, School> sm = schoolMap(me.orgId());
+        Map<Long, Region> rm = regionMap(me.orgId());
+        List<String> used = schoolVendors.findByVendorId(v.vendorId).stream().map(sv -> sm.get(sv.schoolId))
+                .filter(s -> s != null && before.contains(s.regionId)).map(s -> s.schoolName).distinct().toList();
+        if (!used.isEmpty()) {
+            String regionNames = String.join(", ", before.stream().filter(rm::containsKey).filter(id -> used.stream().anyMatch(n -> sm.values().stream().anyMatch(s -> n.equals(s.schoolName) && id.equals(s.regionId)))).map(id -> rm.get(id).regionName).toList());
+            throw ApiException.conflict(regionNames + "을(를) 담당 지역에서 뺄 수 없습니다. 이 업체가 배정된 학교가 있습니다: " + String.join(", ", used) + ". 기관정보관리에서 먼저 다른 업체로 바꿔 주세요.");
+        }
+    }
+
+    private void applyRegions(CurrentUser me, Vendor v, Map<String, Object> b) {
+        boolean legacy = !b.containsKey("regions") && !b.containsKey("allRegions");
+        if (legacy && !b.containsKey("regionId") && v.allRegions != null) return;
+        Long legacyRegion = legacy ? Params.lng(b, "regionId") : null;
+        boolean keepsAll = legacy ? legacyRegion == null : Boolean.TRUE.equals(b.get("allRegions"));
+        Set<Long> kept = new HashSet<>();
+        if (legacyRegion != null) kept.add(legacyRegion);
+        if (!keepsAll && b.get("regions") instanceof List<?> l0) for (Object o : l0) if (o instanceof Map<?, ?> m0 && Params.toLong(m0.get("regionId")) != null) kept.add(Params.toLong(m0.get("regionId")));
+        refuseRemovingUsedRegions(me, v, kept, keepsAll);
+        v.allRegions = keepsAll;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (legacyRegion != null) rows.add(Map.of("regionId", legacyRegion));
+        if (b.get("regions") instanceof List<?> l && !v.allRegions) for (Object o : l) if (o instanceof Map<?, ?> m) {
+            @SuppressWarnings("unchecked") Map<String, Object> row = (Map<String, Object>) m;
+            rows.add(row);
+        }
+        Map<Long, Region> rm = regionMap(me.orgId());
+        Map<Long, com.bingoasm.domain.as.VendorRegion> old = new HashMap<>();
+        for (var l : vendorRegions.findByVendorId(v.vendorId)) old.put(l.regionId, l);
+        for (Map<String, Object> r : rows) {
+            Long rid = Params.lng(r, "regionId");
+            if (rid == null || !rm.containsKey(rid)) throw ApiException.badRequest("담당 지역이 올바르지 않습니다.");
+            var l = old.remove(rid);
+            if (l == null) {
+                l = new com.bingoasm.domain.as.VendorRegion();
+                l.orgId = me.orgId(); l.vendorId = v.vendorId; l.regionId = rid;
+                vendorRegions.save(l);
+            }
+        }
+        vendorRegions.deleteAll(old.values());
+    }
+
     /** 업체 등록·수정·삭제는 도교육청만 — 담당 분야를 바꾸면 그 업체 기사들의 AS 메뉴가 바뀌기 때문. 다른 계정은 조회만. */
     private static void requireVendorAdmin(CurrentUser me) {
         if (!me.scope().province()) throw ApiException.forbidden("업체 등록·수정·삭제는 도교육청 관리자만 할 수 있습니다.");
@@ -305,20 +421,54 @@ public class SchoolService {
         Vendor v = new Vendor();
         v.orgId = me.orgId(); v.createdAt = Times.now();
         applyVendor(me, v, b);
+        if (!b.containsKey("regions") && !b.containsKey("allRegions") && !b.containsKey("regionId")) v.allRegions = true;
         vendors.save(v);
-        return vendorView(v, regionMap(me.orgId()), 0);
+        applyRegions(me, v, b);
+        vendors.save(v);
+        return vendorView(v, regionMap(me.orgId()), vendorRegions.findByVendorId(v.vendorId), 0);
     }
 
     public Json updateVendor(CurrentUser me, Long id, Map<String, Object> b) {
         requireVendorAdmin(me);
         Vendor v = loadVendor(me, id);
         applyVendor(me, v, b);
+        applyRegions(me, v, b);
+        vendorRegions.flush();
         return vendors(me, null, null).stream().filter(j -> id.equals(j.get("vendorId"))).findFirst().orElseThrow();
     }
 
+    private static final List<String> OPEN_STATUS = List.of("A", "R");
+
+    private List<AppUser> vendorUsers(CurrentUser me, Long vendorId) {
+        return users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream().filter(u -> vendorId.equals(u.vendorId) && "ACTIVE".equals(u.status)).toList();
+    }
+
+    /** 삭제 확인 화면용: 이 업체를 지우면 영향받는 것들. */
+    @Transactional(readOnly = true)
+    public Json vendorUsage(CurrentUser me, Long id) {
+        requireVendorAdmin(me);
+        Vendor v = loadVendor(me, id);
+        return Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName)
+                .with("schools", schoolVendors.findByVendorId(id).stream().map(sv -> sv.schoolId).distinct().count())
+                .with("users", vendorUsers(me, id).size())
+                .with("openRequests", requests.countByVendorIdAndUseYnAndStatusIn(id, "Y", OPEN_STATUS))
+                .with("allRequests", requests.countByVendorIdAndUseYn(id, "Y"));
+    }
+
+    /**
+     * 업체 삭제. 처리 중인 AS(신청완료·접수완료)가 있으면 거절한다. 삭제하면 학교 배정과 담당 지역을 지우고 소속 계정을 사용 중지한다.
+     * 업체 기록은 숨기기만 하므로 지난 AS에는 이름이 남는다. 문의처의 유지보수 사업자는 별개라 건드리지 않는다.
+     */
     public void deleteVendor(CurrentUser me, Long id) {
         requireVendorAdmin(me);
-        loadVendor(me, id).useYn = "N";
+        Vendor v = loadVendor(me, id);
+        long open = requests.countByVendorIdAndUseYnAndStatusIn(id, "Y", OPEN_STATUS);
+        if (open > 0) throw ApiException.conflict("처리 중인 AS가 " + open + "건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 업체로 옮겨 주세요.");
+        schoolVendors.deleteAll(schoolVendors.findByVendorId(id));
+        vendorRegions.deleteAll(vendorRegions.findByVendorId(id));
+        for (AppUser u : vendorUsers(me, id)) u.status = "DISABLED";
+        v.useYn = "N";
+        v.updatedAt = Times.now();
     }
 
     @Transactional(readOnly = true)

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Confirm, FilterField, FilterForm, ListHead, Tiles } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
@@ -37,7 +38,6 @@ function Schools() {
   const [contract, setContract] = useState("");
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<SchoolFull | "new" | null>(null);
-  const [regionsOpen, setRegionsOpen] = useState(false);
 
   const load = useCallback(() => {
     setErr("");
@@ -90,7 +90,7 @@ function Schools() {
         </FilterField>
       </FilterForm>
       <ListHead total={shown.length} page={cur} pages={pages}>
-        {isAdmin(me) && <button className="btn sm sec" type="button" onClick={() => setRegionsOpen(true)}>지역 관리</button>}
+        {isAdmin(me) && <Link className="btn sm sec" href="/admin/regions">지역 관리</Link>}
         <button className="btn sm sec" type="button" disabled={!shown.length}
           onClick={() => downloadCsv("기관정보관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, s.contractStatusName, vendorsOf(s), s.assetCount]))}>
           엑셀출력 <Icon name="down" />
@@ -118,7 +118,6 @@ function Schools() {
       </div>
       <Pager page={cur} totalPages={pages} onPage={setPage} />
       {edit && <SchoolForm school={edit === "new" ? null : edit} regions={regions} manage={manage} onClose={() => setEdit(null)} onSaved={(m) => { setEdit(null); toast(m); load(); }} />}
-      {regionsOpen && <RegionManager regions={regions} onClose={() => { setRegionsOpen(false); load(); }} />}
     </>
   );
 }
@@ -147,9 +146,32 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
   const [del, setDel] = useState(false);
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value });
 
+  /** Vendors that can serve this type in the region: 담당 분야 matches and the vendor covers the region or 전체. */
+  const candidates = (list: Vendor[], t: RceptTy, regionId: string) => !regionId ? [] : list.filter((x) =>
+    x.serviceTypes.includes(t) && (x.allRegions || x.regions.some((r) => String(r.regionId) === regionId)));
+  /** Keeps a choice that still fits the region; otherwise picks the only candidate, or nothing when there are several. */
+  const autoPick = (prev: typeof map, list: Vendor[], regionId: string) => {
+    const next = { ...prev };
+    for (const t of asTypes) {
+      const c = candidates(list, t, regionId);
+      if (c.some((x) => String(x.vendorId) === prev[t].vendorId)) continue;
+      next[t] = { vendorId: c.length === 1 ? String(c[0].vendorId) : "", engineerUserId: "" };
+    }
+    return next;
+  };
+
   useEffect(() => {
-    api.get<Vendor[]>("/api/as/vendors").then(setVendors).catch(() => {});
+    api.get<Vendor[]>("/api/as/vendors").then((list) => {
+      setVendors(list);
+      // An existing school keeps its assignments until someone changes its region.
+      if (!school && manage) setMap((m) => autoPick(m, list, v.regionId));
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const changeRegion = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setV({ ...v, regionId: e.target.value });
+    setMap(autoPick(map, vendors, e.target.value));
+  };
   const vendorIds = Object.values(map).map((m) => m.vendorId).filter(Boolean).join(",");
   useEffect(() => {
     for (const id of new Set(vendorIds.split(",").filter(Boolean))) {
@@ -197,7 +219,7 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
           <FormRow label="기관코드"><input aria-label="기관코드" value={v.schoolCode} onChange={set("schoolCode")} /></FormRow>
           <FormRow label="학교급 / 지역" required>
             <select aria-label="학교급" value={v.schoolType} onChange={set("schoolType")}>{SCHOOL_TYPES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select>{" "}
-            <select aria-label="지역" value={v.regionId} onChange={set("regionId")} disabled={!manage}>
+            <select aria-label="지역" value={v.regionId} onChange={changeRegion} disabled={!manage}>
               <option value="">-- 지역 --</option>
               {regions.map((r) => <option key={r.regionId} value={r.regionId}>{r.regionName}</option>)}
             </select>
@@ -213,20 +235,28 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
             {!manage && <small className="hint"> 계약·지역·담당업체는 교육청·교육지원청에서 지정합니다.</small>}
           </FormRow>
           {asTypes.map((t) => {
-            const options = vendors.filter((x) => x.serviceTypes.includes(t));
+            const options = candidates(vendors, t, v.regionId);
+            // An assignment made before regions applied stays visible until someone changes it.
+            const outside = vendors.find((x) => String(x.vendorId) === map[t].vendorId && !options.includes(x));
             const engs = map[t].vendorId ? engineers[map[t].vendorId] ?? [] : [];
             return (
               <FormRow key={t} label={`${AS_NAME[t]} 담당`}>
                 <select aria-label={`${AS_NAME[t]} 담당 업체`} value={map[t].vendorId} disabled={!manage}
                   onChange={(e) => setMap({ ...map, [t]: { vendorId: e.target.value, engineerUserId: "" } })}>
                   <option value="">-- 업체 없음 --</option>
-                  {options.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName} ({x.regionName})</option>)}
+                  {outside && <option value={outside.vendorId}>{outside.vendorName} (다른 지역)</option>}
+                  {options.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName}</option>)}
                 </select>{" "}
                 <select aria-label={`${AS_NAME[t]} 담당 기사`} value={map[t].engineerUserId} disabled={!manage || !map[t].vendorId}
                   onChange={(e) => setMap({ ...map, [t]: { ...map[t], engineerUserId: e.target.value } })}>
                   <option value="">-- 기사 자동 --</option>
                   {engs.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.mobile ? ` (${x.mobile})` : ""}</option>)}
                 </select>
+                {manage && !map[t].vendorId && (
+                  <small className="hint sv-hint">
+                    {!v.regionId ? "지역을 고르면 담당 업체가 정해집니다." : options.length ? "이 지역의 담당 업체가 여러 곳입니다. 선택해 주세요." : "이 지역에 담당 업체가 없습니다. 업체관리에서 지정해 주세요."}
+                  </small>
+                )}
               </FormRow>
             );
           })}
@@ -240,51 +270,6 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
         </div>
         {del && <Confirm text={`${school!.schoolName}을(를) 삭제할까요? 연결된 자산·AS 기록이 있으면 삭제되지 않습니다.`} onYes={remove} onNo={() => setDel(false)} busy={busy} />}
       </form>
-    </Modal>
-  );
-}
-
-function RegionManager({ regions: initial, onClose }: { regions: Region[]; onClose: () => void }) {
-  const toast = useToast();
-  const [regions, setRegions] = useState(initial);
-  const [names, setNames] = useState<Record<number, string>>(() => Object.fromEntries(initial.map((r) => [r.regionId, r.regionName])));
-  const [add, setAdd] = useState("");
-  const [msg, setMsg] = useState("");
-  const reload = () => api.get<Region[]>("/api/as/regions").then((r) => { setRegions(r); setNames(Object.fromEntries(r.map((x) => [x.regionId, x.regionName]))); });
-  const run = async (f: () => Promise<unknown>, ok: string) => {
-    setMsg("");
-    try {
-      await f();
-      toast(ok);
-      await reload();
-    } catch (e) {
-      setMsg((e as Error).message);
-    }
-  };
-  return (
-    <Modal title="지역(교육지원청) 관리" onClose={onClose}>
-      <div className="tw">
-        <table>
-          <thead><tr><th scope="col">지역명</th><th scope="col">관리</th></tr></thead>
-          <tbody>
-            {regions.map((r) => (
-              <tr key={r.regionId}>
-                <td><input aria-label="지역명" value={names[r.regionId] ?? ""} onChange={(e) => setNames({ ...names, [r.regionId]: e.target.value })} /></td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  <button type="button" className="btn sm sec" disabled={!names[r.regionId]?.trim() || names[r.regionId] === r.regionName}
-                    onClick={() => run(() => api.put(`/api/as/regions/${r.regionId}`, { regionName: names[r.regionId].trim() }), "저장했습니다.")}>저장</button>{" "}
-                  <button type="button" className="btn sm sec" onClick={() => confirm(`${r.regionName}을(를) 삭제할까요?`) && run(() => api.del(`/api/as/regions/${r.regionId}`), "삭제했습니다.")}>삭제</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <form style={{ display: "flex", gap: 8, marginTop: 10 }} onSubmit={(e) => { e.preventDefault(); if (add.trim()) run(() => api.post("/api/as/regions", { regionName: add.trim() }), "추가했습니다.").then(() => setAdd("")); }}>
-        <input aria-label="새 지역명" placeholder="새 지역명 (예: 청주교육지원청)" value={add} onChange={(e) => setAdd(e.target.value)} style={{ flex: 1 }} />
-        <button type="submit" className="btn sm">추가</button>
-      </form>
-      <p className={"msg" + (msg ? " bad" : "")} role="status">{msg}</p>
     </Modal>
   );
 }

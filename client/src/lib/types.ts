@@ -240,5 +240,7 @@ export interface ContactGroup {
   /** null for 도교육청 */
   regionId?: number | null;
   regionName: string;
+  /** Deleted in 지역 관리; stays here until its rows are removed. */
+  deleted?: boolean;
   groups: { groupName: string; items: { itemName: string; tel?: string; note?: string; duties?: string[] }[] }[];
 }

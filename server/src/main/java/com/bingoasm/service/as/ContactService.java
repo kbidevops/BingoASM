@@ -22,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 public class ContactService {
+    /** 교육지원청 문의처 중 유지보수 사업자 탭에 나오는 부서/구분 이름. 업체관리의 업체와는 별개다. */
+    public static final String VENDOR_GROUP = "유지보수 사업자";
     private final ContactRepository contacts;
     private final SchoolService schoolService;
     private final SchoolVendorRepository schoolVendors;
@@ -45,20 +47,21 @@ public class ContactService {
     /** [{regionId, regionName, groups:[{groupName, items:[...]}]}] — 도교육청이 먼저. 문의처가 없는 교육지원청도 (편집할 수 있게) 빈 채로 나온다. */
     @Transactional(readOnly = true)
     public List<Json> grouped(CurrentUser me) {
-        Map<Long, Region> rm = schoolService.regionMap(me.orgId());
+        Map<Long, Region> rm = schoolService.allRegionMap(me.orgId());
         List<Contact> all = contacts.findByOrgIdOrderBySortOrderAsc(me.orgId());
         Map<Long, List<Contact>> byRegion = new LinkedHashMap<>();
         byRegion.put(null, new ArrayList<>());
-        for (Region r : rm.values()) byRegion.put(r.regionId, new ArrayList<>());
+        // 삭제된 지역은 칸을 미리 만들지 않는다: 항목이 있을 때만, 다른 지역 뒤에 나온다.
+        for (Region r : rm.values()) if (r.active()) byRegion.put(r.regionId, new ArrayList<>());
         for (Contact c : all) byRegion.computeIfAbsent(c.regionId, k -> new ArrayList<>()).add(c);
         List<Json> out = new ArrayList<>();
         byRegion.forEach((rid, list) -> {
-            if (rid != null && !rm.containsKey(rid)) return;  // 지워진 교육지원청의 남은 항목
+            if (rid != null && !rm.containsKey(rid)) return;  // 예전에 완전히 지워진 교육지원청의 남은 항목
             Map<String, List<Json>> groups = new LinkedHashMap<>();
             for (Contact c : list) groups.computeIfAbsent(c.groupName, k -> new ArrayList<>()).add(view(c));
             List<Json> gs = new ArrayList<>();
             groups.forEach((g, items) -> gs.add(Json.obj().with("groupName", g).with("items", items)));
-            out.add(Json.obj().with("regionId", rid).with("regionName", rid == null ? "도교육청" : rm.get(rid).regionName).with("groups", gs));
+            out.add(Json.obj().with("regionId", rid).with("regionName", rid == null ? "도교육청" : rm.get(rid).regionName).with("deleted", rid != null && !rm.get(rid).active()).with("groups", gs));
         });
         return out;
     }
@@ -75,14 +78,18 @@ public class ContactService {
      * 도교육청 관리자는 어느 구역이든, 교육지원청 담당자는 자기 교육지원청만 고칠 수 있다.
      */
     public List<Json> replaceSection(CurrentUser me, Long regionId, List<Map<String, Object>> rows) {
-        var sc = me.scope();
-        if (!sc.province() && !(sc.region() && regionId != null && regionId.equals(sc.regionId())))
-            throw ApiException.forbidden(regionId == null ? "도교육청 문의처는 도교육청 관리자만 고칠 수 있습니다." : "자기 교육지원청의 문의처만 고칠 수 있습니다.");
-        if (regionId != null && !schoolService.regionMap(me.orgId()).containsKey(regionId)) throw ApiException.notFound("교육지원청을 찾을 수 없습니다.");
+        requireSection(me, regionId);
         if (regionId == null) contacts.deleteByOrgIdAndRegionIdIsNull(me.orgId());
         else contacts.deleteByOrgIdAndRegionId(me.orgId(), regionId);
         save(me, rows, regionId, true);
         return grouped(me);
+    }
+
+    private void requireSection(CurrentUser me, Long regionId) {
+        var sc = me.scope();
+        if (!sc.province() && !(sc.region() && regionId != null && regionId.equals(sc.regionId())))
+            throw ApiException.forbidden(regionId == null ? "도교육청 문의처는 도교육청 관리자만 고칠 수 있습니다." : "자기 교육지원청의 문의처만 고칠 수 있습니다.");
+        if (regionId != null && !schoolService.allRegionMap(me.orgId()).containsKey(regionId)) throw ApiException.notFound("교육지원청을 찾을 수 없습니다.");
     }
 
     private void save(CurrentUser me, List<Map<String, Object>> rows, Long regionId, boolean fixedRegion) {
@@ -114,7 +121,8 @@ public class ContactService {
         List<Json> items = new ArrayList<>();
         for (String ty : permissions.asTypes(me.orgId())) {
             SchoolVendor sv = byType.get(ty);
-            Vendor v = sv == null || sv.vendorId == null ? null : vendors.findById(sv.vendorId).filter(x -> "Y".equals(x.useYn)).orElse(null);
+            // 학교의 지역을 담당하지 않는 업체는 담당업체로 보여 주지 않는다.
+            Vendor v = sv == null || sv.vendorId == null ? null : vendors.findById(sv.vendorId).filter(x -> "Y".equals(x.useYn) && schoolService.vendorCovers(x, s.regionId)).orElse(null);
             AppUser e = v == null || sv.engineerUserId == null ? null : users.findById(sv.engineerUserId).orElse(null);
             items.add(Json.obj().with("rceptTy", ty).with("rceptTyName", AsCodes.RCEPT_TY_NAME.get(ty))
                     .with("vendorName", v == null ? null : v.vendorName).with("vendorTel", v == null ? null : v.tel)

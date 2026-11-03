@@ -6,5 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 public interface AsRequestRepository extends JpaRepository<AsRequest, Long>, JpaSpecificationExecutor<AsRequest> {
     List<AsRequest> findByOrgIdAndUseYn(Long orgId, String useYn);
+    long countByVendorIdAndUseYn(Long vendorId, String useYn);
+    long countByEngineerUserIdAndUseYnAndStatusIn(Long engineerUserId, String useYn, List<String> status);
+    long countByVendorIdAndUseYnAndStatusIn(Long vendorId, String useYn, List<String> status);
     List<AsRequest> findByOrgIdAndUseYnAndRequestAtGreaterThanEqualAndRequestAtLessThan(Long orgId, String useYn, LocalDateTime from, LocalDateTime to);
 }

@@ -22,16 +22,26 @@ public class SchoolController {
     @GetMapping("/regions")
     public ApiResponse regions() { return ApiResponse.ok(schools.regions(AuthContext.get())); }
 
+    /** 지역 관리 화면: 지역별 기관·담당자·업체·문의처 수. */
+    @GetMapping("/regions/usage")
+    @RequirePerm("REGION_MANAGE")
+    public ApiResponse regionUsage() { return ApiResponse.ok(schools.regionUsage(AuthContext.get())); }
+
+    /** body: 지역 id를 새 순서대로 모두 담은 목록 */
+    @PutMapping("/regions/order")
+    @RequirePerm("REGION_MANAGE")
+    public ApiResponse orderRegions(@RequestBody List<Long> ids) { return ApiResponse.ok(schools.orderRegions(AuthContext.get(), ids)); }
+
     @PostMapping("/regions")
-    @RequirePerm("SCHOOL_MANAGE")
+    @RequirePerm("REGION_MANAGE")
     public ApiResponse createRegion(@RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.saveRegion(AuthContext.get(), null, body)); }
 
     @PutMapping("/regions/{id}")
-    @RequirePerm("SCHOOL_MANAGE")
+    @RequirePerm("REGION_MANAGE")
     public ApiResponse updateRegion(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.saveRegion(AuthContext.get(), id, body)); }
 
     @DeleteMapping("/regions/{id}")
-    @RequirePerm("SCHOOL_MANAGE")
+    @RequirePerm("REGION_MANAGE")
     public ApiResponse deleteRegion(@PathVariable Long id) { schools.deleteRegion(AuthContext.get(), id); return ApiResponse.ok(null); }
 
     // ----- schools -----
@@ -76,6 +86,10 @@ public class SchoolController {
     @PutMapping("/vendors/{id}")
     @RequirePerm("VENDOR_MANAGE")
     public ApiResponse updateVendor(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.updateVendor(AuthContext.get(), id, body)); }
+
+    @GetMapping("/vendors/{id}/usage")
+    @RequirePerm("VENDOR_MANAGE")
+    public ApiResponse vendorUsage(@PathVariable Long id) { return ApiResponse.ok(schools.vendorUsage(AuthContext.get(), id)); }
 
     @DeleteMapping("/vendors/{id}")
     @RequirePerm("VENDOR_MANAGE")

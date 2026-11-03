@@ -12,8 +12,13 @@ public class Vendor {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     public Long vendorId;
     public Long orgId;
-    /** 담당 지역 (null = 전체) */
+    /** 예전 담당 지역. VendorRegionMigration이 vendor_regions로 옮긴 뒤로는 쓰지 않는다. */
     public Long regionId;
+    /** 전체 지역 담당. 아니면 담당 지역은 vendor_regions (null = 아직 옮기지 않은 업체) */
+    public Boolean allRegions;
+    /** 유지보수 사업자를 업체에서 만들던 버전의 표시. VendorRegionMigration이 되돌릴 때만 읽는다. */
+    @Column(length = 1)
+    public String publicYn = "N";
     @Column(length = 100, nullable = false)
     public String vendorName;
     public String bizNo;

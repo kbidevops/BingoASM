@@ -61,8 +61,8 @@ public class DataSeeder implements CommandLineRunner {
         log.info("Empty database: loading BingoASM demo data");
 
         Org org = new Org();
-        org.orgCode = "CB001"; org.orgName = "충청남도교육청"; org.bizNo = "123-45-67890"; org.repName = "교육감";
-        org.tel = "043-290-2000"; org.zipCode = "28635"; org.address = "충북 청주시 서원구 청남로 1929"; org.addressDetail = "본관";
+        org.orgCode = "CN001"; org.orgName = "충청남도교육청"; org.bizNo = "123-45-67890"; org.repName = "교육감";
+        org.tel = "041-640-7114"; org.zipCode = "32255"; org.address = "충남 홍성군 홍북읍 충절로 2111"; org.addressDetail = "본관";
         org.createdAt = t("2026-09-04T16:18:07.633090");
         orgs.save(org);
         Long o = org.orgId;
@@ -78,9 +78,9 @@ public class DataSeeder implements CommandLineRunner {
         user(o, 1L, "engineer", "user1234!", "이처리", "기술원", "eng@example.go.kr", "010-1000-0003", List.of("REQUESTER", "PROCESSOR"));
         user(o, 2L, "user01", "user1234!", "최요청", "주무관", "user01@example.go.kr", "010-1000-0004", List.of("REQUESTER"));
 
-        building(o, "본관", "28635", "충청북도 청주시 서원구 청남로 1929", "본관동");
-        building(o, "별관", "28635", "충청북도 청주시 서원구 청남로 1929", "별관동");
-        building(o, "교육연구정보원", null, "충청북도 청주시 ", "청주시");
+        building(o, "본관", "32255", "충청남도 홍성군 홍북읍 충절로 2111", "본관동");
+        building(o, "별관", "32255", "충청남도 홍성군 홍북읍 충절로 2111", "별관동");
+        building(o, "교육연구정보원", null, "충청남도 홍성군 ", "홍성군");
 
         StoredFile plan1 = demoPlanFile(), plan2 = demoPlanFile();
         // Insert in id order so floor ids match the reference system.
@@ -134,8 +134,8 @@ public class DataSeeder implements CommandLineRunner {
         s3.receiverId = 2L; s3.receivedAt = t("2026-09-03T16:28:08.506364"); s3.processorId = 3L; s3.assignedAt = t("2026-09-03T16:33:08.506364");
         s3.startedAt = t("2026-09-03T16:48:08.506364"); s3.holdReason = "부품 수급 대기";
         ServiceRequest s4 = sr(o, "SR-20260829-0004", 2L, "MOVE", "NORMAL", "노트북 자리 이동 요청", "3층 창측에서 중앙으로 이동 예정입니다.", "REQUESTED", 3L, "2026-09-04T14:18:08.506364", "041-840-2225", 1L, 3L, "3층 정보통신과 창측");
-        ServiceRequest s5 = sr(o, "SR-20260917-9001", null, "WIRELESS_AS", "HIGH", "[무선망] 3층 컴퓨터실 무선 접속 불가", "3층 컴퓨터실에서 학생 태블릿 30대가 SSID 에 붙지 않습니다. AP 전원 램프는 켜져 있습니다.", "REQUESTED", 4L, "2026-09-17T06:12:14.522624", "043-290-2000", 1L, 4L, "3층 컴퓨터실");
-        ServiceRequest s6 = sr(o, "SR-20260917-9002", null, "SCHOOLNET_AS", "URGENT", "[스쿨넷] 학교 전체 인터넷 불통", "오전 9시부터 교육망·행정망 모두 인터넷이 되지 않습니다. 라우터 WAN 램프가 꺼져 있습니다.", "REQUESTED", 4L, "2026-09-17T08:12:14.666284", "043-290-2000", 1L, 4L, "1층 정보실");
+        ServiceRequest s5 = sr(o, "SR-20260917-9001", null, "WIRELESS_AS", "HIGH", "[무선망] 3층 컴퓨터실 무선 접속 불가", "3층 컴퓨터실에서 학생 태블릿 30대가 SSID 에 붙지 않습니다. AP 전원 램프는 켜져 있습니다.", "REQUESTED", 4L, "2026-09-17T06:12:14.522624", "041-000-2000", 1L, 4L, "3층 컴퓨터실");
+        ServiceRequest s6 = sr(o, "SR-20260917-9002", null, "SCHOOLNET_AS", "URGENT", "[스쿨넷] 학교 전체 인터넷 불통", "오전 9시부터 교육망·행정망 모두 인터넷이 되지 않습니다. 라우터 WAN 램프가 꺼져 있습니다.", "REQUESTED", 4L, "2026-09-17T08:12:14.666284", "041-000-2000", 1L, 4L, "1층 정보실");
         List<ServiceRequest> all = List.of(s1, s2, s3, s4, s5, s6);
         services.saveAll(all);
 

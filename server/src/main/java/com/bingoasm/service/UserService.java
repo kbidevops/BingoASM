@@ -27,9 +27,13 @@ public class UserService {
     private final RegionRepository regions;
     private final VendorRepository vendors;
     private final PermissionService permissions;
+    private final com.bingoasm.repo.as.SchoolVendorRepository schoolVendors;
+    private final com.bingoasm.repo.as.AsRequestRepository requests;
 
     public UserService(UserRepository users, DepartmentRepository depts, OrgRepository orgs, AssetRepository assets, BCryptPasswordEncoder encoder,
-                       SchoolRepository schools, RegionRepository regions, VendorRepository vendors, PermissionService permissions) {
+                       SchoolRepository schools, RegionRepository regions, VendorRepository vendors, PermissionService permissions,
+                       com.bingoasm.repo.as.SchoolVendorRepository schoolVendors, com.bingoasm.repo.as.AsRequestRepository requests) {
+        this.schoolVendors = schoolVendors; this.requests = requests;
         this.schools = schools; this.regions = regions; this.vendors = vendors; this.permissions = permissions;
         this.users = users; this.depts = depts; this.orgs = orgs; this.assets = assets; this.encoder = encoder;
     }
@@ -41,7 +45,30 @@ public class UserService {
                 .with("email", u.email).with("mobile", u.mobile).with("status", u.status).with("loginFailCnt", u.loginFailCnt)
                 .with("lastLoginAt", u.lastLoginAt).with("createdAt", u.createdAt).with("roles", u.roles)
                 .with("schoolId", u.schoolId).with("vendorId", u.vendorId).with("regionId", u.regionId)
+                .with("memberType", PermissionService.memberType(u)).with("affiliation", affiliation(u))
+                .with("locked", "LOCKED".equals(u.status) || (u.lockedUntil != null && u.lockedUntil.isAfter(Times.now())))
                 .with("permOverrides", u.grantedPerms.size() + u.deniedPerms.size());
+    }
+
+    /** 소속 이름 (학교·업체·교육지원청). */
+    private String affiliation(AppUser u) {
+        if (u.schoolId != null) return schools.findById(u.schoolId).map(s -> s.schoolName).orElse(null);
+        if (u.vendorId != null) return vendors.findById(u.vendorId).map(v -> v.vendorName).orElse(null);
+        if (u.regionId != null) return regions.findById(u.regionId).map(r -> r.regionName).orElse(null);
+        return null;
+    }
+
+    /** 사용자 관리는 `admin`과 도교육청만. 역할로 권한을 받은 예전 자산관리 계정도 막는다. */
+    private static void requireUserAdmin(CurrentUser me) {
+        if (!me.scope().province()) throw ApiException.forbidden("사용자 관리는 도교육청 관리자만 할 수 있습니다.");
+    }
+
+    private static final List<String> TOP_ROLES = List.of("SYS_ADMIN", "SUPER_ADMIN");
+
+    /** 시스템·통합 관리자 계정은 통합 관리자만 고칠 수 있다. 막지 않으면 비밀번호를 바꿔 그 계정을 차지할 수 있다. */
+    private static void guardTarget(CurrentUser me, AppUser target) {
+        if (target.roles.stream().anyMatch(TOP_ROLES::contains) && !me.hasRole("SUPER_ADMIN"))
+            throw ApiException.forbidden("시스템 관리자 계정은 통합 관리자만 고칠 수 있습니다.");
     }
 
     private Map<Long, String> deptNames(Long orgId) {
@@ -60,6 +87,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public PageResult<Json> list(CurrentUser me, String keyword, Long deptId, String role, String status, Integer page, Integer size) {
+        requireUserAdmin(me);
         Map<Long, String> dn = deptNames(me.orgId());
         String on = orgName(me.orgId());
         List<Json> rows = users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream()
@@ -77,7 +105,7 @@ public class UserService {
         return users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream()
                 .filter(u -> "ACTIVE".equals(u.status) && u.roles.contains("PROCESSOR"))
                 .map(u -> Json.obj().with("userId", u.userId).with("deptName", u.deptId == null ? null : dn.get(u.deptId))
-                        .with("userName", u.userName).with("positionName", u.positionName).with("mobile", u.mobile))
+                        .with("userName", u.userName).with("positionName", u.positionName))
                 .toList();
     }
 
@@ -117,7 +145,9 @@ public class UserService {
             throw ApiException.badRequest("소속 학교가 올바르지 않습니다.");
         if (u.vendorId != null && vendors.findById(u.vendorId).filter(v -> v.orgId.equals(u.orgId)).isEmpty())
             throw ApiException.badRequest("소속 업체가 올바르지 않습니다.");
-        if (u.regionId != null && regions.findById(u.regionId).filter(r -> r.orgId.equals(u.orgId)).isEmpty())
+        if (u.vendorId != null && "ACTIVE".equals(u.status) && vendors.findById(u.vendorId).filter(v -> "Y".equals(v.useYn)).isEmpty())
+            throw ApiException.badRequest("삭제된 업체의 계정은 사용할 수 없습니다. 소속 업체를 바꿔 주세요.");
+        if (u.regionId != null && regions.findById(u.regionId).filter(r -> r.orgId.equals(u.orgId) && r.active()).isEmpty())
             throw ApiException.badRequest("소속 교육지원청이 올바르지 않습니다.");
         if (kinds.contains("region")) {
             if (u.schoolId != null || u.vendorId != null) throw ApiException.badRequest("교육지원청 담당자는 학교나 업체에 소속될 수 없습니다.");
@@ -126,13 +156,14 @@ public class UserService {
         if (u.schoolId != null || u.vendorId != null) u.regionId = null;
     }
 
-    /** body.roles를 알려진 역할만 정해진 순서로. 통합 관리자 권한은 통합 관리자만 줄 수 있다. roles가 없으면 null. */
+    /** body.roles를 알려진 역할만 정해진 순서로. 시스템·통합 관리자 권한은 통합 관리자만 줄 수 있다. roles가 없으면 null. */
     private static List<String> requestedRoles(CurrentUser me, AppUser target, Map<String, Object> b) {
         if (!(b.get("roles") instanceof List<?> l)) return null;
         List<String> requested = l.stream().map(String::valueOf).toList();
         List<String> roles = Roles.ORDER.stream().filter(requested::contains).toList();
-        if (roles.contains("SUPER_ADMIN") && (target == null || !target.roles.contains("SUPER_ADMIN")) && !me.hasRole("SUPER_ADMIN"))
-            throw ApiException.forbidden("통합 관리자 권한은 통합 관리자만 부여할 수 있습니다.");
+        for (String top : TOP_ROLES)
+            if (roles.contains(top) && (target == null || !target.roles.contains(top)) && !me.hasRole("SUPER_ADMIN"))
+                throw ApiException.forbidden("시스템·통합 관리자 권한은 통합 관리자만 부여할 수 있습니다.");
         return roles;
     }
 
@@ -143,6 +174,7 @@ public class UserService {
     }
 
     public Json create(CurrentUser me, Map<String, Object> b) {
+        requireUserAdmin(me);
         String loginId = Params.str(b, "loginId");
         String pw = Params.rawStr(b, "password");
         if (loginId == null || Params.str(b, "userName") == null || Params.blank(pw)) throw ApiException.badRequest("아이디, 이름, 비밀번호는 필수입니다.");
@@ -165,19 +197,57 @@ public class UserService {
         return users.findById(id).filter(u -> u.orgId.equals(me.orgId())).orElseThrow(() -> ApiException.notFound("사용자를 찾을 수 없습니다."));
     }
 
+    /** body.roles를 함께 보내면 역할과 소속을 한 번에 바꾼다 (학교 담당자 → 기사처럼 둘이 같이 바뀌어야 맞는 경우). */
     public Json update(CurrentUser me, Long id, Map<String, Object> b) {
+        requireUserAdmin(me);
         AppUser u = load(me, id);
+        guardTarget(me, u);
+        if (u.userId.equals(me.userId()) && b.containsKey("status") && !"ACTIVE".equals(Params.str(b, "status")))
+            throw ApiException.badRequest("본인 계정은 사용 중지할 수 없습니다.");
+        List<String> roles = requestedRoles(me, u, b);
+        if (roles != null) {
+            if (!me.can("ROLE_GRANT")) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
+            if (u.userId.equals(me.userId()) && !new HashSet<>(roles).equals(new HashSet<>(u.roles))) throw ApiException.badRequest("본인의 역할은 바꿀 수 없습니다.");
+            u.roles.clear();
+            u.roles.addAll(roles.isEmpty() ? List.of("REQUESTER") : roles);
+        }
         applyProfile(u, b);
         if (Params.blank(u.userName)) throw ApiException.badRequest("이름을 입력해 주세요.");
         checkAffiliation(u);
         String pw = Params.rawStr(b, "password");
         if (!Params.blank(pw)) setPassword(u, pw);
-        if ("ACTIVE".equals(Params.str(b, "status"))) u.loginFailCnt = 0;
+        if ("ACTIVE".equals(Params.str(b, "status"))) { u.loginFailCnt = 0; u.lockedUntil = null; }
+        return view(u, deptNames(me.orgId()), orgName(me.orgId()));
+    }
+
+    private static final List<String> OPEN_STATUS = List.of("A", "R");
+
+    /** 삭제 = 사용 중지. AS·이력이 계정을 가리키므로 지우지 않는다. 처리 중인 AS가 있으면 거절하고, 학교의 기본 담당 기사에서는 뺀다. */
+    public void delete(CurrentUser me, Long id) {
+        requireUserAdmin(me);
+        AppUser u = load(me, id);
+        if (u.userId.equals(me.userId())) throw ApiException.badRequest("본인 계정은 삭제할 수 없습니다.");
+        guardTarget(me, u);
+        long open = requests.countByEngineerUserIdAndUseYnAndStatusIn(id, "Y", OPEN_STATUS);
+        if (open > 0) throw ApiException.conflict("담당 중인 AS가 " + open + "건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 기사에게 넘겨 주세요.");
+        for (var sv : schoolVendors.findByEngineerUserId(id)) sv.engineerUserId = null;
+        u.status = "DISABLED";
+    }
+
+    public Json unlock(CurrentUser me, Long id) {
+        requireUserAdmin(me);
+        AppUser u = load(me, id);
+        guardTarget(me, u);
+        if ("LOCKED".equals(u.status)) u.status = "ACTIVE";
+        u.loginFailCnt = 0;
+        u.lockedUntil = null;
         return view(u, deptNames(me.orgId()), orgName(me.orgId()));
     }
 
     public Json roles(CurrentUser me, Long id, Map<String, Object> b) {
+        requireUserAdmin(me);
         AppUser u = load(me, id);
+        guardTarget(me, u);
         List<String> roles = requestedRoles(me, u, b);
         if (roles == null) roles = List.of();
         if (u.userId.equals(me.userId()) && me.hasRole("SYS_ADMIN") && !roles.contains("SYS_ADMIN"))
@@ -191,6 +261,7 @@ public class UserService {
     /** 사용자별 메뉴·처리 기능 권한: 역할 기본값(base)과 조정(granted·denied), 그 결과(effective). 모두 Roles.ADJUSTABLE_PERMS 범위. */
     @Transactional(readOnly = true)
     public Json menuPerms(CurrentUser me, Long id) {
+        requireUserAdmin(me);
         return menuPermsView(load(me, id));
     }
 
@@ -230,7 +301,9 @@ public class UserService {
 
     /** body: { granted: [...], denied: [...] }. 역할 기본값과 같은 조정(이미 있는 권한 열기·없는 권한 숨기기)은 버린다. */
     public Json setMenuPerms(CurrentUser me, Long id, Map<String, Object> b) {
+        requireUserAdmin(me);
         AppUser u = load(me, id);
+        guardTarget(me, u);
         List<String> granted = permList(b.get("granted")), denied = permList(b.get("denied"));
         if (granted.stream().anyMatch(denied::contains)) throw ApiException.badRequest("같은 메뉴를 열고 숨길 수 없습니다.");
         Set<String> base = permissions.basePerms(u);
