@@ -9,5 +9,7 @@ public interface AsRequestRepository extends JpaRepository<AsRequest, Long>, Jpa
     long countByVendorIdAndUseYn(Long vendorId, String useYn);
     long countByEngineerUserIdAndUseYnAndStatusIn(Long engineerUserId, String useYn, List<String> status);
     long countByVendorIdAndUseYnAndStatusIn(Long vendorId, String useYn, List<String> status);
+    List<AsRequest> findByVendorIdAndUseYnAndStatusInOrderByRequestAtAsc(Long vendorId, String useYn, List<String> status);
+    long countByOrgIdAndRceptTyAndUseYnAndStatusIn(Long orgId, String rceptTy, String useYn, List<String> status);
     List<AsRequest> findByOrgIdAndUseYnAndRequestAtGreaterThanEqualAndRequestAtLessThan(Long orgId, String useYn, LocalDateTime from, LocalDateTime to);
 }

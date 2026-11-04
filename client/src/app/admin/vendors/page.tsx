@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Confirm, FilterField, FilterForm, ListHead, Tiles } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
@@ -124,9 +125,23 @@ function Vendors() {
   );
 }
 
-/** Shows what deleting a vendor affects. With AS still in progress the server refuses, so only an explanation is offered. */
+interface VendorUsage {
+  schools: number;
+  users: number;
+  /** In-progress AS of services the 교육청 uses: these block the delete. */
+  openRequests: number;
+  openList?: { asvcSn: number; rceptTyName: string; statusName: string; schoolName?: string; requestAt?: string }[];
+  /** In-progress AS of switched-off services: hidden everywhere, so they don't block it. */
+  hiddenOpenRequests?: number;
+  allRequests: number;
+}
+
+/**
+ * Shows what deleting a vendor affects. With AS of a service in use still in progress the server refuses,
+ * so the blocking requests are listed instead.
+ */
 function DeleteVendor({ vendor, onClose, onDeleted }: { vendor: Vendor; onClose: () => void; onDeleted: (m: string) => void }) {
-  const [usage, setUsage] = useState<{ schools: number; users: number; openRequests: number; allRequests: number } | null>(null);
+  const [usage, setUsage] = useState<VendorUsage | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -151,8 +166,27 @@ function DeleteVendor({ vendor, onClose, onDeleted }: { vendor: Vendor; onClose:
     <Modal title={`업체 삭제 · ${vendor.vendorName}`} onClose={onClose}>
       {!usage ? (msg ? <FormMsg kind="bad" text={msg} /> : <Loading />) : usage.openRequests > 0 ? (
         <>
-          <FormMsg kind="bad" text={`처리 중인 AS가 ${usage.openRequests}건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 업체로 옮겨 주세요.`} />
-          <div style={{ textAlign: "center", marginTop: 10 }}><button type="button" className="btn sm sec" onClick={onClose}>닫기</button></div>
+          <FormMsg kind="bad" text={`처리 중인 AS가 ${usage.openRequests}건 있어 삭제할 수 없습니다. 아래 건을 처리하거나 장애접수관리에서 다른 업체로 배정해 주세요.`} />
+          {usage.openList?.length ? (
+            <div className="tw" style={{ marginTop: 8 }}>
+              <table className="cards vd-open">
+                <thead><tr>{["접수번호", "구분", "학교", "상태", "신청일"].map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead>
+                <tbody>
+                  {usage.openList.map((r) => (
+                    <tr key={r.asvcSn}>
+                      <td data-label="접수번호">AS-{r.asvcSn}</td><td data-label="구분">{r.rceptTyName}</td>
+                      <td data-label="학교">{r.schoolName ?? "-"}</td><td data-label="상태">{r.statusName}</td><td data-label="신청일">{fmtDate(r.requestAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {usage.openRequests > (usage.openList?.length ?? 0) && <p className="hint">외 {usage.openRequests - (usage.openList?.length ?? 0)}건</p>}
+          <div style={{ textAlign: "center", marginTop: 10 }}>
+            <Link className="btn sm sec" href="/admin/requests">장애접수관리로</Link>{" "}
+            <button type="button" className="btn sm sec" onClick={onClose}>닫기</button>
+          </div>
         </>
       ) : (
         <>
@@ -160,6 +194,7 @@ function DeleteVendor({ vendor, onClose, onDeleted }: { vendor: Vendor; onClose:
             <li>학교 배정 {usage.schools}곳이 해제됩니다. 해당 학교는 새 업체를 지정할 때까지 그 분야의 AS를 신청할 수 없습니다.</li>
             <li>소속 계정 {usage.users}개가 사용 중지됩니다.</li>
             <li>지난 AS 기록 {usage.allRequests}건은 그대로 남습니다.</li>
+            {!!usage.hiddenOpenRequests && <li>사용하지 않는 AS 서비스의 처리 중 신청 {usage.hiddenOpenRequests}건은 목록에 보이지 않는 채로 남습니다. 서비스를 다시 켜면 다른 업체로 배정할 수 있습니다.</li>}
             <li>문의처 안내의 유지보수 사업자는 바뀌지 않습니다.</li>
           </ul>
           {msg && <FormMsg kind="bad" text={msg} />}

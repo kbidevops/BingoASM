@@ -26,11 +26,12 @@ public class AsStatsService {
     private final AsCostService costService;
     private final AssetRepository assets;
     private final WirelessDeviceRepository devices;
+    private final com.bingoasm.auth.PermissionService permissions;
 
     public AsStatsService(AsRequestRepository requests, AsRequestService requestService, SchoolService schoolService, AsCostItemRepository costItems,
-                          AsCostService costService, AssetRepository assets, WirelessDeviceRepository devices) {
+                          AsCostService costService, AssetRepository assets, WirelessDeviceRepository devices, com.bingoasm.auth.PermissionService permissions) {
         this.requests = requests; this.requestService = requestService; this.schoolService = schoolService; this.costItems = costItems;
-        this.costService = costService; this.assets = assets; this.devices = devices;
+        this.costService = costService; this.assets = assets; this.devices = devices; this.permissions = permissions;
     }
 
     private List<AsRequest> base(CurrentUser me, int year, String rceptTy, Long regionId) {
@@ -42,8 +43,11 @@ public class AsStatsService {
         com.bingoasm.auth.Scope sc = me.scope();
         // 교육지원청 담당자는 관내 학교만, 업체는 (학교와 상관없이) 자기 업체에 배정된 건만 집계.
         Set<Long> inScope = sc.vendor() ? null : schoolService.scopeSchoolIds(me);
+        // 교육청이 쓰지 않는 서비스의 신청은 목록과 같이 통계에서도 뺀다 (다시 켜면 다시 잡힌다).
+        List<String> inUse = permissions.asTypes(me.orgId());
         return requests.findByOrgIdAndUseYnAndRequestAtGreaterThanEqualAndRequestAtLessThan(me.orgId(), "Y",
                         from.atStartOfDay(), to.atStartOfDay()).stream()
+                .filter(r -> inUse.contains(r.rceptTy))
                 .filter(r -> inScope == null || inScope.contains(r.schoolId))
                 .filter(r -> !sc.vendor() || (sc.vendorId() != null && sc.vendorId().equals(r.vendorId)))
                 .filter(r -> Params.blank(rceptTy) || rceptTy.equals(r.rceptTy))

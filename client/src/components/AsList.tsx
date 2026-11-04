@@ -1,16 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, type Page } from "@/lib/api";
 import { AS_NAME, AS_REQUEST_HREF, AS_REQUEST_PERM, useAsTypes } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
-import type { AsRow, AsStatus, RceptTy } from "@/lib/types";
+import type { AsRow, AsStatus, BillStatus, RceptTy } from "@/lib/types";
 import AsDetailModal from "./AsDetailModal";
 import { AsBadge, ErrorBox, Icon, Loading, NoticeBox, Pager, useToast } from "./ui";
 
 const STATUSES: [AsStatus | "", string][] = [["", "전체"], ["A", "신청완료"], ["R", "접수완료"], ["C", "처리완료"], ["X", "반려"]];
+/** 유상 청구 단계 필터. 값은 서버의 billStatus. */
+const BILLS: [BillStatus | "", string][] = [["", "전체"], ["BILLED", "학교 확인 대기"], ["CONFIRMED", "지급 대기"], ["PAID", "지급 완료"]];
+const BILL_CLASS: Record<BillStatus, string> = { BILLED: "b1", CONFIRMED: "b2", PAID: "b3" };
+const BILL_SHORT: Record<BillStatus, string> = { BILLED: "청구 · 확인 대기", CONFIRMED: "청구 · 지급 대기", PAID: "청구 · 지급 완료" };
 const PAGE_SIZE = 10;
 
 interface Filter {
@@ -21,6 +26,7 @@ interface Filter {
   toDate: string;
   status: string;
   unassigned: boolean;
+  bill: string;
 }
 
 /**
@@ -28,13 +34,34 @@ interface Filter {
  * without it (장애접수관리) it lists every type with a type filter.
  */
 export default function AsList({ ty }: { ty?: RceptTy }) {
+  // useSearchParams needs a Suspense boundary in the static export; keeping it here spares every page that uses the list.
+  return (
+    <Suspense fallback={<Loading />}>
+      <AsListBody ty={ty} />
+    </Suspense>
+  );
+}
+
+function AsListBody({ ty }: { ty?: RceptTy }) {
   const toast = useToast();
   const { can } = useAuth();
   const asTypes = useAsTypes();
-  const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: "", unassigned: false };
-  const [draft, setDraft] = useState<Filter>(empty);
-  const [filter, setFilter] = useState<Filter>(empty);
+  const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: "", unassigned: false, bill: "" };
   const [page, setPage] = useState(1);
+  // ?bill=BILLED (from AS비용 통계 or the home page notice) opens the list on that billing stage from the first load.
+  const urlBill = useSearchParams().get("bill") ?? "";
+  const bill = BILLS.some(([v]) => v && v === urlBill) ? urlBill : "";
+  const [draft, setDraft] = useState<Filter>({ ...empty, bill });
+  const [filter, setFilter] = useState<Filter>({ ...empty, bill });
+  // A link to the same page with another ?bill= keeps this component mounted.
+  const [seenBill, setSeenBill] = useState(bill);
+  if (bill !== seenBill) {
+    setSeenBill(bill);
+    setDraft((d) => ({ ...d, bill }));
+    setFilter((f) => ({ ...f, bill }));
+    setPage(1);
+  }
+  const seq = useRef(0);
   const [data, setData] = useState<Page<AsRow> | null>(null);
   const [err, setErr] = useState("");
   const [open, setOpen] = useState<number | null>(null);
@@ -42,14 +69,18 @@ export default function AsList({ ty }: { ty?: RceptTy }) {
   const query = useCallback(
     (f: Filter) => ({
       rceptTy: f.rceptTy, status: f.status, keyword: f.keyword.trim(), searchType: f.keyword.trim() ? f.searchType : "",
-      fromDate: f.fromDate, toDate: f.toDate, unassigned: f.unassigned || undefined,
+      fromDate: f.fromDate, toDate: f.toDate, unassigned: f.unassigned || undefined, billStatus: f.bill || undefined,
     }),
     [],
   );
 
   const load = useCallback(() => {
     setErr("");
-    api.get<Page<AsRow>>("/api/as/requests", { ...query(filter), page, size: PAGE_SIZE }).then(setData).catch((e) => setErr(e.message));
+    // Only the latest search may fill the table: an older, slower response must not overwrite it.
+    const n = ++seq.current;
+    api.get<Page<AsRow>>("/api/as/requests", { ...query(filter), page, size: PAGE_SIZE })
+      .then((d) => { if (n === seq.current) setData(d); })
+      .catch((e) => { if (n === seq.current) setErr(e.message); });
   }, [filter, page, query]);
   useEffect(load, [load]);
 
@@ -114,6 +145,12 @@ export default function AsList({ ty }: { ty?: RceptTy }) {
                   <label style={{ marginLeft: 8 }}><input type="checkbox" checked={draft.unassigned} onChange={(e) => setDraft({ ...draft, unassigned: e.target.checked })} /> 미배정만</label>
                 )}
               </td>
+              <th scope="row">유상 청구</th>
+              <td>
+                <select aria-label="유상 청구" value={draft.bill} onChange={(e) => setDraft({ ...draft, bill: e.target.value })}>
+                  {BILLS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -141,7 +178,10 @@ export default function AsList({ ty }: { ty?: RceptTy }) {
                   return (
                     <tr key={r.asvcSn}>
                       {cells.map((c, j) => <td key={j} data-label={head[j]}>{c ?? "-"}</td>)}
-                      <td data-label="상태"><AsBadge status={r.status} name={r.statusName} /></td>
+                      <td data-label="상태">
+                        <AsBadge status={r.status} name={r.statusName} />
+                        {r.billStatus && <span className={"bill-pill " + BILL_CLASS[r.billStatus]}>{BILL_SHORT[r.billStatus]}</span>}
+                      </td>
                       <td data-label="보고서"><button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>{r.hasReport ? "보고서 확인" : "상세 보기"}</button></td>
                     </tr>
                   );

@@ -29,8 +29,10 @@ public class OrgServiceController {
     private final OrgRepository orgs;
     private final PermissionService permissions;
     private final AppProperties props;
+    private final com.bingoasm.repo.as.AsRequestRepository requests;
 
-    public OrgServiceController(OrgRepository orgs, PermissionService permissions, AppProperties props) {
+    public OrgServiceController(OrgRepository orgs, PermissionService permissions, AppProperties props, com.bingoasm.repo.as.AsRequestRepository requests) {
+        this.requests = requests;
         this.orgs = orgs;
         this.permissions = permissions;
         this.props = props;
@@ -74,7 +76,9 @@ public class OrgServiceController {
     private Json view(Long orgId) {
         List<String> on = permissions.asTypes(orgId);
         List<Json> types = AsCodes.RCEPT_TYPES.stream()
-                .map(t -> Json.obj().with("rceptTy", t).with("name", AsCodes.RCEPT_TY_NAME.get(t)).with("enabled", on.contains(t)))
+                // openRequests: 처리 중(신청완료·접수완료) 건수 — 서비스를 끄면 이 건들이 목록에서 숨겨진다.
+                .map(t -> Json.obj().with("rceptTy", t).with("name", AsCodes.RCEPT_TY_NAME.get(t)).with("enabled", on.contains(t))
+                        .with("openRequests", requests.countByOrgIdAndRceptTyAndUseYnAndStatusIn(orgId, t, "Y", List.of("A", "R"))))
                 .toList();
         return Json.obj().with("asTypes", on).with("types", types);
     }

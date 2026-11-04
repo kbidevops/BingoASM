@@ -152,7 +152,8 @@ public class AsRequestService {
     // ---------- queries ----------
 
     public record Filter(String rceptTy, String keyword, String searchType, LocalDate fromDate, LocalDate toDate, String status,
-                         Long schoolId, Long regionId, Long vendorId, Long engineerUserId, boolean mine, boolean unassigned, String sort) {}
+                         Long schoolId, Long regionId, Long vendorId, Long engineerUserId, boolean mine, boolean unassigned, String sort,
+                         String billStatus) {}
 
     private Specification<AsRequest> spec(CurrentUser me, Filter f) {
         Set<Long> regionSchools = f.regionId() == null && !"region".equals(f.searchType()) ? null
@@ -175,6 +176,15 @@ public class AsRequestService {
             if (f.engineerUserId() != null) p.add(cb.equal(root.get("engineerUserId"), f.engineerUserId()));
             if (f.mine()) p.add(cb.equal(root.get("applicantUserId"), me.userId()));
             if (f.unassigned()) p.add(cb.isNull(root.get("vendorId")));
+            if (!Params.blank(f.billStatus())) {
+                if (!AsCodes.BILL_STATUS_NAME.containsKey(f.billStatus())) throw ApiException.badRequest("청구 상태가 올바르지 않습니다.");
+                // 유상 처리완료 건만. 예전 유상 보고서(billStatus 없음)는 청구 단계로 본다 (AsRequest.billStatus()).
+                p.add(cb.equal(root.get("status"), "C"));
+                p.add(cb.equal(root.get("chargeType"), "PAID"));
+                p.add("BILLED".equals(f.billStatus())
+                        ? cb.or(cb.isNull(root.get("billStatus")), cb.equal(root.get("billStatus"), "BILLED"))
+                        : cb.equal(root.get("billStatus"), f.billStatus()));
+            }
             if (regionSchools != null) p.add(regionSchools.isEmpty() ? cb.disjunction() : root.get("schoolId").in(regionSchools));
             if (!Params.blank(f.keyword()) && !"region".equals(f.searchType())) {
                 String kw = f.keyword().trim();
@@ -223,7 +233,19 @@ public class AsRequestService {
             byType.put(ty, st);
         }
         LocalDate today = Times.today();
-        return Json.obj().with("byType", byType)
+        // 유상 청구 중 처리할 것: 학교 확인 대기(BILLED), 지급 대기(CONFIRMED). 유형별로도 — 학교 화면은 유형별 목록으로 보낸다.
+        Json bills = Json.obj();
+        for (String st : List.of("BILLED", "CONFIRMED")) {
+            Json t = Json.obj();
+            long all = 0;
+            for (String ty : AsCodes.RCEPT_TYPES) {
+                long n = list.stream().filter(r -> ty.equals(r.rceptTy) && "C".equals(r.status) && st.equals(r.billStatus())).count();
+                if (n > 0) t.put(ty, n);
+                all += n;
+            }
+            bills.put(st, Json.obj().with("total", all).with("byType", t));
+        }
+        return Json.obj().with("byType", byType).with("bills", bills)
                 .with("requested", list.stream().filter(r -> "A".equals(r.status)).count())
                 .with("received", list.stream().filter(r -> "R".equals(r.status)).count())
                 .with("completed", list.stream().filter(r -> "C".equals(r.status)).count())

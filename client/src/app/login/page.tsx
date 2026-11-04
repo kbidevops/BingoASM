@@ -234,10 +234,14 @@ function QrLogin({ onDone }: { onDone: (r: LoginResult) => void }) {
     }, 1000);
     const poll = setInterval(async () => {
       try {
-        const res = await api.get<LoginResult & { status: string }>(`/api/auth/qr/${qr.token}`);
+        const res = await api.get<LoginResult & { status: string; message?: string }>(`/api/auth/qr/${qr.token}`);
         if (res.status === "APPROVED" && res.accessToken) onDone(res);
         else if (res.status === "EXPIRED" || res.status === "CONSUMED") setState("expired");
-        else if (res.status === "REJECTED") setState("rejected");
+        else if (res.status === "REJECTED") {
+          // The server explains when the account itself can't sign in (disabled after the phone approved).
+          setMsg(res.message ?? "");
+          setState("rejected");
+        }
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) setState("expired");
       }
@@ -257,7 +261,7 @@ function QrLogin({ onDone }: { onDone: (r: LoginResult) => void }) {
         <QrCode text={qr.qrText} label="QR 로그인 코드" />
         {over && (
           <div className="qrl-ov">
-            <p>{state === "rejected" ? "휴대폰에서 로그인을 거절했습니다." : "QR이 만료되었습니다."}</p>
+            <p>{state === "rejected" ? msg || "휴대폰에서 로그인을 거절했습니다." : "QR이 만료되었습니다."}</p>
             <button className="btn sm" type="button" onClick={start}>새 QR 받기</button>
           </div>
         )}

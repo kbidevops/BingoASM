@@ -9,7 +9,8 @@ import type { Me, RceptTy } from "@/lib/types";
 
 interface AsServices {
   asTypes: RceptTy[];
-  types: { rceptTy: RceptTy; name: string; enabled: boolean }[];
+  /** openRequests: 처리 중(신청완료·접수완료) 건수. 끄면 목록에서 숨겨진다. */
+  types: { rceptTy: RceptTy; name: string; enabled: boolean; openRequests?: number }[];
 }
 
 /** What turning a service on brings with it (Roles.AS_TYPE_PERMS on the server). */
@@ -51,6 +52,8 @@ function AsServicesForm() {
   if (!data) return <Loading />;
 
   const dirty = data.types.some((t) => t.enabled !== on.has(t.rceptTy));
+  // 지금 켜져 있고 처리 중인 건이 있는데 끄려는 서비스: 저장 전에 무엇이 숨겨지는지 알린다.
+  const hiding = data.types.filter((t) => t.enabled && !on.has(t.rceptTy) && (t.openRequests ?? 0) > 0);
   const flip = (t: RceptTy, v: boolean) => {
     const s = new Set(on);
     if (v) s.add(t); else s.delete(t);
@@ -94,6 +97,7 @@ function AsServicesForm() {
               <div className="um-item-t">
                 <span>{t.name}</span>
                 <small>{DESC[t.rceptTy]}</small>
+                {!!t.openRequests && <small className="svc-open">처리 중 AS {t.openRequests.toLocaleString()}건</small>}
               </div>
               {on.has(t.rceptTy) ? <span className="um-pill add">사용</span> : <span className="um-pill none">사용 안 함</span>}
               <input type="checkbox" role="switch" className="um-sw" aria-label={`${t.name} 사용`}
@@ -102,6 +106,15 @@ function AsServicesForm() {
           ))}
         </ul>
       </section>
+      {hiding.length > 0 && (
+        <div className="svc-warn" role="alert">
+          <b>저장하면 처리 중인 AS가 숨겨집니다.</b>
+          <ul>
+            {hiding.map((t) => <li key={t.rceptTy}>{t.name}: 신청완료·접수완료 {t.openRequests}건</li>)}
+          </ul>
+          <span>이 건들은 목록·통계에서 빠지고 처리할 수 없게 됩니다. 기록은 지우지 않으며, 서비스를 다시 켜면 그대로 보입니다. 끄기 전에 처리를 끝내는 것을 권장합니다.</span>
+        </div>
+      )}
       {msg && <FormMsg kind="bad" text={msg} />}
       <div className={"um-bar" + (dirty ? " dirty" : "")}>
         <span className="um-bar-t">{dirty ? "저장하지 않은 변경이 있습니다" : "변경 사항 없음"}</span>

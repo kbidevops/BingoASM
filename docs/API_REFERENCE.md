@@ -150,8 +150,8 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | 메서드 | 경로 | 권한 | 설명 |
 |---|---|---|---|
 | GET | `/api/as/requests/codes` | 로그인 | 접수유형·상태·고장유형(유형별)·요청유형·처리유형 코드표 |
-| GET | `/api/as/requests` | 결과조회 권한 | 목록. 파라미터: `rceptTy`, `status`(A/R/C/X), `searchType`(school/applicant/region), `keyword`, `fromDate`, `toDate`, `schoolId`, `regionId`, `vendorId`, `engineerUserId`, `mine`, `unassigned`, `sort`(asc/desc), `page`, `size` |
-| GET | `/api/as/requests/summary` | 〃 | 유형별·상태별 건수, 오늘 신청, 평가 대기 |
+| GET | `/api/as/requests` | 결과조회 권한 | 목록. 파라미터: `rceptTy`, `status`(A/R/C/X), `searchType`(school/applicant/region), `keyword`, `fromDate`, `toDate`, `schoolId`, `regionId`, `vendorId`, `engineerUserId`, `mine`, `unassigned`, `billStatus`(BILLED 학교 확인 대기 / CONFIRMED 지급 대기 / PAID 지급 완료 — 유상 처리완료 건만), `sort`(asc/desc), `page`, `size` |
+| GET | `/api/as/requests/summary` | 〃 | 유형별·상태별 건수, 오늘 신청, 평가 대기, `bills`(처리할 유상 청구: `BILLED`·`CONFIRMED`별 `total`과 유형별 `byType`) |
 | GET | `/api/as/requests/excel` | 〃 | 같은 필터로 xlsx 내려받기 |
 | GET | `/api/as/requests/{sn}` | 〃 + 스코프 | 상세: 신청 내용, 업체·기사, 처리 보고서(`report`), 첨부(`attachments`, `reportFiles`), 평가, `histories`, **`allowedActions`**(현재 사용자가 지금 할 수 있는 처리) |
 | POST | `/api/as/requests` | `AS_{ty}_REQUEST` / `SMART_REQUEST` | 신청. 아래 필드 |
@@ -195,7 +195,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | GET | `/api/as/vendors?regionId&rceptTy` | 로그인 |
 | POST / PUT / DELETE | `/api/as/vendors[/{id}]` | `VENDOR_MANAGE`, 도교육청만 — `{vendorName, allRegions, regions:[{regionId}], bizNo, tel, address, serviceTypes:"M,S"}`. DELETE는 처리 중인 AS가 있으면 409, 아니면 학교 배정·담당 지역을 지우고 소속 계정을 사용 중지 |
 | GET | `/api/as/vendors/{id}/engineers` | 관리자·기사 |
-| GET | `/api/as/vendors/{id}/usage` | `VENDOR_MANAGE`, 도교육청만 — 삭제 전 확인: `schools, users, openRequests, allRequests` |
+| GET | `/api/as/vendors/{id}/usage` | `VENDOR_MANAGE`, 도교육청만 — 삭제 전 확인: `schools, users, openRequests`(사용 중 서비스의 처리 중 AS, 삭제를 막음), `openList`(그 목록, 20건까지), `hiddenOpenRequests`(꺼진 서비스의 처리 중 AS, 막지 않음), `allRequests` |
 | GET | `/api/as/wireless-devices?schoolId&regionId&deviceType&status&keyword` | 장비관리·무선망 신청/조회·기사 |
 | POST / PUT / DELETE | `/api/as/wireless-devices[/{id}]` | `WDEVICE_MANAGE` — `{schoolId, deviceCode, deviceName, deviceType AP/SWITCH/CONTROLLER, modelName, ipAddress, macAddress, location, installedAt, lastCheckedAt, status NORMAL/FAULT/REPLACED, note}` |
 
@@ -395,3 +395,5 @@ BINGOASM_URL=http://localhost:8080 python3 scripts/as_integration_test.py
 ```
 
 새 DB(데모 데이터)에 대해 실행하도록 만들어져 있습니다. 같은 서버에 두 번 돌리면 데이터가 쌓여 일부 수치 검사가 달라질 수 있고, 로그인 요청 제한(분당 20회) 때문에 1분 간격을 두세요.
+
+> 교육청이 쓰지 않는 AS 서비스(AS 서비스 설정)는 목록·엑셀·요약·통계에서 모두 빠지고, 업체 담당 분야와 학교 배정에 새로 지정할 수 없습니다(이미 있던 지정은 유지). `GET /api/org/as-services`의 `types[].openRequests`는 서비스별 처리 중 건수입니다.

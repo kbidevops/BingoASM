@@ -147,7 +147,7 @@ function Stats() {
           <AggTable title="업체별 처리 현황" name="업체" score rows={m.byVendor.map((x) => ({ key: x.vendorId, label: x.vendorName, a: x }))} csv={`AS건수통계_업체별_${m.year}`} />
         </>
       ) : tab === "cost" ? (
-        <CostTab m={m} prev={prev} rp={rp} asTypes={asTypes} canManage={can("COST_MANAGE")} delta={delta} />
+        <CostTab m={m} prev={prev} rp={rp} asTypes={asTypes} canManage={can("COST_MANAGE")} canList={can("AS_MANAGE")} delta={delta} />
       ) : !s ? <Loading /> : (
         <>
           <Kpis items={[
@@ -209,8 +209,8 @@ const pct = (n?: number | null) => (n == null ? "-" : n.toFixed(1) + "%");
  * AS비용 통계. 실제 지출 = 유지보수 계약(기간으로 나눈 몫) + 유상 청구 중 지급 완료. 보고서의 무상 금액은 계약 안에서 한 일을
  * 금액으로 환산한 값이라 지출이 아니다 — 따로 "계약 내 처리"로 보여 준다.
  */
-function CostTab({ m, prev, rp, asTypes, canManage, delta }: {
-  m: Monthly; prev: Monthly | null; rp: Repairs | null; asTypes: RceptTy[]; canManage: boolean; delta: (a: number, b?: number) => string | undefined;
+function CostTab({ m, prev, rp, asTypes, canManage, canList, delta }: {
+  m: Monthly; prev: Monthly | null; rp: Repairs | null; asTypes: RceptTy[]; canManage: boolean; canList: boolean; delta: (a: number, b?: number) => string | undefined;
 }) {
   const t = m.total;
   const spend = t.spend ?? 0;
@@ -269,7 +269,7 @@ function CostTab({ m, prev, rp, asTypes, canManage, delta }: {
       {budget && <BudgetTable rows={budget.rows} year={m.year} canManage={canManage} />}
       <ContractTable rows={contracts} year={m.year} />
       <div className="stg2">
-        <BillingTable billing={b} />
+        <BillingTable billing={b} canList={canList} />
         <CostTypeTable rows={m.byCostType ?? []} year={m.year} />
       </div>
       <AggTable title="지역별 AS 비용" name="지역" cost rows={m.byRegion.map((x) => ({ key: x.regionId, label: x.regionName, a: x }))} csv={`AS비용통계_지역별_${m.year}`} />
@@ -344,7 +344,8 @@ function ContractTable({ rows, year }: { rows: NonNullable<Monthly["contracts"]>
   );
 }
 
-function BillingTable({ billing }: { billing?: Monthly["billing"] }) {
+/** 청구 단계별 건수. 장애접수관리를 볼 수 있으면 단계를 누르면 그 단계의 신청 목록으로 간다. */
+function BillingTable({ billing, canList }: { billing?: Monthly["billing"]; canList: boolean }) {
   const keys = ["BILLED", "CONFIRMED", "PAID"] as const;
   return (
     <div className="vtab">
@@ -354,7 +355,7 @@ function BillingTable({ billing }: { billing?: Monthly["billing"] }) {
           <thead><tr><th scope="col">단계</th><th scope="col">건수</th><th scope="col">금액(원)</th></tr></thead>
           <tbody>
             {billing ? keys.map((k) => (
-              <tr key={k}><td data-label="단계">{billing[k].name}</td><td data-label="건수" className="num">{billing[k].count.toLocaleString()}</td><td data-label="금액(원)" className="num">{billing[k].amount.toLocaleString()}</td></tr>
+              <tr key={k}><td data-label="단계">{canList && billing[k].count ? <Link href={`/admin/requests?bill=${k}`}>{billing[k].name} 목록 ›</Link> : billing[k].name}</td><td data-label="건수" className="num">{billing[k].count.toLocaleString()}</td><td data-label="금액(원)" className="num">{billing[k].amount.toLocaleString()}</td></tr>
             )) : <tr><td colSpan={3}>자료가 없습니다.</td></tr>}
           </tbody>
         </table>

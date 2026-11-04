@@ -38,9 +38,10 @@ public class AsRequestController {
     }
 
     private static AsRequestService.Filter filter(String rceptTy, String keyword, String searchType, LocalDate fromDate, LocalDate toDate, String status,
-                                                  Long schoolId, Long regionId, Long vendorId, Long engineerUserId, Boolean mine, Boolean unassigned, String sort) {
+                                                  Long schoolId, Long regionId, Long vendorId, Long engineerUserId, Boolean mine, Boolean unassigned, String sort,
+                                                  String billStatus) {
         return new AsRequestService.Filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId,
-                Boolean.TRUE.equals(mine), Boolean.TRUE.equals(unassigned), sort);
+                Boolean.TRUE.equals(mine), Boolean.TRUE.equals(unassigned), sort, billStatus);
     }
 
     /** 코드표: 접수유형·상태·고장유형·요청유형·처리유형. 화면 셀렉트 박스용. */
@@ -51,7 +52,7 @@ public class AsRequestController {
                 .with("costTypes", AsCodes.COST_TYPE_NAME).with("chargeTypes", AsCodes.CHARGE_TYPE_NAME));
     }
 
-    /** 결과조회 목록. searchType: school|applicant|region, status: A|R|C|X */
+    /** 결과조회 목록. searchType: school|applicant|region, status: A|R|C|X, billStatus: BILLED|CONFIRMED|PAID (유상 청구 단계) */
     @GetMapping
     public ApiResponse list(@RequestParam(required = false) String rceptTy, @RequestParam(required = false) String keyword,
                             @RequestParam(required = false) String searchType,
@@ -61,10 +62,11 @@ public class AsRequestController {
                             @RequestParam(required = false) Long regionId, @RequestParam(required = false) Long vendorId,
                             @RequestParam(required = false) Long engineerUserId, @RequestParam(required = false) Boolean mine,
                             @RequestParam(required = false) Boolean unassigned, @RequestParam(required = false) String sort,
+                            @RequestParam(required = false) String billStatus,
                             @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         CurrentUser me = AuthContext.get();
         requireAnyView(me);
-        return ApiResponse.ok(requests.list(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, unassigned, sort), page, size));
+        return ApiResponse.ok(requests.list(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, unassigned, sort, billStatus), page, size));
     }
 
     /** 대시보드 요약(유형별·상태별 건수, 내 처리 대기). */
@@ -83,16 +85,18 @@ public class AsRequestController {
                       @RequestParam(required = false) String status, @RequestParam(required = false) Long schoolId,
                       @RequestParam(required = false) Long regionId, @RequestParam(required = false) Long vendorId,
                       @RequestParam(required = false) Long engineerUserId, @RequestParam(required = false) Boolean mine,
-                      @RequestParam(required = false) String sort, HttpServletResponse res) throws IOException {
+                      @RequestParam(required = false) String sort, @RequestParam(required = false) Boolean unassigned,
+                      @RequestParam(required = false) String billStatus, HttpServletResponse res) throws IOException {
         CurrentUser me = AuthContext.get();
         requireAnyView(me);
-        var rows = requests.listAll(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, null, sort));
+        var rows = requests.listAll(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, unassigned, sort, billStatus));
         try (ExcelWriter x = new ExcelWriter()) {
             x.sheet("AS신청", List.of(Col.of("번호", "asvcSn", 8), Col.of("유형", "rceptTyName", 10), Col.of("학교명", "schoolName", 18), Col.of("지역", "regionName", 12),
                     Col.of("신청자", "applicantName", 10), Col.of("연락처", "contactTel", 14), Col.of("증상", "symptom", 40), Col.of("신청일자", "requestAt", 18),
                     Col.of("접수일자", "receivedAt", 18), Col.of("방문예정", "visitPlannedAt", 18), Col.of("처리일자", "completedAt", 18),
                     Col.of("업체", "vendorName", 16), Col.of("기사", "engineerName", 10), Col.of("상태", "statusName", 10),
-                    Col.of("처리유형", "processTypeName", 12), Col.of("만족도", "evalScore", 8)), rows);
+                    Col.of("처리유형", "processTypeName", 12), Col.of("처리비용", "processAmount", 12), Col.of("유상 청구", "billStatusName", 10),
+                    Col.of("만족도", "evalScore", 8)), rows);
             x.write(res, "AS신청_" + Times.today() + ".xlsx");
         }
     }

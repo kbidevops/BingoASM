@@ -164,6 +164,8 @@ export interface AsSummary {
   returned: number;
   todayRequested: number;
   waitingEval: number;
+  /** 유상 청구 중 처리할 것: BILLED 학교 확인 대기, CONFIRMED 지급 대기 (범위 안, 유형별 포함). */
+  bills?: Record<"BILLED" | "CONFIRMED", { total: number; byType: Partial<Record<RceptTy, number>> }>;
 }
 
 export interface BoardInfo {

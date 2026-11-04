@@ -26,11 +26,18 @@ public class SchoolService {
     private final com.bingoasm.repo.as.AsRequestRepository requests;
     private final UserRepository users;
     private final AssetRepository assets;
+    private final com.bingoasm.auth.PermissionService permissions;
 
     public SchoolService(com.bingoasm.repo.as.VendorRegionRepository vendorRegions, com.bingoasm.repo.as.AsRequestRepository requests, RegionRepository regions, SchoolRepository schools, VendorRepository vendors, SchoolVendorRepository schoolVendors,
-                         UserRepository users, AssetRepository assets) {
+                         UserRepository users, AssetRepository assets, com.bingoasm.auth.PermissionService permissions) {
         this.vendorRegions = vendorRegions; this.requests = requests; this.regions = regions; this.schools = schools; this.vendors = vendors; this.schoolVendors = schoolVendors;
-        this.users = users; this.assets = assets;
+        this.users = users; this.assets = assets; this.permissions = permissions;
+    }
+
+    /** 교육청이 쓰지 않는 AS 서비스를 새로 지정하려 하면 거절한다. 이미 있던 지정(keep)은 그대로 둔다 — 다른 정보를 고치다 막히지 않도록. */
+    private void refuseUnusedService(CurrentUser me, String ty, boolean keep) {
+        if (!keep && !permissions.asTypes(me.orgId()).contains(ty))
+            throw ApiException.badRequest(AsCodes.RCEPT_TY_NAME.getOrDefault(ty, ty) + " AS는 이 교육청에서 사용하지 않는 서비스입니다. AS 서비스 설정에서 먼저 켜 주세요.");
     }
 
     // ---------- lookups shared with other services ----------
@@ -293,6 +300,7 @@ public class SchoolService {
             if (ty == null || !AsCodes.RCEPT_TYPES.contains(ty) || vid == null) continue;
             Vendor v = vm.get(vid);
             if (v == null) throw ApiException.badRequest("업체가 올바르지 않습니다.");
+            refuseUnusedService(me, ty, vid.equals(before.get(ty)));
             if (!v.serviceTypeList().contains(ty)) throw ApiException.badRequest(v.vendorName + "은(는) " + AsCodes.RCEPT_TY_NAME.get(ty) + " 유지관리 업체가 아닙니다.");
             if (!vid.equals(before.get(ty)) && !vendorCovers(v, school.regionId))
                 throw ApiException.badRequest(v.vendorName + "은(는) " + school.schoolName + "의 지역을 담당하지 않습니다. 업체관리에서 담당 지역을 확인해 주세요.");
@@ -349,6 +357,8 @@ public class SchoolService {
             Object raw = b.get("serviceTypes");
             List<String> types = raw instanceof List<?> l ? l.stream().map(String::valueOf).toList() : raw == null ? List.of() : Arrays.asList(String.valueOf(raw).split(","));
             List<String> ok = types.stream().map(String::trim).filter(AsCodes.RCEPT_TYPES::contains).distinct().toList();
+            List<String> had = v.serviceTypes == null ? List.of() : v.serviceTypeList();
+            for (String t : ok) refuseUnusedService(me, t, had.contains(t));
             v.serviceTypes = String.join(",", ok);
         }
         v.updatedAt = Times.now();
@@ -439,6 +449,13 @@ public class SchoolService {
 
     private static final List<String> OPEN_STATUS = List.of("A", "R");
 
+    /** 이 업체의 처리 중(신청완료·접수완료) AS. inUse: 교육청이 쓰는 서비스의 것만(true) / 쓰지 않아 숨겨진 것만(false). */
+    private List<AsRequest> openRequests(CurrentUser me, Long vendorId, boolean inUse) {
+        List<String> on = permissions.asTypes(me.orgId());
+        return requests.findByVendorIdAndUseYnAndStatusInOrderByRequestAtAsc(vendorId, "Y", OPEN_STATUS).stream()
+                .filter(r -> on.contains(r.rceptTy) == inUse).toList();
+    }
+
     private List<AppUser> vendorUsers(CurrentUser me, Long vendorId) {
         return users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream().filter(u -> vendorId.equals(u.vendorId) && "ACTIVE".equals(u.status)).toList();
     }
@@ -448,10 +465,19 @@ public class SchoolService {
     public Json vendorUsage(CurrentUser me, Long id) {
         requireVendorAdmin(me);
         Vendor v = loadVendor(me, id);
+        Map<Long, School> sm = schoolMap(me.orgId());
+        List<AsRequest> open = openRequests(me, id, true);
         return Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName)
                 .with("schools", schoolVendors.findByVendorId(id).stream().map(sv -> sv.schoolId).distinct().count())
                 .with("users", vendorUsers(me, id).size())
-                .with("openRequests", requests.countByVendorIdAndUseYnAndStatusIn(id, "Y", OPEN_STATUS))
+                .with("openRequests", (long) open.size())
+                // 삭제를 막는 AS: 무엇인지 보여 주어 처리하거나 다른 업체로 옮길 수 있게.
+                .with("openList", open.stream().limit(20).map(r -> Json.obj().with("asvcSn", r.asvcSn).with("rceptTy", r.rceptTy)
+                        .with("rceptTyName", AsCodes.RCEPT_TY_NAME.get(r.rceptTy)).with("statusName", AsCodes.STATUS_NAME.get(r.status))
+                        .with("schoolName", r.schoolId == null || sm.get(r.schoolId) == null ? null : sm.get(r.schoolId).schoolName)
+                        .with("requestAt", r.requestAt)).toList())
+                // 쓰지 않는 서비스의 처리 중 AS는 아무도 볼 수 없으므로 삭제를 막지 않는다. 기록은 남는다.
+                .with("hiddenOpenRequests", (long) openRequests(me, id, false).size())
                 .with("allRequests", requests.countByVendorIdAndUseYn(id, "Y"));
     }
 
@@ -462,7 +488,7 @@ public class SchoolService {
     public void deleteVendor(CurrentUser me, Long id) {
         requireVendorAdmin(me);
         Vendor v = loadVendor(me, id);
-        long open = requests.countByVendorIdAndUseYnAndStatusIn(id, "Y", OPEN_STATUS);
+        long open = openRequests(me, id, true).size();
         if (open > 0) throw ApiException.conflict("처리 중인 AS가 " + open + "건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 업체로 옮겨 주세요.");
         schoolVendors.deleteAll(schoolVendors.findByVendorId(id));
         vendorRegions.deleteAll(vendorRegions.findByVendorId(id));

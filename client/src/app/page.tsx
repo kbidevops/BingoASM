@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import { AS_LIST_HREF } from "@/lib/as";
-import type { AsRow, AsSummary, ContactGroup, Page, PostRow } from "@/lib/types";
+import type { AsRow, AsSummary, ContactGroup, Page, PostRow, RceptTy } from "@/lib/types";
 
 export default function HomePage() {
   const { status } = useAuth();
@@ -123,6 +123,39 @@ const QUICK = [
 /** Contacts shown on the home page: the first rows of 도교육청 in 문의처 안내, so the two never disagree. */
 const HOME_CONTACTS = 4;
 
+/**
+ * 처리할 유상 청구 알림: 학교 확인 대기(BILLED)·지급 대기(CONFIRMED). 장애접수관리를 볼 수 있으면 그 목록으로,
+ * 아니면(학교) 건수가 있는 AS 결과조회로 보낸다.
+ */
+function BillNotice({ bills, canManage }: { bills?: AsSummary["bills"]; canManage: boolean }) {
+  if (!bills) return null;
+  const items = (
+    [
+      ["BILLED", "학교 확인이 필요한 유상 청구"],
+      ["CONFIRMED", "지급을 기다리는 유상 청구"],
+    ] as const
+  ).filter(([k]) => bills[k].total > 0);
+  if (!items.length) return null;
+  const href = (k: "BILLED" | "CONFIRMED") => {
+    if (canManage) return `/admin/requests?bill=${k}`;
+    const ty = (Object.keys(bills[k].byType) as RceptTy[])[0];
+    return `${AS_LIST_HREF[ty]}?bill=${k}`;
+  };
+  return (
+    <section className="hm-bill" aria-label="처리할 유상 청구">
+      {items.map(([k, label]) => (
+        <Link key={k} href={href(k)}>
+          <span className="hm-bill-i" aria-hidden="true">₩</span>
+          <span>
+            {label} <b>{bills[k].total.toLocaleString()}건</b>
+          </span>
+          <span className="hm-bill-go">확인하기 ›</span>
+        </Link>
+      ))}
+    </section>
+  );
+}
+
 function HomeAuthed() {
   const { me, can } = useAuth();
   const canScan = useCanQuickScan();
@@ -207,6 +240,8 @@ function HomeAuthed() {
               </Link>
             </div>
           </section>
+
+          <BillNotice bills={summary?.bills} canManage={can("AS_MANAGE")} />
 
           <section aria-labelledby="hq-t">
             <h2 id="hq-t" className="hm-h">

@@ -231,9 +231,15 @@ public class AuthController {
         if ("PENDING".equals(q.status) && q.expiresAt.isBefore(Times.now())) { q.status = "EXPIRED"; qrs.save(q); }
         Json res = Json.obj().with("status", q.status).with("num", q.num).with("expiresAt", q.expiresAt);
         if ("APPROVED".equals(q.status)) {
+            AppUser u = users.findById(q.userId).orElse(null);
+            // 승인과 PC 로그인 사이에 계정이 사용 중지·잠금되었으면 로그인시키지 않는다.
+            if (u == null || !"ACTIVE".equals(u.status)) {
+                q.status = "REJECTED";
+                qrs.save(q);
+                return ApiResponse.ok(res.with("status", "REJECTED").with("message", "사용할 수 없는 계정입니다. 관리자에게 문의하세요."));
+            }
             q.status = "CONSUMED";
             qrs.save(q);
-            AppUser u = users.findById(q.userId).orElseThrow();
             res.putAll(tokens(u, req, "QR"));
             res.put("status", "APPROVED");
         }
@@ -255,8 +261,10 @@ public class AuthController {
         CurrentUser me = AuthContext.get();
         QrLoginSession q = qrs.findByToken(token).orElseThrow(() -> ApiException.notFound("QR 로그인 세션이 없습니다."));
         if (!"PENDING".equals(q.status) || q.expiresAt.isBefore(Times.now())) throw ApiException.conflict("만료되었거나 이미 처리된 QR입니다.");
+        // 확인 숫자는 필수: PC 화면 앞에 있는 사람만 알 수 있다 (멀리서 보낸 QR을 실수로 승인하는 것을 막는다).
         String num = body == null ? null : Params.str(body, "num");
-        if (num != null && !num.equals(q.num)) throw ApiException.badRequest("확인 숫자가 일치하지 않습니다.");
+        if (num == null) throw ApiException.badRequest("PC 화면에 보이는 확인 숫자를 선택해 주세요.");
+        if (!num.equals(q.num)) throw ApiException.badRequest("확인 숫자가 일치하지 않습니다.");
         q.status = "APPROVED"; q.userId = me.userId(); q.approvedAt = Times.now();
         qrs.save(q);
         return ApiResponse.ok(Json.obj().with("status", "APPROVED"));
