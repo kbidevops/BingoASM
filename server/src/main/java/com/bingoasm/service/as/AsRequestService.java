@@ -39,11 +39,12 @@ public class AsRequestService {
     private final AssetRepository assets;
     private final AsCostItemRepository costItems;
     private final PermissionService permissions;
+    private final NotificationService notices;
 
     public AsRequestService(AsRequestRepository requests, AsHistoryRepository histories, SchoolService schoolService, UserRepository users,
                             WirelessDeviceRepository devices, AssetRepository assets, com.bingoasm.repo.FileRepository files, AsCostItemRepository costItems,
-                            PermissionService permissions) {
-        this.files = files; this.costItems = costItems; this.permissions = permissions;
+                            PermissionService permissions, NotificationService notices) {
+        this.files = files; this.costItems = costItems; this.permissions = permissions; this.notices = notices;
         this.requests = requests; this.histories = histories; this.schoolService = schoolService; this.users = users;
         this.devices = devices; this.assets = assets;
     }
@@ -389,6 +390,22 @@ public class AsRequestService {
         if (all) { r.billStatus = null; r.billFileIds = null; }
     }
 
+    // ---------- notifications (머리글 종) ----------
+
+    /** "[무선망] AS-12" — 알림 제목 앞부분. */
+    private static String label(AsRequest r) { return "[" + AsCodes.RCEPT_TY_NAME.get(r.rceptTy) + "] AS-" + r.asvcSn; }
+
+    private String schoolName(AsRequest r) {
+        School s = r.schoolId == null ? null : schoolService.schoolMap(r.orgId).get(r.schoolId);
+        return s == null ? "" : s.schoolName;
+    }
+
+    private static String when(LocalDateTime t) { return t == null ? "" : t.toString().replace('T', ' ').substring(0, 16); }
+
+    private static String won(Long v) { return String.format("%,d원", v == null ? 0L : v); }
+
+    private static String clip(String s, int n) { return s == null ? "" : s.length() <= n ? s : s.substring(0, n) + "…"; }
+
     private void history(AsRequest r, String prev, String action, String content, Long worker) {
         AsHistory h = new AsHistory();
         h.asvcSn = r.asvcSn; h.prevStatus = prev; h.status = r.status; h.action = action; h.content = content; h.workerId = worker; h.createdAt = Times.now();
@@ -488,6 +505,7 @@ public class AsRequestService {
         applyRequestFields(me, r, b, true);
         requests.save(r);
         history(r, null, "REQUEST", AsCodes.RCEPT_TY_NAME.get(ty) + " AS 신청 등록", me.userId());
+        notices.notify(notices.vendorSide(r), me.userId(), r, "AS_NEW", label(r) + " 새 신청", schoolName(r) + " · " + clip(r.symptom, 80));
         return r.asvcSn;
     }
 
@@ -514,16 +532,19 @@ public class AsRequestService {
                 r.status = "R"; r.receivedAt = Times.now(); r.visitPlannedAt = planned;
                 if (isVendorSide(me)) { r.engineerUserId = me.userId(); r.engineerName = me.user().userName; }
                 history(r, prev, "RECEIVE", "접수 처리 · 방문예정 " + planned.toString().replace('T', ' '), me.userId());
+                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_RECEIVED", label(r) + " 접수", "방문예정 " + when(planned) + (r.engineerName == null ? "" : " · 담당 " + r.engineerName));
             }
             case "return" -> {
                 String reason = Params.str(b, "reason");
                 if (reason == null) throw ApiException.badRequest("반려 사유를 입력해주세요.");
                 r.status = "X"; r.returnReason = reason;
                 history(r, prev, "RETURN", "반려: " + reason, me.userId());
+                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_RETURNED", label(r) + " 반려", clip(reason, 200));
             }
             case "return-cancel" -> {
                 r.status = "A"; r.returnReason = null;
                 history(r, prev, "RETURN_CANCEL", "반려 취소", me.userId());
+                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_RETURN_CANCELED", label(r) + " 반려 취소", "신청완료 상태로 돌아갔습니다.");
             }
             case "transfer" -> {
                 String to = Params.str(b, "rceptTy");
@@ -539,16 +560,21 @@ public class AsRequestService {
                 Map<String, String> ft = AsCodes.FAULT_TYPES.get(to);
                 if (!ft.containsKey(r.faultTypeCode)) { r.faultTypeCode = ft.keySet().iterator().next(); r.faultTypeName = ft.get(r.faultTypeCode); }
                 history(r, prev, "TRANSFER", AsCodes.RCEPT_TY_NAME.get(r.transferFromTy) + " → " + AsCodes.RCEPT_TY_NAME.get(to) + " 이관: " + content, me.userId());
+                String moved = AsCodes.RCEPT_TY_NAME.get(r.transferFromTy) + " → " + AsCodes.RCEPT_TY_NAME.get(to);
+                notices.notify(notices.vendorSide(r), me.userId(), r, "AS_NEW", label(r) + " 이관 신청", schoolName(r) + " · " + moved);
+                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_TRANSFERRED", label(r) + " 이관", moved + " · " + clip(content, 120));
             }
             case "cancel" -> {
                 r.useYn = "N";
                 history(r, prev, "CANCEL", "신청 취소", me.userId());
+                if (!"C".equals(prev)) notices.notify(notices.vendorSide(r), me.userId(), r, "AS_CANCELED", label(r) + " 신청 취소", schoolName(r));
             }
             case "visit" -> {
                 LocalDateTime planned = visitTime(b, "visitPlannedAt", "visitPlannedDate");
                 if (planned == null) throw ApiException.badRequest("방문예정일시를 입력해주세요.");
                 r.visitPlannedAt = planned;
                 history(r, prev, "VISIT", "방문예정일 수정 → " + planned.toString().replace('T', ' '), me.userId());
+                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_VISIT", label(r) + " 방문 일정 변경", "방문예정 " + when(planned));
             }
             case "report" -> {
                 boolean first = !"C".equals(r.status);
@@ -590,12 +616,17 @@ public class AsRequestService {
                 r.status = "C";
                 if (first || r.completedAt == null) r.completedAt = r.visitEndAt;
                 history(r, prev, first ? "REPORT" : "REPORT_UPDATE", (first ? "처리 보고서 등록: " : "처리 보고서 수정: ") + r.processContent, me.userId());
+                if (first) notices.notify(notices.schoolSide(r), me.userId(), r, "AS_DONE", label(r) + " 처리 완료",
+                        clip(r.processContent, 120) + ("PAID".equals(r.chargeType) ? " · 유상 청구 " + won(r.processAmount) + ": 금액을 확인해 주세요." : " · 만족도 평가를 부탁드립니다."));
+                else if (billChanged && "PAID".equals(r.chargeType))
+                    notices.notify(notices.schoolSide(r), me.userId(), r, "BILL_CHANGED", label(r) + " 청구 금액 변경", "유상 청구 " + won(r.processAmount) + ": 다시 확인해 주세요.");
             }
             case "evaluate" -> {
                 Integer score = Params.integer(b, "score");
                 if (score == null || score < 1 || score > 5) throw ApiException.badRequest("만족도 점수를 선택해주세요.");
                 r.evalScore = score; r.evalOpinion = Params.str(b, "opinion"); r.evaluatedAt = Times.now();
                 history(r, prev, "EVALUATE", "만족도 평가 " + score + "점", me.userId());
+                notices.notify(notices.vendorSide(r), me.userId(), r, "AS_EVALUATED", label(r) + " 만족도 " + score + "점", schoolName(r) + (r.evalOpinion == null ? "" : " · " + clip(r.evalOpinion, 120)));
             }
             case "assign" -> {
                 Long vid = Params.lng(b, "vendorId");
@@ -606,6 +637,7 @@ public class AsRequestService {
                 AppUser e = eid == null ? null : users.findById(eid).filter(u -> vid.equals(u.vendorId)).orElseThrow(() -> ApiException.badRequest("담당 기사가 해당 업체 소속이 아닙니다."));
                 r.vendorId = vid; r.engineerUserId = e == null ? null : e.userId; r.engineerName = e == null ? null : e.userName;
                 history(r, prev, "ASSIGN", "업체 배정: " + v.vendorName + (e == null ? "" : " / " + e.userName), me.userId());
+                notices.notify(notices.vendorSide(r), me.userId(), r, "AS_ASSIGNED", label(r) + " 배정", schoolName(r) + " · " + clip(r.symptom, 80));
             }
             case "delete" -> {
                 r.useYn = "N";
@@ -614,22 +646,28 @@ public class AsRequestService {
             case "bill-invoice" -> {
                 r.billFileIds = attachments(b.get("fileIds"), MAX_BILL_FILES, "청구서");
                 history(r, prev, "BILL_INVOICE", r.billFileIds == null ? "청구서 첨부 삭제" : "청구서 첨부 (" + ids(r.billFileIds).size() + "개)", me.userId());
+                if (r.billFileIds != null) notices.notify(notices.schoolSide(r), me.userId(), r, "BILL_INVOICE", label(r) + " 청구서 첨부", "유상 청구 " + won(r.processAmount));
             }
             case "bill-confirm" -> {
                 r.billStatus = "CONFIRMED"; r.billConfirmedAt = Times.now(); r.billConfirmedBy = me.userId();
                 history(r, prev, "BILL_CONFIRM", "청구 금액 확인: " + String.format("%,d", Optional.ofNullable(r.processAmount).orElse(0L)) + "원", me.userId());
+                notices.notify(notices.vendorSide(r), me.userId(), r, "BILL_CONFIRMED", label(r) + " 청구 금액 확인", schoolName(r) + " · " + won(r.processAmount));
             }
             case "bill-paid" -> {
                 LocalDate paid = Params.date(b, "paidDate");
                 if (paid != null && paid.isAfter(Times.today())) throw ApiException.badRequest("지급일은 오늘 이후일 수 없습니다.");
                 r.billStatus = "PAID"; r.billPaidAt = paid == null ? Times.now() : paid.atStartOfDay(); r.billPaidBy = me.userId();
                 history(r, prev, "BILL_PAID", "지급 완료 · " + r.billPaidAt.toLocalDate(), me.userId());
+                notices.notify(notices.vendorSide(r), me.userId(), r, "BILL_PAID", label(r) + " 지급 완료", schoolName(r) + " · " + won(r.processAmount) + " · " + r.billPaidAt.toLocalDate());
             }
             case "bill-cancel" -> {
                 String reason = Params.str(b, "reason");
                 if (reason == null) throw ApiException.badRequest("취소 사유를 입력해 주세요.");
                 clearBill(r, false); r.billStatus = "BILLED";
                 history(r, prev, "BILL_CANCEL", "청구 확인·지급 취소: " + reason, me.userId());
+                Set<Long> both = new LinkedHashSet<>(notices.vendorSide(r));
+                both.addAll(notices.schoolSide(r));
+                notices.notify(both, me.userId(), r, "BILL_CANCELED", label(r) + " 청구 확인 취소", clip(reason, 200));
             }
             case "update" -> { update(me, sn, b); return; }
             default -> throw ApiException.notFound("지원하지 않는 처리입니다.");

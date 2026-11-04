@@ -77,7 +77,7 @@ export const MENU: MenuGroup[] = [
 ];
 
 /** Pages outside the menu that still need a title and breadcrumb. */
-const EXTRA: Record<string, string> = { "/mypage": "마이페이지", "/login": "통합 로그인", "/sitemap": "누리집 지도" };
+const EXTRA: Record<string, string> = { "/mypage": "마이페이지", "/login": "통합 로그인", "/sitemap": "누리집 지도", "/notifications": "알림" };
 
 export function findMenu(pathname: string): { group?: MenuGroup; item?: MenuItem; title: string } {
   const path = pathname.replace(/\/$/, "") || "/";

@@ -64,7 +64,14 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
   const seq = useRef(0);
   const [data, setData] = useState<Page<AsRow> | null>(null);
   const [err, setErr] = useState("");
-  const [open, setOpen] = useState<number | null>(null);
+  // ?open=123 (from a notification) opens that request's detail; a later link with another number re-opens.
+  const urlOpen = Number(useSearchParams().get("open")) || null;
+  const [open, setOpen] = useState<number | null>(urlOpen);
+  const [seenOpen, setSeenOpen] = useState(urlOpen);
+  if (urlOpen !== seenOpen) {
+    setSeenOpen(urlOpen);
+    if (urlOpen) setOpen(urlOpen);
+  }
 
   const query = useCallback(
     (f: Filter) => ({

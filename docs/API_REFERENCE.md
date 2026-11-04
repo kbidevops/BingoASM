@@ -397,3 +397,14 @@ BINGOASM_URL=http://localhost:8080 python3 scripts/as_integration_test.py
 새 DB(데모 데이터)에 대해 실행하도록 만들어져 있습니다. 같은 서버에 두 번 돌리면 데이터가 쌓여 일부 수치 검사가 달라질 수 있고, 로그인 요청 제한(분당 20회) 때문에 1분 간격을 두세요.
 
 > 교육청이 쓰지 않는 AS 서비스(AS 서비스 설정)는 목록·엑셀·요약·통계에서 모두 빠지고, 업체 담당 분야와 학교 배정에 새로 지정할 수 없습니다(이미 있던 지정은 유지). `GET /api/org/as-services`의 `types[].openRequests`는 서비스별 처리 중 건수입니다.
+
+### 알림 (`/api/notifications`, 로그인한 사용자 · 자기 알림만)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/notifications?unread&page&size` | `{ list: Page<{notificationId, type, title, body, asvcSn, rceptTy, read, createdAt}>, unreadCount }` |
+| GET | `/api/notifications/unread-count` | `{ count }` — 머리글 종이 1분마다 읽는다 |
+| POST | `/api/notifications/{id}/read` | 읽음 (남의 알림은 404) |
+| POST | `/api/notifications/read-all` | 모두 읽음. 180일 지난 알림 정리도 이때 |
+
+AS 처리 단계마다 관계자에게 남는다 (처리한 본인·사용 중지 계정 제외): 신청·이관·배정 → 담당 기사와 업체 관리자, 접수·방문일 변경·반려·반려 취소·처리 완료(유상이면 청구 금액 확인 요청)·청구서 첨부·청구 금액 변경 → 신청자와 그 학교 담당자, 만족도 평가·청구 확인·지급 완료·신청 취소 → 업체, 청구 확인 취소 → 양쪽. 외부 푸시·문자는 보내지 않는다. 테이블은 `V2__notifications.sql`.

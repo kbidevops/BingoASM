@@ -8,6 +8,7 @@ import { mmss } from "@/lib/format";
 import { findMenu, visibleMenu } from "@/lib/menu";
 import { useScraps } from "@/lib/scraps";
 import QrQuickScan, { useCanQuickScan } from "./admin/QrQuickScan";
+import NotificationBell from "./NotificationBell";
 import { Icon, Modal, useToast } from "./ui";
 
 function toggleTheme() {
@@ -300,6 +301,7 @@ export default function SiteHeader() {
             <span>QR 찍기</span>
           </button>
         )}
+        <NotificationBell />
         <button
           className="ic"
           type="button"
