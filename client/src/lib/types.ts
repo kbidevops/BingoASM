@@ -67,7 +67,6 @@ export interface AsCodes {
   requestTypes: Record<string, string>;
   processTypes: Record<string, string>;
   costTypes: Record<string, string>;
-  chargeTypes: Record<string, string>;
 }
 
 /** 처리 보고서 비용 항목 (부품·공임·출장·기타). */
@@ -121,16 +120,12 @@ export interface AsRow {
   hasReport?: boolean;
   processTypeName?: string;
   processAmount?: number;
-  /** 유상 건의 청구 단계. 무상이면 없음. */
-  billStatus?: BillStatus;
-  billStatusName?: string;
   evalScore?: number;
 }
 
-export type BillStatus = "BILLED" | "CONFIRMED" | "PAID";
 
 export interface AsDetail extends AsRow {
-  school?: { schoolName: string; address?: string; tel?: string; contractStatus?: string };
+  school?: { schoolName: string; address?: string; tel?: string };
   vendor?: { vendorName: string; tel?: string };
   report?: {
     engineerName?: string;
@@ -142,14 +137,10 @@ export interface AsDetail extends AsRow {
     processTypeName?: string;
     processContent?: string;
     processAmount?: number;
-    chargeType?: "FREE" | "PAID";
-    chargeTypeName?: string;
     costItems?: CostItem[];
     files?: FileInfo[];
   };
   attachments?: FileInfo[];
-  /** 유상 청구 진행 (처리 보고서가 유상일 때). */
-  bill?: { status: BillStatus; statusName: string; amount?: number; confirmedAt?: string; confirmedBy?: string; paidAt?: string; paidBy?: string; files?: FileInfo[] };
   evaluation?:{ score: number; opinion?: string; evaluatedAt?: string };
   histories?: { historyId: number; statusName?: string; action: string; content?: string; workerName?: string; createdAt: string }[];
   allowedActions: string[];
@@ -164,8 +155,6 @@ export interface AsSummary {
   returned: number;
   todayRequested: number;
   waitingEval: number;
-  /** 유상 청구 중 처리할 것: BILLED 학교 확인 대기, CONFIRMED 지급 대기 (범위 안, 유형별 포함). */
-  bills?: Record<"BILLED" | "CONFIRMED", { total: number; byType: Partial<Record<RceptTy, number>> }>;
 }
 
 export interface BoardInfo {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadFiles } from "@/lib/api";
 import { ACTION_LABEL, AS_NAME, loadCodes, useAsTypes } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
-import { fileSize, fmtDate, fmtDateTime, todayIso, won } from "@/lib/format";
+import { fileSize, fmtDate, fmtDateTime, won } from "@/lib/format";
 import type { AsCodes, AsDetail, CostItem, FileInfo, RceptTy } from "@/lib/types";
 import { AsBadge, DateTimeInput, ErrorBox, FilePicker, Loading, Modal, useToast } from "./ui";
 
@@ -12,14 +12,7 @@ const SCORE = ["", "매우불만족", "불만족", "보통", "만족", "매우�
 /** 처리 보고서 첨부 개수. 한 번 업로드에 5개까지라(FileService) 새 파일도 그 안에 들어간다. */
 const REPORT_FILES_MAX = 5;
 /** Actions this screen offers. `update` (edit request) and `assign` (admin re-assign) are not built yet. */
-const SHOWN = ["receive", "visit", "report", "return", "return-cancel", "transfer", "evaluate", "bill-invoice", "bill-confirm", "bill-paid", "bill-cancel", "cancel", "delete"];
-/** 청구 단계별 안내. */
-const BILL_HINT: Record<string, string> = {
-  BILLED: "학교 담당자가 청구 금액을 확인해야 합니다.",
-  CONFIRMED: "학교가 금액을 확인했습니다. 대금을 지급한 뒤 지급 완료로 바꿔 주세요.",
-  PAID: "지급이 끝났습니다. AS 비용 통계의 실제 지출에 들어갑니다.",
-};
-
+const SHOWN = ["receive", "visit", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
 function nowLocal() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -90,27 +83,8 @@ export default function AsDetailModal({ sn, onClose, onChanged }: { sn: number; 
                 {d.report && (
                   <>
                     {r("방문일시", fmtDateTime(d.report.visitAt), "처리완료일시", fmtDateTime(d.report.visitEndAt ?? d.completedAt))}
-                    {r("처리유형", d.report.processTypeName ?? "-", "처리비용", `${won(d.report.processAmount)}${d.report.chargeTypeName ? ` · ${d.report.chargeTypeName}` : ""}`)}
-                    {d.report.costItems?.length ? wide("비용 내역", <CostTable items={d.report.costItems} />) : null}
-                    {d.bill && wide("유상 청구", (
-                      <div className="bill">
-                        <ol className="bill-steps" aria-label="청구 진행">
-                          {(["BILLED", "CONFIRMED", "PAID"] as const).map((s, i) => {
-                            const at = s === "BILLED" ? d.completedAt : s === "CONFIRMED" ? d.bill?.confirmedAt : d.bill?.paidAt;
-                            const by = s === "CONFIRMED" ? d.bill?.confirmedBy : s === "PAID" ? d.bill?.paidBy : undefined;
-                            const reached = ["BILLED", "CONFIRMED", "PAID"].indexOf(d.bill!.status) >= i;
-                            return (
-                              <li key={s} className={reached ? "on" : ""} aria-current={d.bill!.status === s ? "step" : undefined}>
-                                <b>{s === "BILLED" ? "청구" : s === "CONFIRMED" ? "학교 확인" : "지급 완료"}</b>
-                                <small>{reached && at ? `${fmtDate(at)}${by ? ` · ${by}` : ""}` : "대기"}</small>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                        <p className="hint" style={{ margin: "6px 0 0" }}>청구 금액 <b>{won(d.bill.amount)}</b> · {BILL_HINT[d.bill.status]}</p>
-                        {d.bill.files?.length ? <div style={{ marginTop: 6 }}>청구서: <Files files={d.bill.files} /></div> : null}
-                      </div>
-                    ))}
+                    {r("처리유형", d.report.processTypeName ?? "-", "처리 비용", d.report.processAmount ? won(d.report.processAmount) : "-")}
+                    {d.report.costItems?.length ? wide("처리 비용 내역", <CostTable items={d.report.costItems} />) : null}
                     {d.report.troubleSymptom && wide("장애증상(현장)", d.report.troubleSymptom)}
                     {d.report.inspectContent && wide("점검내용", d.report.inspectContent)}
                     {wide("처리내용", d.report.processContent ?? "-")}
@@ -187,18 +161,9 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
   const [lines, setLines] = useState<CostLine[]>(() =>
     d.report?.costItems?.length ? d.report.costItems.map((c) => ({ costType: c.costType, itemName: c.itemName, quantity: String(c.quantity), unitPrice: String(c.unitPrice) }))
       : d.report?.processAmount ? [{ costType: "ETC", itemName: "처리비용", quantity: "1", unitPrice: String(d.report.processAmount) }] : []);
-  // 유상·무상: 계약 학교의 정보기기 AS와 스쿨넷은 기본 무상.
-  const [charge, setCharge] = useState<"FREE" | "PAID">(d.report?.chargeType
-    ?? ((d.rceptTy === "C" && d.school?.contractStatus === "CONTRACTED") || d.rceptTy === "S" ? "FREE" : "PAID"));
   // 보고서 첨부(현장 사진·점검표 등): 이미 올린 파일 중 남길 것 + 새 파일
   const [repKeep, setRepKeep] = useState<FileInfo[]>(d.report?.files ?? []);
   const [repFiles, setRepFiles] = useState<File[]>([]);
-  // 청구서 첨부: 이미 올린 파일 중 남길 것 + 새 파일
-  const [billKeep, setBillKeep] = useState<FileInfo[]>(d.bill?.files ?? []);
-  const [billFiles, setBillFiles] = useState<File[]>([]);
-  const [paidDate, setPaidDate] = useState(todayIso());
-  // 확인·지급된 청구는 금액을 바꿀 수 없다 (서버가 거절한다).
-  const billLocked = d.bill?.status === "CONFIRMED" || d.bill?.status === "PAID";
 
   useEffect(() => {
     if (action === "report") loadCodes().then(setCodes).catch(() => {});
@@ -214,6 +179,7 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     e.preventDefault();
     let body: Record<string, unknown> = {};
     let check = "";
+    let costs: CostLine[] = [];
     switch (action) {
       case "receive":
       case "visit":
@@ -228,38 +194,26 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
         body = { rceptTy: v.rceptTy, content: v.content.trim() };
         break;
       case "report":
+        // 처리 비용은 선택: 품목·단가 모두 비운 줄은 없는 것으로 본다.
+        costs = lines.filter((l) => l.itemName.trim() || l.unitPrice);
         if (!v.processContent.trim()) check = "처리내용을 입력해 주세요.";
-        else if (lines.some((l) => !l.unitPrice || Number(l.unitPrice) < 0 || !(Number(l.quantity) >= 1))) check = "비용 항목의 수량과 단가를 확인해 주세요.";
+        else if (costs.some((l) => !l.unitPrice || Number(l.unitPrice) < 0 || !(Number(l.quantity) >= 1))) check = "처리 비용의 수량과 단가를 확인해 주세요.";
         body = {
           engineerName: v.engineerName.trim(), visitAt: v.visitAt, visitEndAt: v.visitEndAt,
           troubleSymptom: v.troubleSymptom.trim(), inspectContent: v.inspectContent.trim(),
           processTypeCode: v.processTypeCode || undefined, processContent: v.processContent.trim(),
-          costItems: lines.map((l) => ({ costType: l.costType, itemName: l.itemName.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
-          chargeType: charge,
+          costItems: costs.map((l) => ({ costType: l.costType, itemName: l.itemName.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
         };
         break;
       case "evaluate":
         if (!v.score) check = "만족도를 선택해 주세요.";
         body = { score: Number(v.score), opinion: v.opinion.trim() };
         break;
-      case "bill-invoice":
-        if (!billKeep.length && !billFiles.length && !d.bill?.files?.length) check = "청구서 파일을 선택해 주세요.";
-        break;
-      case "bill-paid":
-        if (!paidDate) check = "지급일을 입력해 주세요.";
-        else if (paidDate > todayIso()) check = "지급일은 오늘 이후일 수 없습니다.";
-        body = { paidDate };
-        break;
-      case "bill-cancel":
-        if (!v.reason.trim()) check = "취소 사유를 입력해 주세요.";
-        body = { reason: v.reason.trim() };
-        break;
     }
     if (check) return setMsg(check);
     setBusy(true);
     setMsg("");
     try {
-      if (action === "bill-invoice") body = { fileIds: [...billKeep.map((f) => f.fileId), ...(await uploadFiles(billFiles))] };
       if (action === "report") body = { ...body, fileIds: [...repKeep.map((f) => f.fileId), ...(await uploadFiles(repFiles))] };
       await api.post(`/api/as/requests/${d.asvcSn}/${action}`, body);
       toast(`${ACTION_LABEL[action]} 처리했습니다.`);
@@ -270,12 +224,11 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     }
   };
 
-  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete" || action === "bill-confirm";
+  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete";
   const confirmText: Record<string, string> = {
     delete: "이 AS 신청을 삭제합니다. 삭제한 내용은 되돌릴 수 없습니다.",
     cancel: "이 AS 신청을 취소합니다.",
     "return-cancel": "반려를 취소하고 신청완료 상태로 되돌립니다.",
-    "bill-confirm": `청구 금액 ${won(d.bill?.amount)}이(가) 처리 보고서의 비용 내역과 맞는지 확인했습니다. 확인한 뒤에는 업체가 금액을 바꿀 수 없습니다.`,
   };
 
   return (
@@ -322,16 +275,8 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
               </select>
             </td></tr>
             <tr><th scope="row"><i>*</i>처리내용</th><td><textarea className="ta" aria-label="처리내용" value={v.processContent} onChange={set("processContent")} /></td></tr>
-            <tr><th scope="row">비용 구분</th><td>
-              {(["FREE", "PAID"] as const).map((c) => (
-                <label key={c} style={{ marginRight: 12 }}><input type="radio" name="charge" disabled={billLocked} checked={charge === c} onChange={() => setCharge(c)} /> {codes?.chargeTypes[c] ?? (c === "FREE" ? "무상(계약 포함)" : "유상(별도 청구)")}</label>
-              ))}
-              <small className="hint">무상: 유지관리 계약·SLA에 포함되어 학교에 청구하지 않음 (금액은 계약 안에서 한 일의 환산 금액으로만 집계)</small>
-            </td></tr>
-            <tr><th scope="row">비용 항목</th><td>
-              {billLocked
-                ? <><CostTable items={d.report?.costItems ?? []} /><p className="hint" style={{ margin: "6px 0 0" }}>학교가 확인한 청구라 금액을 바꿀 수 없습니다. 고쳐야 하면 교육청 담당자에게 청구 확인 취소를 요청해 주세요.</p></>
-                : <CostEditor lines={lines} setLines={setLines} costTypes={codes?.costTypes} />}
+            <tr><th scope="row">처리 비용 <small className="opt">(선택)</small></th><td>
+              <CostEditor lines={lines} setLines={setLines} costTypes={codes?.costTypes} />
             </td></tr>
             <tr><th scope="row">첨부파일</th><td>
               {repKeep.length > 0 && (
@@ -350,31 +295,6 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
               <small className="hint">현장 사진, 점검표, 교체 부품 사진 등 (파일당 20MB 이하)</small>
             </td></tr>
           </>
-        )}
-        {action === "bill-invoice" && (
-          <tr><th scope="row"><i>*</i>청구서</th><td>
-            {billKeep.length > 0 && (
-              <ul style={{ margin: "0 0 8px", paddingLeft: 18 }}>
-                {billKeep.map((f) => (
-                  <li key={f.fileId}>{f.name} <button type="button" className="linkbtn" onClick={() => setBillKeep(billKeep.filter((x) => x.fileId !== f.fileId))}>삭제</button></li>
-                ))}
-              </ul>
-            )}
-            <FilePicker files={billFiles} onChange={setBillFiles} max={Math.max(0, 3 - billKeep.length)} />
-            <small className="hint">청구서·세금계산서·거래명세서 (최대 3개)</small>
-          </td></tr>
-        )}
-        {action === "bill-paid" && (
-          <tr><th scope="row"><i>*</i>지급일</th><td>
-            <input type="date" aria-label="지급일" max={todayIso()} value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
-            <small className="hint"> 지급 완료한 금액만 AS 비용 통계의 실제 지출에 들어갑니다.</small>
-          </td></tr>
-        )}
-        {action === "bill-cancel" && (
-          <tr><th scope="row"><i>*</i>취소 사유</th><td>
-            <textarea className="ta" aria-label="취소 사유" value={v.reason} onChange={set("reason")} />
-            <small className="hint">청구 단계로 되돌립니다. 업체가 금액을 고친 뒤 학교가 다시 확인합니다.</small>
-          </td></tr>
         )}
         {action === "evaluate" && (
           <>
@@ -431,7 +351,7 @@ function CostEditor({ lines, setLines, costTypes = COST_TYPES }: { lines: CostLi
           onClick={() => setLines([...lines, { costType: lines.length ? "LABOR" : "PART", itemName: "", quantity: "1", unitPrice: "" }])}>+ 항목 추가</button>
         <span>합계 <b>{total.toLocaleString()}</b>원</span>
       </div>
-      {!lines.length && <p className="hint" style={{ margin: "6px 0 0" }}>비용이 없으면 비워 두세요.</p>}
+      {!lines.length && <p className="hint" style={{ margin: "6px 0 0" }}>부품·공임·출장비 등 비용이 든 경우에만 적습니다. 없으면 비워 두세요.</p>}
     </div>
   );
 }

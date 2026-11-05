@@ -120,8 +120,7 @@ public class AsRequestService {
                 .with("returnReason", r.returnReason).with("transferFromTy", r.transferFromTy).with("transferContent", r.transferContent)
                 .with("hasReport", r.visitAt != null || r.processContent != null)
                 .with("processTypeCode", r.processTypeCode).with("processTypeName", r.processTypeCode == null ? null : AsCodes.PROCESS_TYPE_NAME.get(r.processTypeCode))
-                .with("processAmount", r.processAmount).with("chargeType", r.chargeType)
-                .with("billStatus", r.billStatus()).with("billStatusName", r.billStatus() == null ? null : AsCodes.BILL_STATUS_NAME.get(r.billStatus()))
+                .with("processAmount", r.processAmount)
                 .with("evalScore", r.evalScore).with("evaluatedAt", r.evaluatedAt)
                 .with("attachFileIds", ids(r.attachFileIds));
     }
@@ -153,8 +152,7 @@ public class AsRequestService {
     // ---------- queries ----------
 
     public record Filter(String rceptTy, String keyword, String searchType, LocalDate fromDate, LocalDate toDate, String status,
-                         Long schoolId, Long regionId, Long vendorId, Long engineerUserId, boolean mine, boolean unassigned, String sort,
-                         String billStatus) {}
+                         Long schoolId, Long regionId, Long vendorId, Long engineerUserId, boolean mine, boolean unassigned, String sort) {}
 
     private Specification<AsRequest> spec(CurrentUser me, Filter f) {
         Set<Long> regionSchools = f.regionId() == null && !"region".equals(f.searchType()) ? null
@@ -177,15 +175,6 @@ public class AsRequestService {
             if (f.engineerUserId() != null) p.add(cb.equal(root.get("engineerUserId"), f.engineerUserId()));
             if (f.mine()) p.add(cb.equal(root.get("applicantUserId"), me.userId()));
             if (f.unassigned()) p.add(cb.isNull(root.get("vendorId")));
-            if (!Params.blank(f.billStatus())) {
-                if (!AsCodes.BILL_STATUS_NAME.containsKey(f.billStatus())) throw ApiException.badRequest("청구 상태가 올바르지 않습니다.");
-                // 유상 처리완료 건만. 예전 유상 보고서(billStatus 없음)는 청구 단계로 본다 (AsRequest.billStatus()).
-                p.add(cb.equal(root.get("status"), "C"));
-                p.add(cb.equal(root.get("chargeType"), "PAID"));
-                p.add("BILLED".equals(f.billStatus())
-                        ? cb.or(cb.isNull(root.get("billStatus")), cb.equal(root.get("billStatus"), "BILLED"))
-                        : cb.equal(root.get("billStatus"), f.billStatus()));
-            }
             if (regionSchools != null) p.add(regionSchools.isEmpty() ? cb.disjunction() : root.get("schoolId").in(regionSchools));
             if (!Params.blank(f.keyword()) && !"region".equals(f.searchType())) {
                 String kw = f.keyword().trim();
@@ -234,19 +223,7 @@ public class AsRequestService {
             byType.put(ty, st);
         }
         LocalDate today = Times.today();
-        // 유상 청구 중 처리할 것: 학교 확인 대기(BILLED), 지급 대기(CONFIRMED). 유형별로도 — 학교 화면은 유형별 목록으로 보낸다.
-        Json bills = Json.obj();
-        for (String st : List.of("BILLED", "CONFIRMED")) {
-            Json t = Json.obj();
-            long all = 0;
-            for (String ty : AsCodes.RCEPT_TYPES) {
-                long n = list.stream().filter(r -> ty.equals(r.rceptTy) && "C".equals(r.status) && st.equals(r.billStatus())).count();
-                if (n > 0) t.put(ty, n);
-                all += n;
-            }
-            bills.put(st, Json.obj().with("total", all).with("byType", t));
-        }
-        return Json.obj().with("byType", byType).with("bills", bills)
+        return Json.obj().with("byType", byType)
                 .with("requested", list.stream().filter(r -> "A".equals(r.status)).count())
                 .with("received", list.stream().filter(r -> "R".equals(r.status)).count())
                 .with("completed", list.stream().filter(r -> "C".equals(r.status)).count())
@@ -261,8 +238,7 @@ public class AsRequestService {
         Ref ref = ref(me.orgId());
         Json j = row(r, ref);
         School s = r.schoolId == null ? null : ref.schools().get(r.schoolId);
-        if (s != null) j.put("school", Json.obj().with("schoolId", s.schoolId).with("schoolName", s.schoolName).with("address", s.address).with("tel", s.tel)
-                .with("contractStatus", s.contractStatus));
+        if (s != null) j.put("school", Json.obj().with("schoolId", s.schoolId).with("schoolName", s.schoolName).with("address", s.address).with("tel", s.tel));
         Vendor v = r.vendorId == null ? null : ref.vendors().get(r.vendorId);
         if (v != null) j.put("vendor", Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName).with("tel", v.tel));
         if (r.visitAt != null || r.processContent != null) {
@@ -270,16 +246,10 @@ public class AsRequestService {
                     .with("troubleSymptom", r.troubleSymptom).with("inspectContent", r.inspectContent)
                     .with("processTypeCode", r.processTypeCode).with("processTypeName", r.processTypeCode == null ? null : AsCodes.PROCESS_TYPE_NAME.get(r.processTypeCode))
                     .with("processContent", r.processContent).with("processAmount", r.processAmount)
-                    .with("chargeType", r.chargeType).with("chargeTypeName", r.chargeType == null ? null : AsCodes.CHARGE_TYPE_NAME.get(r.chargeType))
                     .with("costItems", costItems.findByAsvcSnOrderBySortOrderAsc(sn).stream().map(c -> Json.obj()
                             .with("costType", c.costType).with("costTypeName", AsCodes.COST_TYPE_NAME.get(c.costType)).with("itemName", c.itemName)
                             .with("quantity", c.quantity).with("unitPrice", c.unitPrice).with("amount", c.amount)).toList())
                     .with("fileIds", ids(r.reportFileIds)).with("files", fileInfos(r.reportFileIds)));
-            if (r.billStatus() != null) j.put("bill", Json.obj().with("status", r.billStatus()).with("statusName", AsCodes.BILL_STATUS_NAME.get(r.billStatus()))
-                    .with("amount", r.processAmount)
-                    .with("confirmedAt", r.billConfirmedAt).with("confirmedBy", userName(ref, r.billConfirmedBy))
-                    .with("paidAt", r.billPaidAt).with("paidBy", userName(ref, r.billPaidBy))
-                    .with("files", fileInfos(r.billFileIds)));
         }
         // 신청 첨부는 보고서가 없어도(신청완료·접수완료 상태) 보여야 한다.
         j.put("attachments", fileInfos(r.attachFileIds));
@@ -312,14 +282,6 @@ public class AsRequestService {
             case "C" -> {
                 if (process) a.add("report");
                 if (owner && r.evalScore == null && me.can("AS_EVALUATE")) a.add("evaluate");
-                // 유상 청구: 업체가 청구서를 올리고, 학교(또는 교육청)가 금액을 확인한 뒤 지급 완료로 닫는다.
-                String bill = r.billStatus();
-                if (bill != null) {
-                    if ((process || manager) && !"PAID".equals(bill)) a.add("bill-invoice");
-                    if ((owner || manager) && "BILLED".equals(bill)) a.add("bill-confirm");
-                    if ((owner || manager) && "CONFIRMED".equals(bill)) a.add("bill-paid");
-                    if (manager && !"BILLED".equals(bill)) a.add("bill-cancel");
-                }
             }
             case "X" -> { if (process) a.add("return-cancel"); if (owner || manager) a.add("cancel"); }
             default -> { }
@@ -336,7 +298,6 @@ public class AsRequestService {
     private static final long MAX_AMOUNT = 100_000_000L;
     private static final int MAX_COST_LINES = 20;
     private static final int MAX_REPORT_FILES = 5;
-    private static final int MAX_BILL_FILES = 3;
 
     /** 첨부 파일 id 목록 → csv (빈 목록은 null). 개수와 실제로 올라간 파일인지 확인한다. */
     private String attachments(Object raw, int max, String what) {
@@ -384,10 +345,10 @@ public class AsRequestService {
         return total;
     }
 
-    /** 청구 확인·지급 기록을 지운다. all이면 청구 단계와 청구서 첨부까지 (무상으로 바뀐 경우). */
-    private static void clearBill(AsRequest r, boolean all) {
+    /** 예전 유상 청구 기록(단계·확인·지급·청구서 첨부)을 지운다. */
+    private static void clearBill(AsRequest r) {
         r.billConfirmedAt = null; r.billConfirmedBy = null; r.billPaidAt = null; r.billPaidBy = null;
-        if (all) { r.billStatus = null; r.billFileIds = null; }
+        r.billStatus = null; r.billFileIds = null;
     }
 
     // ---------- notifications (머리글 종) ----------
@@ -457,7 +418,7 @@ public class AsRequestService {
         if (b.containsKey("deviceId")) {
             Long did = Params.lng(b, "deviceId");
             if (did != null) {
-                WirelessDevice d = devices.findById(did).filter(x -> x.orgId.equals(me.orgId())).orElseThrow(() -> ApiException.badRequest("무선장비관리번호를 선택해주세요."));
+                WirelessDevice d = devices.findById(did).filter(x -> x.orgId.equals(me.orgId()) && "M".equals(x.rceptTy)).orElseThrow(() -> ApiException.badRequest("무선장비관리번호를 선택해주세요."));
                 r.deviceId = d.deviceId; r.deviceName = d.deviceCode + " " + d.deviceName + (d.location == null ? "" : " (" + d.location + ")");
             } else r.deviceId = null;
         }
@@ -492,8 +453,6 @@ public class AsRequestService {
         if (!me.can(perm)) throw ApiException.forbidden("권한이 없습니다.");
         Long schoolId = isSchoolSide(me) ? me.scope().schoolId() : Params.lng(b, "schoolId");
         School school = schoolService.loadSchool(me, schoolId);
-        if ("C".equals(ty) && !"CONTRACTED".equals(school.contractStatus) && !isAdmin(me))
-            throw ApiException.badRequest("유지관리 표준계약 미체결 학교는 정보기기 AS를 신청할 수 없습니다.");
         SchoolVendor sv = schoolService.resolveVendor(school.schoolId, ty).orElseThrow(() -> ApiException.badRequest("기관에 등록된 유지보수 업체가 없습니다."));
 
         AsRequest r = new AsRequest();
@@ -519,8 +478,7 @@ public class AsRequestService {
     public void act(CurrentUser me, Long sn, String action, Map<String, Object> b) {
         AsRequest r = load(me, sn);
         if (!allowedActions(me, r).contains(action)) {
-            if (!List.of("receive", "return", "return-cancel", "transfer", "cancel", "visit", "report", "evaluate", "assign", "delete", "update",
-                    "bill-invoice", "bill-confirm", "bill-paid", "bill-cancel").contains(action))
+            if (!List.of("receive", "return", "return-cancel", "transfer", "cancel", "visit", "report", "evaluate", "assign", "delete", "update").contains(action))
                 throw ApiException.notFound("지원하지 않는 처리입니다.");
             throw ApiException.conflict("현재 상태(" + AsCodes.STATUS_NAME.get(r.status) + ")에서는 처리할 수 없거나 권한이 없습니다.");
         }
@@ -578,9 +536,6 @@ public class AsRequestService {
             }
             case "report" -> {
                 boolean first = !"C".equals(r.status);
-                Long amountBefore = r.processAmount;
-                String chargeBefore = r.chargeType;
-                String billBefore = r.billStatus();
                 if (b.containsKey("engineerName") && Params.str(b, "engineerName") != null) r.engineerName = Params.str(b, "engineerName");
                 LocalDateTime visitAt = visitTime(b, "visitAt", "visitDate");
                 LocalDateTime endAt = visitTime(b, "visitEndAt", "visitEndDate");
@@ -596,19 +551,9 @@ public class AsRequestService {
                     if (amt != null && (amt < 0 || amt > MAX_AMOUNT)) throw ApiException.badRequest("처리비용이 올바르지 않습니다.");
                     r.processAmount = amt;
                 }
-                if (b.containsKey("chargeType")) {
-                    String c = Params.str(b, "chargeType");
-                    if (c != null && !AsCodes.CHARGE_TYPE_NAME.containsKey(c)) throw ApiException.badRequest("유상·무상 구분이 올바르지 않습니다.");
-                    r.chargeType = c;
-                }
-                // 구분을 안 보내면 비용이 있으면 유상, 없으면 무상.
-                if (r.chargeType == null) r.chargeType = r.processAmount != null && r.processAmount > 0 ? "PAID" : "FREE";
-                boolean billChanged = !Objects.equals(amountBefore, r.processAmount) || !Objects.equals(chargeBefore, r.chargeType);
-                // 학교가 확인한 청구는 금액·유무상을 바꿀 수 없다 (예외로 비용 항목 저장도 함께 되돌려진다).
-                if (billChanged && ("CONFIRMED".equals(billBefore) || "PAID".equals(billBefore)))
-                    throw ApiException.conflict("학교가 확인한 청구는 금액이나 유상·무상 구분을 바꿀 수 없습니다. 교육청 담당자에게 청구 확인 취소를 요청해 주세요.");
-                if (!"PAID".equals(r.chargeType)) clearBill(r, true);
-                else if (first || billChanged || r.billStatus == null) { clearBill(r, false); r.billStatus = "BILLED"; }
+                // 처리 비용은 선택 입력. 유상·무상 구분과 청구 단계는 쓰지 않으므로, 보고서를 저장하면 예전 값을 지운다.
+                r.chargeType = null;
+                clearBill(r);
                 if (b.containsKey("fileIds")) r.reportFileIds = attachments(b.get("fileIds"), MAX_REPORT_FILES, "보고서 첨부");
                 if (Params.blank(r.processContent)) throw ApiException.badRequest("처리내용을 입력해주세요.");
                 if (r.visitAt == null) r.visitAt = r.visitPlannedAt != null ? r.visitPlannedAt : Times.now();
@@ -617,9 +562,7 @@ public class AsRequestService {
                 if (first || r.completedAt == null) r.completedAt = r.visitEndAt;
                 history(r, prev, first ? "REPORT" : "REPORT_UPDATE", (first ? "처리 보고서 등록: " : "처리 보고서 수정: ") + r.processContent, me.userId());
                 if (first) notices.notify(notices.schoolSide(r), me.userId(), r, "AS_DONE", label(r) + " 처리 완료",
-                        clip(r.processContent, 120) + ("PAID".equals(r.chargeType) ? " · 유상 청구 " + won(r.processAmount) + ": 금액을 확인해 주세요." : " · 만족도 평가를 부탁드립니다."));
-                else if (billChanged && "PAID".equals(r.chargeType))
-                    notices.notify(notices.schoolSide(r), me.userId(), r, "BILL_CHANGED", label(r) + " 청구 금액 변경", "유상 청구 " + won(r.processAmount) + ": 다시 확인해 주세요.");
+                        clip(r.processContent, 120) + " · 만족도 평가를 부탁드립니다.");
             }
             case "evaluate" -> {
                 Integer score = Params.integer(b, "score");
@@ -642,32 +585,6 @@ public class AsRequestService {
             case "delete" -> {
                 r.useYn = "N";
                 history(r, prev, "DELETE", "관리자 삭제", me.userId());
-            }
-            case "bill-invoice" -> {
-                r.billFileIds = attachments(b.get("fileIds"), MAX_BILL_FILES, "청구서");
-                history(r, prev, "BILL_INVOICE", r.billFileIds == null ? "청구서 첨부 삭제" : "청구서 첨부 (" + ids(r.billFileIds).size() + "개)", me.userId());
-                if (r.billFileIds != null) notices.notify(notices.schoolSide(r), me.userId(), r, "BILL_INVOICE", label(r) + " 청구서 첨부", "유상 청구 " + won(r.processAmount));
-            }
-            case "bill-confirm" -> {
-                r.billStatus = "CONFIRMED"; r.billConfirmedAt = Times.now(); r.billConfirmedBy = me.userId();
-                history(r, prev, "BILL_CONFIRM", "청구 금액 확인: " + String.format("%,d", Optional.ofNullable(r.processAmount).orElse(0L)) + "원", me.userId());
-                notices.notify(notices.vendorSide(r), me.userId(), r, "BILL_CONFIRMED", label(r) + " 청구 금액 확인", schoolName(r) + " · " + won(r.processAmount));
-            }
-            case "bill-paid" -> {
-                LocalDate paid = Params.date(b, "paidDate");
-                if (paid != null && paid.isAfter(Times.today())) throw ApiException.badRequest("지급일은 오늘 이후일 수 없습니다.");
-                r.billStatus = "PAID"; r.billPaidAt = paid == null ? Times.now() : paid.atStartOfDay(); r.billPaidBy = me.userId();
-                history(r, prev, "BILL_PAID", "지급 완료 · " + r.billPaidAt.toLocalDate(), me.userId());
-                notices.notify(notices.vendorSide(r), me.userId(), r, "BILL_PAID", label(r) + " 지급 완료", schoolName(r) + " · " + won(r.processAmount) + " · " + r.billPaidAt.toLocalDate());
-            }
-            case "bill-cancel" -> {
-                String reason = Params.str(b, "reason");
-                if (reason == null) throw ApiException.badRequest("취소 사유를 입력해 주세요.");
-                clearBill(r, false); r.billStatus = "BILLED";
-                history(r, prev, "BILL_CANCEL", "청구 확인·지급 취소: " + reason, me.userId());
-                Set<Long> both = new LinkedHashSet<>(notices.vendorSide(r));
-                both.addAll(notices.schoolSide(r));
-                notices.notify(both, me.userId(), r, "BILL_CANCELED", label(r) + " 청구 확인 취소", clip(reason, 200));
             }
             case "update" -> { update(me, sn, b); return; }
             default -> throw ApiException.notFound("지원하지 않는 처리입니다.");

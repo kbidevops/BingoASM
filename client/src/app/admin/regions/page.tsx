@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { clearRegionCache } from "@/lib/boards";
 import type { Region } from "@/lib/types";
 
-/** 지역 관리: 도교육청 산하 교육지원청 등록·조회·수정·삭제와 순서. `admin`과 도교육청 관리자만. */
+/** 지역 관리: 도교육청 산하 지역(교육지원청 단위) 등록·조회·수정·삭제와 순서. 이름은 지역만 적는다 (예: 천안). `admin`과 도교육청 관리자만. */
 export default function RegionsPage() {
   return (
     <SubPage perm="REGION_MANAGE">
@@ -87,7 +87,7 @@ function Regions() {
     <>
       <p className="hint rg-note">지역 순서는 문의처 안내, 업체관리 등 모든 화면의 지역 목록에 그대로 쓰입니다.</p>
       <form className="rg-add" onSubmit={create}>
-        <input aria-label="새 지역명" placeholder="새 지역명 (예: 천안교육지원청)" value={add} onChange={(e) => setAdd(e.target.value)} />
+        <input aria-label="새 지역명" placeholder="새 지역명 (예: 천안)" value={add} onChange={(e) => setAdd(e.target.value)} />
         <button type="submit" className="btn sm" disabled={busy}>지역 추가</button>
       </form>
       <FormMsg kind={msg ? "bad" : undefined} text={msg} />

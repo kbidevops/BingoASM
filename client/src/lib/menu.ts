@@ -54,21 +54,25 @@ export const MENU: MenuGroup[] = [
     ],
   },
   {
+    title: "자산관리",
+    items: [
+      // 학교 담당자에게는 자산관리의 첫 화면이 된다.
+      { title: "자산 관리 홈", href: "/admin/start", perm: "SPACE_MANAGE" },
+      { title: "기관자산관리", href: "/admin/assets", perm: "ASSET_READ" },
+      { title: "무선장비관리", href: "/admin/devices", perm: "WDEVICE_MANAGE" },
+      { title: "스쿨넷장비관리", href: "/admin/schoolnet-devices", perm: "SDEVICE_MANAGE" },
+      { title: "공간(실) 관리", href: "/admin/spaces", perm: "SPACE_MANAGE" },
+      { title: "자산 위치(도면)", href: "/admin/floorplan", perm: "FLOOR_READ" },
+    ],
+  },
+  {
     title: "통합관리",
     items: [
       { title: "장애접수관리", href: "/admin/requests", perm: "AS_MANAGE" },
-      { title: "무선장비관리", href: "/admin/devices", perm: "WDEVICE_MANAGE" },
-      // 학교 담당자에게는 통합관리의 첫 화면이 된다 (장애접수·무선장비 메뉴가 없으므로).
-      { title: "자산 관리 홈", href: "/admin/start", perm: "SPACE_MANAGE" },
-      { title: "기관자산관리", href: "/admin/assets", perm: "ASSET_READ" },
-      { title: "공간(실) 관리", href: "/admin/spaces", perm: "SPACE_MANAGE" },
-      { title: "자산 위치(도면)", href: "/admin/floorplan", perm: "FLOOR_READ" },
-      { title: "재물조사(QR)", href: "/admin/inventory", perm: "INVENTORY" },
       { title: "기관정보관리", href: "/admin/schools", perm: "SCHOOL_MANAGE" },
       { title: "지역 관리", href: "/admin/regions", perm: "REGION_MANAGE" },
       { title: "업체관리", href: "/admin/vendors", perm: "VENDOR_MANAGE" },
       { title: "AS통계관리", href: "/admin/stats", perm: "AS_STATS" },
-      { title: "계약·예산 관리", href: "/admin/costs", perm: "COST_MANAGE" },
       { title: "사용자 관리", href: "/admin/users", perm: "USER_WRITE" },
       { title: "사용자 메뉴 권한", href: "/admin/user-menus", perm: "ROLE_GRANT" },
       { title: "AS 서비스 설정", href: "/admin/services", perm: "ORG_WRITE" },

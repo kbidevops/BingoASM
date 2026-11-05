@@ -6,6 +6,7 @@ import type { School } from "./types";
 // Shared types, code tables and loaders for the 통합관리 screens.
 
 export const DEVICE_TYPES: [string, string][] = [["AP", "무선 AP"], ["SWITCH", "PoE 스위치"], ["CONTROLLER", "무선 컨트롤러"]];
+export const SCHOOLNET_DEVICE_TYPES: [string, string][] = [["ROUTER", "라우터"], ["L3", "L3 스위치"], ["L2", "L2 스위치"], ["FIREWALL", "보안장비(방화벽)"], ["ETC", "기타"]];
 export const DEVICE_STATUSES: [string, string, string][] = [["NORMAL", "정상", "s1"], ["CHECK", "점검중", "s2"], ["FAULT", "장애", "s4"], ["DISPOSED", "폐기", "s3"]];
 
 export const ASSET_STATUSES: [string, string, string][] = [
@@ -19,6 +20,8 @@ export const badgeClass = (table: [string, string, string][], code?: string | nu
 
 export interface Device {
   deviceId: number;
+  /** M 무선망 장비 / S 스쿨넷 장비 */
+  rceptTy?: "M" | "S";
   deviceCode: string;
   deviceName: string;
   deviceType?: string;
@@ -29,6 +32,10 @@ export interface Device {
   location?: string;
   installedAt?: string;
   lastCheckedAt?: string;
+  /** 스쿨넷 회선 */
+  carrier?: string;
+  circuitId?: string;
+  bandwidth?: string;
   status: string;
   statusName: string;
   schoolId: number;
@@ -46,8 +53,6 @@ export interface SchoolFull extends School {
   address?: string;
   tel?: string;
   classCount?: number;
-  contractStatus?: string;
-  contractStatusName?: string;
   memo?: string;
   assetCount?: number;
   vendors?: { rceptTy: string; rceptTyName: string; vendorId?: number; vendorName?: string; engineerUserId?: number; engineerName?: string }[];

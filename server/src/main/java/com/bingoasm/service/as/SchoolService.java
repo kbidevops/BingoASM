@@ -193,18 +193,16 @@ public class SchoolService {
                 .with("schoolType", s.schoolType).with("schoolTypeName", s.schoolType == null ? null : AsCodes.SCHOOL_TYPE_NAME.getOrDefault(s.schoolType, s.schoolType))
                 .with("regionId", s.regionId).with("regionName", r == null ? null : r.regionName)
                 .with("address", s.address).with("tel", s.tel).with("classCount", s.classCount)
-                .with("contractStatus", s.contractStatus).with("contractStatusName", "CONTRACTED".equals(s.contractStatus) ? "체결" : "미체결")
                 .with("memo", s.memo).with("assetCount", assetCounts.getOrDefault(s.schoolId, 0L)).with("vendors", svs);
     }
 
     @Transactional(readOnly = true)
-    public List<Json> schools(CurrentUser me, String keyword, Long regionId, String contractStatus) {
+    public List<Json> schools(CurrentUser me, String keyword, Long regionId) {
         Set<Long> inScope = scopeSchoolIds(me);
         List<School> list = schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(me.orgId(), "Y").stream()
                 .filter(s -> inScope == null || inScope.contains(s.schoolId))
                 .filter(s -> Params.blank(keyword) || s.schoolName.contains(keyword.trim()) || (s.schoolCode != null && s.schoolCode.contains(keyword.trim())))
                 .filter(s -> regionId == null || regionId.equals(s.regionId))
-                .filter(s -> Params.blank(contractStatus) || contractStatus.equals(s.contractStatus))
                 .toList();
         Map<Long, Region> rm = regionMap(me.orgId());
         Map<Long, Vendor> vm = vendorMap(me.orgId());
@@ -217,7 +215,7 @@ public class SchoolService {
     @Transactional(readOnly = true)
     public Json school(CurrentUser me, Long id) {
         School s = loadSchool(me, id);
-        return schools(me, null, null, null).stream().filter(j -> id.equals(j.get("schoolId"))).findFirst().orElseGet(() -> schoolView(s, regionMap(me.orgId()), vendorMap(me.orgId()), Map.of(), Map.of(), Map.of()));
+        return schools(me, null, null).stream().filter(j -> id.equals(j.get("schoolId"))).findFirst().orElseGet(() -> schoolView(s, regionMap(me.orgId()), vendorMap(me.orgId()), Map.of(), Map.of(), Map.of()));
     }
 
     private void applySchool(CurrentUser me, School s, Map<String, Object> b) {
@@ -229,7 +227,6 @@ public class SchoolService {
         if (b.containsKey("address")) s.address = Params.str(b, "address");
         if (b.containsKey("tel")) s.tel = Params.str(b, "tel");
         if (b.containsKey("classCount")) s.classCount = Params.integer(b, "classCount");
-        if (b.containsKey("contractStatus")) s.contractStatus = normContract(Params.str(b, "contractStatus"));
         if (b.containsKey("memo")) s.memo = Params.str(b, "memo");
     }
 
@@ -261,9 +258,7 @@ public class SchoolService {
         School s = loadSchool(me, id);
         if (me.scope().vendor()) throw ApiException.forbidden("업체 계정은 학교 정보를 바꿀 수 없습니다.");
         if (!me.scope().schoolAdmin()) {
-            // 학교 담당자: 자기 학교의 기본 정보(이름·주소·전화·학급 수·메모)만. 계약·지역은 바꿀 수 없다.
-            if (b.containsKey("contractStatus") && !Objects.equals(normContract(Params.str(b, "contractStatus")), s.contractStatus))
-                throw ApiException.forbidden("유지관리 계약 상태는 도교육청·교육지원청 담당자만 바꿀 수 있습니다.");
+            // 학교 담당자: 자기 학교의 기본 정보(이름·주소·전화·학급 수·메모)만. 지역은 바꿀 수 없다.
             if (b.containsKey("regionId") && !Objects.equals(Params.lng(b, "regionId"), s.regionId))
                 throw ApiException.forbidden("소속 교육지원청은 도교육청·교육지원청 담당자만 바꿀 수 있습니다.");
         }
@@ -272,7 +267,6 @@ public class SchoolService {
         return school(me, id);
     }
 
-    private static String normContract(String c) { return "CONTRACTED".equals(c) ? "CONTRACTED" : "NONE"; }
 
     public void deleteSchool(CurrentUser me, Long id) {
         requireSchoolAdmin(me, "학교 삭제");

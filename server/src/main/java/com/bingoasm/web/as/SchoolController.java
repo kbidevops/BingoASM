@@ -46,9 +46,8 @@ public class SchoolController {
 
     // ----- schools -----
     @GetMapping("/schools")
-    public ApiResponse schools(@RequestParam(required = false) String keyword, @RequestParam(required = false) Long regionId,
-                               @RequestParam(required = false) String contractStatus) {
-        return ApiResponse.ok(schools.schools(AuthContext.get(), keyword, regionId, contractStatus));
+    public ApiResponse schools(@RequestParam(required = false) String keyword, @RequestParam(required = false) Long regionId) {
+        return ApiResponse.ok(schools.schools(AuthContext.get(), keyword, regionId));
     }
 
     @GetMapping("/schools/{id}")

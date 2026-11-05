@@ -78,9 +78,10 @@ public class AsDataSeeder implements CommandLineRunner {
         // ----- 지역: 충청남도교육청 산하 교육지원청 14곳 -----
         List<String> names = List.of("천안", "공주", "보령", "아산", "서산", "논산계룡", "금산", "부여", "서천", "청양", "홍성", "예산", "태안", "당진");
         Map<String, Region> rg = new LinkedHashMap<>();
-        for (int k = 0; k < names.size(); k++) rg.put(names.get(k) + "교육지원청", region(names.get(k) + "교육지원청", k + 1));
-        Region rCheonan = rg.get("천안교육지원청"), rGongju = rg.get("공주교육지원청"), rBoryeong = rg.get("보령교육지원청"),
-                rSeosan = rg.get("서산교육지원청"), rGeumsan = rg.get("금산교육지원청");
+        // 지역명은 지역만 적는다 (화면에서 "지역"으로 보인다).
+        for (int k = 0; k < names.size(); k++) rg.put(names.get(k), region(names.get(k), k + 1));
+        Region rCheonan = rg.get("천안"), rGongju = rg.get("공주"), rBoryeong = rg.get("보령"),
+                rSeosan = rg.get("서산"), rGeumsan = rg.get("금산");
 
         // ----- 분류 내용연수 -----
         Map<String, Integer> life = Map.of("컴퓨터", 5, "프린터", 5, "네트워크 장비", 6, "서버/스토리지", 6, "주변기기", 5);
@@ -130,6 +131,14 @@ public class AsDataSeeder implements CommandLineRunner {
         device(sanseong, "AP-SS-001", "교사동 3층 복도 AP", "AP", "Aruba AP-535", "10.73.9.11", "교사동 3층 복도", "NORMAL");
         device(sanseong, "AP-SS-002", "교사동 3층 컴퓨터실 AP", "AP", "Aruba AP-535", "10.73.9.12", "교사동 3층 컴퓨터실", "NORMAL");
         device(haemi, "AP-HM-001", "본관 2층 복도 AP", "AP", "Aruba AP-515", "10.75.2.11", "본관 2층 복도", "NORMAL");
+
+        // ----- 스쿨넷 장비 (회선: 통신사·회선번호·속도) -----
+        netDevice(bonghwang, "NET-BH-001", "스쿨넷 라우터", "ROUTER", "Cisco ISR 4331", "10.73.0.1", "본관 1층 통신실", "KT", "KT-CN-0731001", "500Mbps", "NORMAL");
+        netDevice(bonghwang, "NET-BH-002", "백본 L3 스위치", "L3", "Cisco C9300-24T", "10.73.0.2", "본관 1층 통신실", null, null, null, "NORMAL");
+        netDevice(bonghwang, "NET-BH-003", "유해차단 보안장비", "FIREWALL", "FortiGate 100F", "10.73.0.3", "본관 1층 통신실", null, null, null, "NORMAL");
+        netDevice(oncheon, "NET-OC-001", "스쿨넷 라우터", "ROUTER", "Cisco ISR 4321", "10.74.0.1", "본관 1층 방송실", "SK브로드밴드", "SKB-GJ-0745001", "500Mbps", "CHECK");
+        netDevice(sanseong, "NET-SS-001", "스쿨넷 라우터", "ROUTER", "Cisco ISR 4331", "10.73.8.1", "교사동 1층 통신실", "LG U+", "LGU-CN-0738001", "1Gbps", "NORMAL");
+        netDevice(sanseong, "NET-SS-002", "교사동 L2 스위치", "L2", "Cisco C2960X-48", "10.73.8.10", "교사동 2층 통신함", null, null, null, "FAULT");
         device(hongju, "AP-HJ-001", "본관 1층 복도 AP", "AP", "Cisco C9120AXI", "10.76.3.11", "본관 1층 복도", "NORMAL");
 
         // ----- 공간: 봉황초 본관(도면), 온천중 본관 -----
@@ -180,10 +189,7 @@ public class AsDataSeeder implements CommandLineRunner {
         m3.requestTypeCode = "2"; m3.deviceName = "교사동 3층 복도 AP"; requests.save(m3);
         done("M", haemi, eduAdmin, "최민호", "W", "직접입력", "본관 2층 복도 AP 전원이 들어오지 않음", "본관 2층 복도", at(55, 10, 0), hanbit, netEng, at(55, 10, 20), at(54, 14, 0), at(54, 15, 30), "PoE 인젝터 고장", "PoE 인젝터 교체", "6", "부속품불량", 85000L, null, null);
         done("M", bonghwang, school01, null, "S", "속도느림", "1층 교무실 무선 속도 저하", "본관 1층 교무실", at(90, 9, 0), hanbit, netEng, at(90, 9, 30), at(89, 10, 0), at(89, 10, 40), "채널 간섭", "채널·출력 재설정", "3", "설정오류", 0L, 5, "좋았습니다.");
-        AsRequest m6 = done("M", hongju, eduAdmin, "정유진", "P", "접속불량", "1층 복도 AP 간헐 끊김", "본관 1층 복도", at(150, 9, 0), hanbit, netEng, at(150, 9, 30), at(148, 10, 0), at(148, 12, 0), "케이블 불량", "UTP 케이블 재포설", "4", "케이블불량", 120000L, 3, "조치는 됐지만 시간이 걸렸습니다.");
-        // 유상 청구 한 건은 학교 확인·지급까지 끝난 상태로 둔다.
-        m6.billStatus = "PAID"; m6.billConfirmedAt = at(140, 10, 0); m6.billConfirmedBy = eduAdmin.userId; m6.billPaidAt = at(130, 0, 0); m6.billPaidBy = eduAdmin.userId;
-        requests.save(m6);
+        done("M", hongju, eduAdmin, "정유진", "P", "접속불량", "1층 복도 AP 간헐 끊김", "본관 1층 복도", at(150, 9, 0), hanbit, netEng, at(150, 9, 30), at(148, 10, 0), at(148, 12, 0), "케이블 불량", "UTP 케이블 재포설", "4", "케이블불량", 120000L, 3, "조치는 됐지만 시간이 걸렸습니다.");
 
         // 스쿨넷(S)
         AsRequest s1 = req("S", bonghwang, school01, "71", "전체", null, "오전 9시부터 교육망·행정망 모두 인터넷이 되지 않습니다. 라우터 WAN 램프가 꺼져 있습니다.", "본관 1층 통신실", at(0, 9, 5), hanbit, netEng, "A");
@@ -222,7 +228,8 @@ public class AsDataSeeder implements CommandLineRunner {
         // ----- 문의처: cbe.go.kr 문의처 안내의 도교육청·교육지원청 공개 연락처 (seed/contacts-chungnam.json) -----
         int i = 0;
         for (Map<String, Object> c : contactSeed()) {
-            Region r = c.get("region") == null ? null : rg.get((String) c.get("region"));
+            // 시드 파일은 "천안교육지원청"처럼 적혀 있고 지역명은 "천안"이다.
+            Region r = c.get("region") == null ? null : rg.get(((String) c.get("region")).replaceFirst("교육지원청$", ""));
             @SuppressWarnings("unchecked") List<String> duties = (List<String>) c.getOrDefault("duties", List.of());
             contact(r == null ? null : r.regionId, (String) c.get("groupName"), (String) c.get("itemName"), (String) c.get("tel"),
                     (String) c.get("note"), duties.isEmpty() ? null : String.join("\n", duties), ++i);
@@ -259,6 +266,13 @@ public class AsDataSeeder implements CommandLineRunner {
 
     private void map(School s, String ty, Vendor v, AppUser eng) {
         SchoolVendor sv = new SchoolVendor(); sv.schoolId = s.schoolId; sv.rceptTy = ty; sv.vendorId = v.vendorId; sv.engineerUserId = eng.userId; schoolVendors.save(sv);
+    }
+
+    private void netDevice(School s, String code, String name, String type, String model, String ip, String loc, String carrier, String circuit, String bandwidth, String status) {
+        WirelessDevice d = new WirelessDevice(); d.orgId = o; d.rceptTy = "S"; d.schoolId = s.schoolId; d.deviceCode = code; d.deviceName = name; d.deviceType = type; d.modelName = model;
+        d.ipAddress = ip; d.location = loc; d.carrier = carrier; d.circuitId = circuit; d.bandwidth = bandwidth;
+        d.installedAt = LocalDate.of(2022, 3, 2); d.lastCheckedAt = LocalDate.of(2026, 8, 28); d.status = status;
+        devices.save(d);
     }
 
     private WirelessDevice device(School s, String code, String name, String type, String model, String ip, String loc, String status) {
@@ -315,9 +329,6 @@ public class AsDataSeeder implements CommandLineRunner {
         r.receivedAt = receivedAt; r.visitPlannedAt = visitAt; r.visitAt = visitAt; r.visitEndAt = completedAt; r.completedAt = completedAt;
         r.troubleSymptom = trouble; r.inspectContent = inspect; r.processTypeCode = processType; r.processContent = processContent; r.processAmount = amount;
         if (score != null) { r.evalScore = score; r.evalOpinion = opinion; r.evaluatedAt = completedAt.plusDays(1); }
-        // 계약 학교의 정보기기 AS와 스쿨넷(통신사 SLA)은 무상, 그 밖에는 비용이 있으면 유상.
-        boolean covered = ("C".equals(ty) && "CONTRACTED".equals(s.contractStatus)) || "S".equals(ty);
-        r.chargeType = covered || amount == null || amount == 0 ? "FREE" : "PAID";
         requests.save(r);
         if (amount != null && amount > 0) {
             long part = Math.round(amount * 0.6 / 1000) * 1000;

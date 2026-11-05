@@ -3,7 +3,7 @@ package com.bingoasm.domain.as;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 
-/** 무선장비관리: 학교에 설치된 무선 AP·스위치. */
+/** 무선장비관리·스쿨넷장비관리: 학교에 설치된 네트워크 장비. rceptTy로 나눈다 (M 무선망 / S 스쿨넷). */
 @Entity
 @Table(name = "wireless_devices", indexes = @Index(columnList = "schoolId"))
 public class WirelessDevice {
@@ -11,12 +11,15 @@ public class WirelessDevice {
     public Long deviceId;
     public Long orgId;
     public Long schoolId;
+    /** M 무선망 장비 / S 스쿨넷 장비 (AS 접수 유형과 같은 값) */
+    @Column(length = 1)
+    public String rceptTy = "M";
     /** 무선장비관리번호 */
     @Column(length = 30)
     public String deviceCode;
     @Column(length = 100, nullable = false)
     public String deviceName;
-    /** AP 무선 AP / SWITCH PoE 스위치 / CONTROLLER 무선 컨트롤러 */
+    /** 무선망: AP / SWITCH / CONTROLLER. 스쿨넷: ROUTER / L3 / L2 / FIREWALL / ETC (WirelessDeviceService.TYPES) */
     @Column(length = 12)
     public String deviceType = "AP";
     public String modelName;
@@ -26,6 +29,13 @@ public class WirelessDevice {
     public String location;
     public LocalDate installedAt;
     public LocalDate lastCheckedAt;
+    /** 스쿨넷 회선: 통신사 · 회선번호 · 회선 속도 */
+    @Column(length = 30)
+    public String carrier;
+    @Column(length = 50)
+    public String circuitId;
+    @Column(length = 30)
+    public String bandwidth;
     /** NORMAL 정상 / CHECK 점검중 / FAULT 장애 / DISPOSED 폐기 */
     @Column(length = 10)
     public String status = "NORMAL";

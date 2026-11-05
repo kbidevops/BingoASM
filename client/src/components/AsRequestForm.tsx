@@ -146,11 +146,6 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
     <>
       {ty === "S" ? (
         <div className="nbox" style={{ borderColor: "var(--brand2)" }}>📢 접수 시 비용이 발생할 수 있습니다. 관리자에게 문의해 주세요.</div>
-      ) : ty === "C" ? (
-        <NoticeBox>
-          <p>■ 2026학년도 학교 정보화기기 유지관리 표준 계약 체결 학교만 사용이 가능합니다.</p>
-          <p>※ 표준계약 미체결 학교는 계약 정보 미등록으로 AS신청 및 문자전송 불가</p>
-        </NoticeBox>
       ) : (
         <NoticeBox>
           <p>■ 장애가 발생한 경우 아래 내용을 입력해 접수해 주세요.</p>

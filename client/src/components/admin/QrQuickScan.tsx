@@ -17,8 +17,7 @@ export function useCanQuickScan() {
 
 /**
  * "QR 찍기": one scanner for every label. What was read decides where it goes —
- * an asset label opens that asset (or registration for a new label), a room label opens that room's
- * 재물조사 when one is running for the school, otherwise the room on the floor plan.
+ * an asset label opens that asset (or registration for a new label), a room label opens the room on the floor plan.
  */
 export default function QrQuickScan({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -35,10 +34,6 @@ export default function QrQuickScan({ onClose }: { onClose: () => void }) {
       if (r.type === "ASSET" && r.assetNo) return go(`/admin/assets?no=${encodeURIComponent(r.assetNo)}`);
       if (r.type === "ROOM" && r.roomId) {
         if (!r.found) return setMsg("이 기관에 등록되지 않은 교실 QR입니다.");
-        if (can("INVENTORY") && r.schoolId) {
-          const running = await api.get<{ status: string }[]>("/api/as/inventory", { schoolId: r.schoolId }).catch(() => []);
-          if (running.some((s) => s.status === "OPEN")) return go(`/admin/inventory?room=${r.roomId}`);
-        }
         return go(`/admin/floorplan?room=${r.roomId}`);
       }
       if (r.type === "LOGIN" && r.token) return go(`/login/qr-approve?t=${encodeURIComponent(r.token)}`);
@@ -52,7 +47,7 @@ export default function QrQuickScan({ onClose }: { onClose: () => void }) {
     <Modal title="QR 찍기" onClose={onClose}>
       <ul className="qqs-help">
         <li><b>자산 라벨</b> → 그 자산 정보 (미등록 라벨이면 등록 화면)</li>
-        <li><b>교실 문 QR</b> → 그 교실의 자산 (재물조사 중이면 바로 조사)</li>
+        <li><b>교실 문 QR</b> → 그 교실의 자산</li>
       </ul>
       <QrScanner onText={handle} />
       {msg && <p className="scan-msg" role="alert">{msg}</p>}

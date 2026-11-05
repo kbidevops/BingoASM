@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Confirm, FilterField, FilterForm, ListHead, Tiles } from "@/components/admin/common";
+import { Confirm, FilterField, FilterForm, ListHead } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -12,7 +12,7 @@ import { isAdmin, isRegionAdmin, isSchoolAdmin, isVendorUser, useAuth } from "@/
 import { loadRegions } from "@/lib/boards";
 import type { RceptTy, Region } from "@/lib/types";
 
-/** 기관정보관리: schools, their maintenance contract and 담당 업체·기사 per AS type, plus regions. */
+/** 기관정보관리: schools and their 담당 업체·기사 per AS type, plus regions. */
 export default function SchoolsPage() {
   return (
     <SubPage perm="SCHOOL_MANAGE">
@@ -26,7 +26,7 @@ function Schools() {
   const toast = useToast();
   const { me } = useAuth();
   const district = isRegionAdmin(me);
-  // 등록·삭제·계약·담당업체는 도교육청·교육지원청만. 학교는 자기 학교 기본정보만, 업체는 조회만 (서버도 막는다).
+  // 등록·삭제·지역·담당업체는 도교육청·교육지원청만. 학교는 자기 학교 기본정보만, 업체는 조회만 (서버도 막는다).
   const manage = isSchoolAdmin(me);
   const readOnly = isVendorUser(me);
   const [regions, setRegions] = useState<Region[]>([]);
@@ -35,7 +35,6 @@ function Schools() {
   const empty = { regionId: "", schoolType: "", keyword: "" };
   const [draft, setDraft] = useState(empty);
   const [filter, setFilter] = useState(empty);
-  const [contract, setContract] = useState("");
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<SchoolFull | "new" | null>(null);
 
@@ -49,8 +48,7 @@ function Schools() {
   const shown = useMemo(() => (all ?? []).filter((s) =>
     (!filter.regionId || String(s.regionId) === filter.regionId) &&
     (!filter.schoolType || s.schoolType === filter.schoolType) &&
-    (!filter.keyword.trim() || s.schoolName.includes(filter.keyword.trim()) || (s.schoolCode ?? "").includes(filter.keyword.trim())) &&
-    (!contract || s.contractStatus === contract)), [all, filter, contract]);
+    (!filter.keyword.trim() || s.schoolName.includes(filter.keyword.trim()) || (s.schoolCode ?? "").includes(filter.keyword.trim()))), [all, filter]);
 
   if (err) return <ErrorBox message={err} onRetry={load} />;
   if (!all) return <Loading />;
@@ -59,20 +57,11 @@ function Schools() {
   const cur = Math.min(page, pages);
   const vis = shown.slice((cur - 1) * size, cur * size);
   const vendorsOf = (s: SchoolFull) => (s.vendors ?? []).filter((v) => v.vendorName && asTypes.includes(v.rceptTy as RceptTy)).map((v) => `${v.rceptTyName} ${v.vendorName}`).join(", ") || "-";
-  const head = ["기관명", "지역", "학교급", "학급 수", "유지관리 계약", "담당업체", "자산", "관리"];
+  const head = ["기관명", "지역", "학교급", "학급 수", "담당업체", "자산", "관리"];
 
   return (
     <>
-      <Tiles
-        tiles={[
-          { label: "전체 기관", value: all.length, unit: "곳", pick: "" },
-          { label: "유지관리 계약 체결", value: all.filter((s) => s.contractStatus === "CONTRACTED").length, unit: "곳", cls: "c1", pick: "CONTRACTED" },
-          { label: "미체결", value: all.filter((s) => s.contractStatus !== "CONTRACTED").length, unit: "곳", cls: "c2", pick: "NONE" },
-        ]}
-        active={contract}
-        onPick={(v) => { setContract(v); setPage(1); }}
-      />
-      <FilterForm onSubmit={() => { setFilter(draft); setPage(1); }} onReset={() => { setDraft(empty); setFilter(empty); setContract(""); }}>
+      <FilterForm onSubmit={() => { setFilter(draft); setPage(1); }} onReset={() => { setDraft(empty); setFilter(empty); }}>
         <FilterField id="sc-reg" label="지역">
           <select id="sc-reg" value={draft.regionId} onChange={(e) => setDraft({ ...draft, regionId: e.target.value })}>
             <option value="">전체</option>
@@ -92,7 +81,7 @@ function Schools() {
       <ListHead total={shown.length} page={cur} pages={pages}>
         {isAdmin(me) && <Link className="btn sm sec" href="/admin/regions">지역 관리</Link>}
         <button className="btn sm sec" type="button" disabled={!shown.length}
-          onClick={() => downloadCsv("기관정보관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, s.contractStatusName, vendorsOf(s), s.assetCount]))}>
+          onClick={() => downloadCsv("기관정보관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, vendorsOf(s), s.assetCount]))}>
           엑셀출력 <Icon name="down" />
         </button>
         {manage && <button className="btn sm" type="button" onClick={() => setEdit("new")}>기관 등록</button>}
@@ -107,7 +96,6 @@ function Schools() {
                 <td data-label="지역">{s.regionName ?? "-"}</td>
                 <td data-label="학교급">{s.schoolTypeName ?? "-"}</td>
                 <td data-label="학급 수">{s.classCount ?? "-"}</td>
-                <td data-label="유지관리 계약"><b className={"st " + (s.contractStatus === "CONTRACTED" ? "s1" : "s3")}>{s.contractStatusName}</b></td>
                 <td data-label="담당업체" className="tl"><small>{vendorsOf(s)}</small></td>
                 <td data-label="자산">{(s.assetCount ?? 0).toLocaleString()}</td>
                 <td data-label="관리">{readOnly ? <span className="hint">조회만</span> : <button className="btn sm sec" type="button" onClick={() => setEdit(s)}>수정</button>}</td>
@@ -125,13 +113,13 @@ function Schools() {
 // 저장은 네 유형 모두 보낸다 (쓰지 않는 서비스의 담당이 지워지지 않도록). 화면에는 교육청이 쓰는 서비스만.
 const TYPES: RceptTy[] = ["C", "M", "S", "T"];
 
-/** manage = 도교육청·교육지원청. 아니면(학교 담당자) 기본정보만 고칠 수 있고 계약·지역·담당업체는 보기만. */
+/** manage = 도교육청·교육지원청. 아니면(학교 담당자) 기본정보만 고칠 수 있고 지역·담당업체는 보기만. */
 function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: SchoolFull | null; regions: Region[]; manage: boolean; onClose: () => void; onSaved: (m: string) => void }) {
   const asTypes = useAsTypes();
   const [v, setV] = useState({
     schoolName: school?.schoolName ?? "", schoolCode: school?.schoolCode ?? "", schoolType: school?.schoolType ?? "ELEM",
     regionId: school?.regionId ? String(school.regionId) : regions.length === 1 ? String(regions[0].regionId) : "", address: school?.address ?? "", tel: school?.tel ?? "",
-    classCount: school?.classCount != null ? String(school.classCount) : "", contractStatus: school?.contractStatus ?? "NONE", memo: school?.memo ?? "",
+    classCount: school?.classCount != null ? String(school.classCount) : "", memo: school?.memo ?? "",
   });
   // 담당 업체·기사 per AS type.
   const [map, setMap] = useState<Record<string, { vendorId: string; engineerUserId: string }>>(() =>
@@ -184,7 +172,7 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!v.schoolName.trim()) return setMsg("기관명을 입력해 주세요.");
-    if (!v.regionId) return setMsg("지역(교육지원청)을 선택해 주세요.");
+    if (!v.regionId) return setMsg("지역을 선택해 주세요.");
     setBusy(true);
     setMsg("");
     try {
@@ -223,16 +211,12 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
               <option value="">-- 지역 --</option>
               {regions.map((r) => <option key={r.regionId} value={r.regionId}>{r.regionName}</option>)}
             </select>
+            {!manage && <small className="hint"> 지역·담당업체는 교육청·교육지원청에서 지정합니다.</small>}
           </FormRow>
           <FormRow label="주소"><input aria-label="주소" style={{ width: "100%" }} value={v.address} onChange={set("address")} /></FormRow>
           <FormRow label="전화 / 학급 수">
             <input aria-label="전화" value={v.tel} onChange={set("tel")} />{" "}
             <input aria-label="학급 수" type="number" min={0} style={{ width: 90 }} value={v.classCount} onChange={set("classCount")} /> 학급
-          </FormRow>
-          <FormRow label="유지관리 계약">
-            <label style={{ marginRight: 12 }}><input type="radio" name="ct" disabled={!manage} checked={v.contractStatus === "CONTRACTED"} onChange={() => setV({ ...v, contractStatus: "CONTRACTED" })} /> 체결</label>
-            <label><input type="radio" name="ct" disabled={!manage} checked={v.contractStatus !== "CONTRACTED"} onChange={() => setV({ ...v, contractStatus: "NONE" })} /> 미체결</label>
-            {!manage && <small className="hint"> 계약·지역·담당업체는 교육청·교육지원청에서 지정합니다.</small>}
           </FormRow>
           {asTypes.map((t) => {
             const options = candidates(vendors, t, v.regionId);

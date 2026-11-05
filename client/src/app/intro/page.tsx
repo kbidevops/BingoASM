@@ -16,17 +16,17 @@ const STEPS: [string, string, string, IconName, string][] = [
 
 /** Who uses the system and for what (matches the role permissions in the server's Roles). */
 const ROLES: [string, string][] = [
-  ["학교 담당자", "AS 신청 · 처리 결과 확인 · 만족도 평가 · 유상 청구 금액 확인과 지급 처리 · 학교 자산·공간 관리"],
-  ["AS 기사 (유지보수 업체)", "배정된 AS 접수 · 방문 일정 · 처리 보고서(비용·첨부) 등록 · 청구서 첨부"],
+  ["학교 담당자", "AS 신청 · 처리 결과 확인 · 만족도 평가 · 학교 자산·공간 관리"],
+  ["AS 기사 (유지보수 업체)", "배정된 AS 접수 · 방문 일정 · 처리 보고서(처리 비용·첨부) 등록"],
   ["교육지원청 담당자", "관내 학교의 AS 현황 관리 · 업체 배정 · 학교 정보 관리 · 관내 통계"],
-  ["도교육청 담당자", "전체 AS 관리 · 업체·지역·사용자 관리 · 유지보수 계약·예산 · AS 통계"],
+  ["도교육청 담당자", "전체 AS 관리 · 업체·지역·사용자 관리 · AS 통계"],
 ];
 
 /** What each AS 서비스 covers. Only the services the 교육청 uses (AS 서비스 설정) are shown. */
 const SERVICE: Record<RceptTy, { what: string; detail: string }> = {
   M: { what: "교실 무선망", detail: "무선 AP 접속 불량·속도 저하 신고, AP 원격 재부팅 요청" },
   S: { what: "학교 인터넷 회선(스쿨넷)", detail: "회선 전체·일부 장애 신고 (통신사 SLA에 따라 처리)" },
-  C: { what: "정보기기(PC와 주변기기)", detail: "PC·모니터·프린터 등 장애 신고 및 점검 요청 (유지관리 표준계약 체결 학교)" },
+  C: { what: "정보기기(PC와 주변기기)", detail: "PC·모니터·프린터 등 장애 신고 및 점검 요청" },
   T: { what: "스마트기기", detail: "학생용 스마트기기 고장·파손·충전 장애 신고" },
 };
 
@@ -53,7 +53,7 @@ export default function IntroPage() {
         <h3>추진배경</h3>
         <ul className="dash">
           <li>전화·공문으로 하던 장애 신고를 온라인 한 곳으로 모아, 학교와 담당 업체가 연락하고 처리하는 시간을 줄입니다.</li>
-          <li>신청부터 처리 보고서·비용·만족도까지 기록이 남아, 교육청이 유지보수 업체의 처리 실적과 예산 집행을 자료로 관리합니다.</li>
+          <li>신청부터 처리 보고서·비용·만족도까지 기록이 남아, 교육청이 유지보수 업체의 처리 실적을 자료로 관리합니다.</li>
           <li>학교 자산·공간(실) 정보와 연결해 장비별 수리 이력을 쌓고 교체 시기를 판단합니다.</li>
         </ul>
       </section>

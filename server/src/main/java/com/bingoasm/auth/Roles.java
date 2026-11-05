@@ -16,7 +16,7 @@ public final class Roles {
             "SMART_REQUEST", "AS_C_REQUEST", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR",
             "AS_M_REQUEST", "AS_M_VIEW", "AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA");
     public static final List<String> PORTAL_ADMIN = List.of(
-            "AS_MANAGE", "WDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS",
+            "AS_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS",
             "BOARD_ADMIN", "AS_PROCESS", "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE", "REGION_MANAGE", "COST_MANAGE");
     /**
      * AS 처리 기능: 접수 · 반려(반려 취소 포함) · 이관 · 신청 취소 · 삭제. 역할마다 지금 할 수 있는 것을 기본으로 주고,
@@ -38,12 +38,12 @@ public final class Roles {
      * 업체 관리·공지/문의처 편집·사용자 관리·AS 삭제는 도교육청 몫이라 빠져 있다.
      */
     public static final List<String> REGION_ADMIN_PERMS = concat(PORTAL_ALL, List.of(
-            "AS_MANAGE", "AS_STATS", "AS_CANCEL", "SCHOOL_MANAGE", "WDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
+            "AS_MANAGE", "AS_STATS", "AS_CANCEL", "SCHOOL_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
             "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE"));
 
     /** 사용자별로 보이기·숨기기를 조정할 수 있는 메뉴 권한 (client/src/lib/menu.ts의 perm과 같다). */
     public static final List<String> MENU_PERMS = concat(PORTAL_ALL, List.of(
-            "AS_MANAGE", "WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS"));
+            "AS_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS"));
     /**
      * AS 서비스(접수 유형)별 메뉴 권한. 교육청이 쓰지 않는 서비스의 권한은 그 교육청 사용자 전원에게서 빠진다
      * (PermissionService) — 메뉴·화면·API가 함께 닫힌다.
@@ -51,7 +51,7 @@ public final class Roles {
     public static final Map<String, List<String>> AS_TYPE_PERMS = Map.of(
             "C", List.of("AS_C_REQUEST", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR"),
             "M", List.of("AS_M_REQUEST", "AS_M_VIEW", "WDEVICE_MANAGE"),
-            "S", List.of("AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA"),
+            "S", List.of("AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA", "SDEVICE_MANAGE"),
             "T", List.of("SMART_REQUEST"));
 
     /** 사용자별 조정 대상 전체: 메뉴 권한 + AS 처리 기능. */
@@ -72,7 +72,7 @@ public final class Roles {
                     "USER_READ", "USER_WRITE", "ROLE_GRANT", "ORG_READ",
                     "PORTAL_INTRO", "BOARD_NOTICE", "BOARD_QNA", "BOARD_CONSULT", "PORTAL_CONTACT", "SMART_REQUEST",
                     "AS_C_REQUEST", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR", "AS_M_REQUEST", "AS_M_VIEW",
-                    "AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA", "AS_MANAGE", "WDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
+                    "AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA", "AS_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
                     "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS", "BOARD_ADMIN", "AS_PROCESS", "AS_EVALUATE",
                     "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "AS_RECEIVE", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "REGION_MANAGE", "COST_MANAGE")),
             Map.entry("SUPER_ADMIN", List.of("ORG_READ", "ORG_WRITE")),

@@ -284,12 +284,12 @@ public class UserService {
         Map<String, String> m = new LinkedHashMap<>();
         switch (sc.kind()) {
             case SCHOOL -> {
-                m.put("SCHOOL_MANAGE", "자기 학교 기본정보만 수정 (계약·담당업체·등록·삭제 불가)");
+                m.put("SCHOOL_MANAGE", "자기 학교 기본정보만 수정 (지역·담당업체·등록·삭제 불가)");
                 m.put("VENDOR_MANAGE", "조회만 가능");
             }
             case VENDOR -> {
                 for (String p : List.of("AS_MANAGE", "AS_STATS")) m.put(p, "자기 업체에 배정된 AS만");
-                for (String p : List.of("WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY")) m.put(p, "담당으로 배정된 학교만");
+                for (String p : List.of("WDEVICE_MANAGE", "SDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY")) m.put(p, "담당으로 배정된 학교만");
                 m.put("SCHOOL_MANAGE", "배정된 학교 조회만 가능");
                 m.put("VENDOR_MANAGE", "조회만 가능");
             }

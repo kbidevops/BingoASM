@@ -58,7 +58,7 @@ function Notifications() {
         </div>
         <button type="button" className="btn sm sec" disabled={!data?.unreadCount} onClick={readAll}>모두 읽음</button>
       </div>
-      <p className="hint" style={{ margin: "0 0 10px" }}>AS 신청·접수·처리·청구 단계가 바뀌면 관계된 분께 알림이 남습니다. 180일이 지난 알림은 자동으로 지워집니다.</p>
+      <p className="hint" style={{ margin: "0 0 10px" }}>AS 신청·접수·처리 단계가 바뀌면 관계된 분께 알림이 남습니다. 180일이 지난 알림은 자동으로 지워집니다.</p>
       {err ? <ErrorBox message={err} onRetry={load} /> : !data ? <Loading /> : (
         <>
           <ul className="ntf-l ntf-page">

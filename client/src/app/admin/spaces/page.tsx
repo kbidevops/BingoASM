@@ -8,7 +8,7 @@ import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, useToast } from "@/co
 import { api } from "@/lib/api";
 import { protectedImage, ROOM_TYPES, type Building, type Floor, type Room } from "@/lib/admin";
 
-/** 공간(실) 관리: 기관 → 건물 → 층 → 실. 실은 자산 위치·도면·재물조사의 기준이 됩니다. */
+/** 공간(실) 관리: 기관 → 건물 → 층 → 실. 실은 자산 위치·도면의 기준이 됩니다. */
 export default function SpacesPage() {
   return (
     <SubPage perm="SPACE_MANAGE">

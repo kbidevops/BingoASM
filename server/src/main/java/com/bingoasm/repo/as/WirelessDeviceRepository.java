@@ -4,5 +4,6 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 public interface WirelessDeviceRepository extends JpaRepository<WirelessDevice, Long> {
     List<WirelessDevice> findByOrgIdAndUseYnOrderBySchoolIdAscDeviceCodeAsc(Long orgId, String useYn);
+    List<WirelessDevice> findByOrgIdAndRceptTyAndUseYnOrderBySchoolIdAscDeviceCodeAsc(Long orgId, String rceptTy, String useYn);
     List<WirelessDevice> findBySchoolIdAndUseYnOrderByDeviceCodeAsc(Long schoolId, String useYn);
 }

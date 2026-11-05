@@ -150,13 +150,13 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | 메서드 | 경로 | 권한 | 설명 |
 |---|---|---|---|
 | GET | `/api/as/requests/codes` | 로그인 | 접수유형·상태·고장유형(유형별)·요청유형·처리유형 코드표 |
-| GET | `/api/as/requests` | 결과조회 권한 | 목록. 파라미터: `rceptTy`, `status`(A/R/C/X), `searchType`(school/applicant/region), `keyword`, `fromDate`, `toDate`, `schoolId`, `regionId`, `vendorId`, `engineerUserId`, `mine`, `unassigned`, `billStatus`(BILLED 학교 확인 대기 / CONFIRMED 지급 대기 / PAID 지급 완료 — 유상 처리완료 건만), `sort`(asc/desc), `page`, `size` |
-| GET | `/api/as/requests/summary` | 〃 | 유형별·상태별 건수, 오늘 신청, 평가 대기, `bills`(처리할 유상 청구: `BILLED`·`CONFIRMED`별 `total`과 유형별 `byType`) |
+| GET | `/api/as/requests` | 결과조회 권한 | 목록. 파라미터: `rceptTy`, `status`(A/R/C/X), `searchType`(school/applicant/region), `keyword`, `fromDate`, `toDate`, `schoolId`, `regionId`, `vendorId`, `engineerUserId`, `mine`, `unassigned`, `sort`(asc/desc), `page`, `size` |
+| GET | `/api/as/requests/summary` | 〃 | 유형별·상태별 건수, 오늘 신청, 평가 대기 |
 | GET | `/api/as/requests/excel` | 〃 | 같은 필터로 xlsx 내려받기 |
 | GET | `/api/as/requests/{sn}` | 〃 + 스코프 | 상세: 신청 내용, 업체·기사, 처리 보고서(`report`), 첨부(`attachments`, `reportFiles`), 평가, `histories`, **`allowedActions`**(현재 사용자가 지금 할 수 있는 처리) |
 | POST | `/api/as/requests` | `AS_{ty}_REQUEST` / `SMART_REQUEST` | 신청. 아래 필드 |
 | PUT | `/api/as/requests/{sn}` | 작성자(A 상태) | 신청 수정 |
-| POST | `/api/as/requests/{sn}/{action}` | 상태·역할에 따라 | `receive {visitPlannedAt}` · `return {reason}` · `return-cancel` · `transfer {rceptTy, content}` · `cancel` · `visit {visitPlannedAt}` · `report {...}` · `evaluate {score 1~5, opinion}` · `assign {vendorId, engineerUserId?}` · `delete` · 유상 청구: `bill-invoice {fileIds}`(기사·관리자) · `bill-confirm`(학교·관리자) · `bill-paid {paidDate?}`(학교·관리자, 확인 후) · `bill-cancel {reason}`(관리자, 청구 단계로 되돌림) |
+| POST | `/api/as/requests/{sn}/{action}` | 상태·역할에 따라 | `receive {visitPlannedAt}` · `return {reason}` · `return-cancel` · `transfer {rceptTy, content}` · `cancel` · `visit {visitPlannedAt}` · `report {...}` · `evaluate {score 1~5, opinion}` · `assign {vendorId, engineerUserId?}` · `delete` |
 | DELETE | `/api/as/requests/{sn}` | `AS_MANAGE` | 관리자 삭제 |
 
 신청 필드 (cbe.go.kr 폼과 1:1):
@@ -176,11 +176,11 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 
 처리 보고서(`report`) 필드: `engineerName`, `visitAt`, `visitEndAt`, `troubleSymptom`(장애증상), `inspectContent`(점검내용), `processTypeCode`(1 장비불량 … 8 기타), `processContent`(처리내용, 필수), `processAmount`(비용), `fileIds`.
 
-유상(`chargeType=PAID`) 보고서는 청구(`BILLED`) → 학교 확인(`CONFIRMED`) → 지급 완료(`PAID`)로 진행합니다(상세의 `bill`, 목록의 `billStatus`). 확인·지급된 청구는 보고서의 금액·유무상을 바꿀 수 없고(409), 관리자가 `bill-cancel`로 되돌린 뒤 고칩니다. 예전 유상 보고서는 청구 단계로 봅니다.
+처리 비용(`costItems`)은 선택 입력입니다. 유상·무상 구분과 청구 단계는 없으며, 예전 보고서를 다시 저장하면 남아 있던 유상·청구 기록이 지워집니다.
 
 규칙(cbe.go.kr과 동일): 정보기기 AS는 유지관리 표준계약 체결(`contractStatus=CONTRACTED`) 학교만 · 담당 업체가 없는 학교는 신청 불가 · 접수에는 방문예정일시 필수 · 반려에는 사유 필수 · 이관은 대상 유형의 업체로 재배정되며 상태 A로 돌아감 · 평가는 신청자만 1회.
 
-### 3.2 기준정보 (`/api/as/regions`, `/schools`, `/vendors`, `/wireless-devices`)
+### 3.2 기준정보 (`/api/as/regions`, `/schools`, `/vendors`, `/wireless-devices`, `/schoolnet-devices`)
 
 | 메서드 | 경로 | 권한 |
 |---|---|---|
@@ -198,6 +198,8 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | GET | `/api/as/vendors/{id}/usage` | `VENDOR_MANAGE`, 도교육청만 — 삭제 전 확인: `schools, users, openRequests`(사용 중 서비스의 처리 중 AS, 삭제를 막음), `openList`(그 목록, 20건까지), `hiddenOpenRequests`(꺼진 서비스의 처리 중 AS, 막지 않음), `allRequests` |
 | GET | `/api/as/wireless-devices?schoolId&regionId&deviceType&status&keyword` | 장비관리·무선망 신청/조회·기사 |
 | POST / PUT / DELETE | `/api/as/wireless-devices[/{id}]` | `WDEVICE_MANAGE` — `{schoolId, deviceCode, deviceName, deviceType AP/SWITCH/CONTROLLER, modelName, ipAddress, macAddress, location, installedAt, lastCheckedAt, status NORMAL/FAULT/REPLACED, note}` |
+| GET | `/api/as/schoolnet-devices?schoolId&regionId&deviceType&status&keyword` | `SDEVICE_MANAGE` — 스쿨넷장비관리. 검색어는 회선번호도 찾는다 |
+| POST / PUT / DELETE | `/api/as/schoolnet-devices[/{id}]` | `SDEVICE_MANAGE` — 무선장비와 같은 필드 + `carrier`(통신사), `circuitId`(회선번호), `bandwidth`(회선 속도). `deviceType` ROUTER/L3/L2/FIREWALL/ETC (필수). 번호를 비우면 `N-0001` 식으로 부여. 두 장비는 같은 표(`wireless_devices.rcept_ty` M/S)라 다른 쪽 API로는 404 |
 
 ### 3.3 통계 (`/api/as/stats`, 권한 `AS_STATS`)
 
@@ -407,4 +409,4 @@ BINGOASM_URL=http://localhost:8080 python3 scripts/as_integration_test.py
 | POST | `/api/notifications/{id}/read` | 읽음 (남의 알림은 404) |
 | POST | `/api/notifications/read-all` | 모두 읽음. 180일 지난 알림 정리도 이때 |
 
-AS 처리 단계마다 관계자에게 남는다 (처리한 본인·사용 중지 계정 제외): 신청·이관·배정 → 담당 기사와 업체 관리자, 접수·방문일 변경·반려·반려 취소·처리 완료(유상이면 청구 금액 확인 요청)·청구서 첨부·청구 금액 변경 → 신청자와 그 학교 담당자, 만족도 평가·청구 확인·지급 완료·신청 취소 → 업체, 청구 확인 취소 → 양쪽. 외부 푸시·문자는 보내지 않는다. 테이블은 `V2__notifications.sql`.
+AS 처리 단계마다 관계자에게 남는다 (처리한 본인·사용 중지 계정 제외): 신청·이관·배정 → 담당 기사와 업체 관리자, 접수·방문일 변경·반려·반려 취소·처리 완료 → 신청자와 그 학교 담당자, 만족도 평가·신청 취소 → 업체. 외부 푸시·문자는 보내지 않는다. 테이블은 `V2__notifications.sql`.

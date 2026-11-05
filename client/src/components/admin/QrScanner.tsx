@@ -32,7 +32,7 @@ function decode(src: CanvasImageSource, w: number, h: number, canvas: HTMLCanvas
 
 /**
  * Camera QR scanner (rear camera) with a photo fallback.
- * `continuous` keeps scanning after a hit (재물조사); the same text is ignored for 2.5 s.
+ * `continuous` keeps scanning after a hit; the same text is ignored for 2.5 s.
  */
 export default function QrScanner({ onText, continuous, autoStart = true }: { onText: (text: string) => void; continuous?: boolean; autoStart?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);

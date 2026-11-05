@@ -15,11 +15,10 @@ export interface AppNotice {
 }
 
 /** Colour group of a notification type, for the dot in the list. */
-export function noticeTone(type: string): "new" | "done" | "bill" | "warn" | "info" {
+export function noticeTone(type: string): "new" | "done" | "warn" | "info" {
   if (type === "AS_NEW" || type === "AS_ASSIGNED") return "new";
-  if (type === "AS_DONE" || type === "BILL_PAID" || type === "AS_EVALUATED") return "done";
-  if (type.startsWith("BILL_")) return "bill";
-  if (type === "AS_RETURNED" || type === "AS_CANCELED" || type === "BILL_CANCELED") return "warn";
+  if (type === "AS_DONE" || type === "AS_EVALUATED") return "done";
+  if (type === "AS_RETURNED" || type === "AS_CANCELED") return "warn";
   return "info";
 }
 

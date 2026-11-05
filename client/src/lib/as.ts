@@ -29,10 +29,6 @@ export const ACTION_LABEL: Record<string, string> = {
   report: "처리 보고서",
   evaluate: "만족도 평가",
   delete: "삭제",
-  "bill-invoice": "청구서 첨부",
-  "bill-confirm": "청구 금액 확인",
-  "bill-paid": "지급 완료",
-  "bill-cancel": "청구 확인 취소",
 };
 
 let codesCache: Promise<AsCodes> | null = null;

@@ -8,12 +8,10 @@ import SubPage from "@/components/SubPage";
 import { ErrorBox, Icon, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fetchAll, type Asset, type Building, type Room } from "@/lib/admin";
-import { useAuth } from "@/lib/auth";
-import { fmtDate } from "@/lib/format";
 
 /**
  * 자산 관리 홈: 자산 관리를 처음 하는 학교 담당자를 위한 시작 화면.
- * 교실 등록 → 자산 등록 → 위치 정리 → QR 라벨 → 재물조사 다섯 단계를 실제 데이터로 확인해 다음 할 일을 보여 준다.
+ * 교실 등록 → 자산 등록 → 위치 정리 → QR 라벨 네 단계를 실제 데이터로 확인해 다음 할 일을 보여 준다.
  */
 export default function StartPage() {
   return (
@@ -23,8 +21,7 @@ export default function StartPage() {
   );
 }
 
-interface Session { sessionId: number; title: string; startedAt: string; endedAt?: string; status: "OPEN" | "CLOSED" }
-interface Facts { buildings: number; rooms: number; assets: number; unplaced: number; sessions: Session[] }
+interface Facts { buildings: number; rooms: number; assets: number; unplaced: number }
 
 /** "라벨을 붙였어요" is the one step the server cannot see; it is a per-browser note, nothing depends on it. */
 const labelKey = (schoolId: number) => `bingoasm.labels-done.${schoolId}`;
@@ -32,7 +29,6 @@ const readLabelDone = (schoolId: number) => { try { return localStorage.getItem(
 const writeLabelDone = (schoolId: number, v: boolean) => { try { if (v) localStorage.setItem(labelKey(schoolId), "1"); else localStorage.removeItem(labelKey(schoolId)); } catch { /* storage blocked: the tick just isn't remembered */ } };
 
 function Start() {
-  const { can } = useAuth();
   const { schools, schoolId, setSchoolId, fixed, err: schoolErr, school } = useSchoolChoice();
   const [f, setF] = useState<Facts | null>(null);
   const [err, setErr] = useState("");
@@ -48,16 +44,13 @@ function Start() {
       api.get<Building[]>("/api/as/spaces/buildings", { schoolId }),
       api.get<Room[]>("/api/as/spaces/rooms", { schoolId }),
       fetchAll<Asset>("/api/assets", { schoolId }),
-      can("INVENTORY") ? api.get<Session[]>("/api/as/inventory", { schoolId }) : Promise.resolve([] as Session[]),
-    ]).then(([b, r, a, s]) => setF({ buildings: b.length, rooms: r.length, assets: a.length, unplaced: a.filter((x) => !x.roomId).length, sessions: s }))
+    ]).then(([b, r, a]) => setF({ buildings: b.length, rooms: r.length, assets: a.length, unplaced: a.filter((x) => !x.roomId).length }))
       .catch((e) => setErr(e.message));
-  }, [schoolId, can]);
+  }, [schoolId]);
   useEffect(load, [load]);
 
   if (schoolErr) return <ErrorBox message={schoolErr} />;
 
-  const open = f?.sessions.find((s) => s.status === "OPEN");
-  const lastClosed = f?.sessions.filter((s) => s.status === "CLOSED").sort((a, b) => (b.endedAt ?? "").localeCompare(a.endedAt ?? ""))[0];
   const steps: Step[] = f ? [
     {
       key: "rooms", title: "교실·장소 등록", done: f.rooms > 0,
@@ -84,12 +77,6 @@ function Start() {
       action: { href: "/admin/assets", label: "자산 라벨 인쇄" },
       extra: { href: "/admin/spaces", label: "교실 QR 인쇄" },
       manual: true,
-    },
-    {
-      key: "inventory", title: "재물조사", done: !!lastClosed,
-      why: "교실 QR을 찍고 자산 라벨을 차례로 찍으면 없는 자산과 옮겨진 자산이 자동으로 정리됩니다.",
-      status: open ? `진행 중 — ${open.title}` : lastClosed ? `마지막 조사 ${fmtDate(lastClosed.endedAt)}` : "아직 한 적이 없습니다",
-      action: { href: "/admin/inventory", label: open ? "이어서 조사하기" : "재물조사 시작" },
     },
   ] : [];
   const doneCount = steps.filter((s) => s.done).length;
