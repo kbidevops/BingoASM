@@ -12,7 +12,7 @@ import { isAdmin, isRegionAdmin, isSchoolAdmin, isVendorUser, useAuth } from "@/
 import { loadRegions } from "@/lib/boards";
 import type { RceptTy, Region } from "@/lib/types";
 
-/** 기관정보관리: schools and their 담당 업체·기사 per AS type, plus regions. */
+/** 기관관리 > 학교 관리: schools and their 담당 업체·기사 per AS type, plus regions. */
 export default function SchoolsPage() {
   return (
     <SubPage perm="SCHOOL_MANAGE">
@@ -81,7 +81,7 @@ function Schools() {
       <ListHead total={shown.length} page={cur} pages={pages}>
         {isAdmin(me) && <Link className="btn sm sec" href="/admin/regions">지역 관리</Link>}
         <button className="btn sm sec" type="button" disabled={!shown.length}
-          onClick={() => downloadCsv("기관정보관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, vendorsOf(s), s.assetCount]))}>
+          onClick={() => downloadCsv("학교관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, vendorsOf(s), s.assetCount]))}>
           엑셀출력 <Icon name="down" />
         </button>
         {manage && <button className="btn sm" type="button" onClick={() => setEdit("new")}>기관 등록</button>}
@@ -238,7 +238,7 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
                 </select>
                 {manage && !map[t].vendorId && (
                   <small className="hint sv-hint">
-                    {!v.regionId ? "지역을 고르면 담당 업체가 정해집니다." : options.length ? "이 지역의 담당 업체가 여러 곳입니다. 선택해 주세요." : "이 지역에 담당 업체가 없습니다. 업체관리에서 지정해 주세요."}
+                    {!v.regionId ? "지역을 고르면 담당 업체가 정해집니다." : options.length ? "이 지역의 담당 업체가 여러 곳입니다. 선택해 주세요." : "이 지역에 담당 업체가 없습니다. 업체 관리에서 지정해 주세요."}
                   </small>
                 )}
               </FormRow>

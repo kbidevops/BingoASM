@@ -66,13 +66,23 @@ export const MENU: MenuGroup[] = [
     ],
   },
   {
+    title: "기관관리",
+    items: [
+      { title: "지역 관리", href: "/admin/regions", perm: "REGION_MANAGE" },
+      { title: "학교 관리", href: "/admin/schools", perm: "SCHOOL_MANAGE" },
+      { title: "업체 관리", href: "/admin/vendors", perm: "VENDOR_MANAGE" },
+    ],
+  },
+  {
     title: "통합관리",
     items: [
       { title: "장애접수관리", href: "/admin/requests", perm: "AS_MANAGE" },
-      { title: "기관정보관리", href: "/admin/schools", perm: "SCHOOL_MANAGE" },
-      { title: "지역 관리", href: "/admin/regions", perm: "REGION_MANAGE" },
-      { title: "업체관리", href: "/admin/vendors", perm: "VENDOR_MANAGE" },
       { title: "AS통계관리", href: "/admin/stats", perm: "AS_STATS" },
+    ],
+  },
+  {
+    title: "관리자 메뉴",
+    items: [
       { title: "사용자 관리", href: "/admin/users", perm: "USER_WRITE" },
       { title: "사용자 메뉴 권한", href: "/admin/user-menus", perm: "ROLE_GRANT" },
       { title: "AS 서비스 설정", href: "/admin/services", perm: "ORG_WRITE" },

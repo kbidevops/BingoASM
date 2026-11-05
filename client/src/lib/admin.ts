@@ -65,7 +65,6 @@ export interface Vendor {
   regions: { regionId: number; regionName: string }[];
   /** "전체", "미지정", or the region names joined */
   regionName: string;
-  bizNo?: string;
   tel?: string;
   address?: string;
   serviceTypes: string[];

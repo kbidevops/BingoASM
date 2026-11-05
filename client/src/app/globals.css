@@ -1132,6 +1132,20 @@ b.ok{color:var(--s3)}b.warn{color:var(--s2)}
 .hd2 .ic.qqs-btn svg{font-size:1.125rem}
 .hd2 .ic.qqs-btn span{white-space:nowrap}
 @media (max-width:1399px){.hd2 .ic.qqs-btn span{display:none}.hd2 .ic.qqs-btn{padding:0;width:44px;justify-content:center;border:0}}
+/* 오른쪽 아이콘 버튼은 줄어들지 않는다: 자리가 모자라면 아래 규칙대로 메뉴 쪽이 줄어든다 (QR 찍기 글자가 종과 겹치지 않게). */
+.hd2 > .ic,.hd2 > .ntf-w{flex:none}
+/* 머리글 줄은 넓은 화면에서 본문보다 넓게 써서 메뉴가 줄어들지 않게 한다. */
+.gw .wrap{max-width:1440px}
+/* 메뉴가 많아 한 줄에 안 들어갈 때 (SiteHeader가 재서 붙인다): 간격을 줄이고, 그래도 넘치면 ☰ 전체 메뉴만 남긴다. */
+.gw.gnb-compact .hd2{gap:4px}
+.gw.gnb-compact .hd2 > .ic,.gw.gnb-compact .hd2 > .ntf-w .ntf-btn{min-width:40px;width:40px}
+.gw.gnb-compact .hd2 nav a{padding:10px 7px;font-size:.875rem}
+.gw.gnb-compact .hd2 nav a.on:after{left:7px;right:7px}
+.gw.gnb-compact .hd2 .logo-t{font-size:1rem}
+.gw.gnb-compact .hd2 .ic.qqs-btn span{display:none}
+.gw.gnb-compact .hd2 .ic.qqs-btn{padding:0;width:44px;justify-content:center;border:0}
+.gw.gnb-none .hd2 nav,.gw.gnb-none .mega{display:none!important}
+.gw.gnb-none .hd2 .logo{margin-right:auto}
 .qqs-help{list-style:none;margin:0 0 12px;padding:10px 12px;border-radius:var(--r-sm);background:var(--head);font-size:.875rem;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .qqs-help b{color:var(--text)}
 .hm-q button{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;padding:20px 8px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--text);text-align:center;font:inherit;font-size:.9375rem;font-weight:500;word-break:keep-all;height:100%;cursor:pointer;transition:border-color .15s,transform .15s}

@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 public class ContactService {
-    /** 교육지원청 문의처 중 유지보수 사업자 탭에 나오는 부서/구분 이름. 업체관리의 업체와는 별개다. */
+    /** 교육지원청 문의처 중 유지보수 사업자 탭에 나오는 부서/구분 이름. 업체 관리의 업체와는 별개다. */
     public static final String VENDOR_GROUP = "유지보수 사업자";
     private final ContactRepository contacts;
     private final SchoolService schoolService;
@@ -108,7 +108,7 @@ public class ContactService {
     }
 
     /**
-     * 우리 학교 담당업체: 학교에 지정된 서비스별 업체·기사와 연락처 (기관정보관리 → 담당업체).
+     * 우리 학교 담당업체: 학교에 지정된 서비스별 업체·기사와 연락처 (학교 관리 → 담당업체).
      * 학교 담당자는 자기 학교, 그 밖에는 범위 안에서 고른 학교. 교육청이 쓰는 서비스만, 지정이 없으면 vendorName 없이 나온다.
      */
     @Transactional(readOnly = true)

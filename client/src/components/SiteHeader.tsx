@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth, useIdleLeft } from "@/lib/auth";
 import { mmss } from "@/lib/format";
 import { findMenu, visibleMenu } from "@/lib/menu";
@@ -188,6 +188,27 @@ export default function SiteHeader() {
   }, [searchOn]);
 
   const menu = visibleMenu(status === "authed" ? perms : null, offPerms);
+  const menuKey = menu.map((g) => g.title).join("|");
+
+  // How many top menus fit depends on the services and permissions, so measure instead of a fixed breakpoint:
+  // tighten the spacing first, and if the row still overflows, hide it and leave the ☰ 전체 메뉴 button.
+  const header = useRef<HTMLElement>(null);
+  const row = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const h = header.current, el = row.current;
+    if (!h || !el) return;
+    const fit = () => {
+      h.classList.remove("gnb-compact", "gnb-none");
+      if (el.scrollWidth <= el.clientWidth + 1) return;
+      h.classList.add("gnb-compact");
+      if (el.scrollWidth > el.clientWidth + 1) h.classList.add("gnb-none");
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [menuKey, status, canScan]);
+
   const cur = findMenu(pathname);
   const curGroup = cur.group
     ? menu.findIndex((g) => g.title === cur.group!.title)
@@ -210,6 +231,7 @@ export default function SiteHeader() {
 
   return (
     <header
+      ref={header}
       className={"gw" + (noMega ? " nomega" : "")}
       onMouseLeave={() => setNoMega(false)}
     >
@@ -260,7 +282,7 @@ export default function SiteHeader() {
           </span>
         </div>
       </div>
-      <div className="hd2 wrap">
+      <div className="hd2 wrap" ref={row}>
         <Link className="logo" href="/">
           <img
             className="logo-img"

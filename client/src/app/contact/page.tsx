@@ -26,7 +26,7 @@ import type { ContactGroup, Providers } from "@/lib/types";
  * 문의처 안내 — same three tabs as cbe.go.kr:
  *  도교육청 (region null) · 교육지원청 (정보지원팀 per region) · 유지보수 사업자 (the published per-region list).
  * All three come from GET /api/as/contacts; vendors are the "유지보수 사업자" group, not the system's vendor accounts.
- * Above them, "우리 학교 담당업체" comes from the school's actual assignments (기관정보관리 → 담당업체).
+ * Above them, "우리 학교 담당업체" comes from the school's actual assignments (학교 관리 → 담당업체).
  * 도교육청 관리자 edits any section; 교육지원청 담당자 edits their own district.
  */
 export default function ContactPage() {
@@ -360,7 +360,7 @@ function MyProviders() {
       )}
       {p && (
         <small className="hint">
-          기관정보관리에 지정된 담당업체 기준입니다.
+          학교 관리에 지정된 담당업체 기준입니다.
         </small>
       )}
     </section>
@@ -493,7 +493,7 @@ function SectionEditor({
     >
       <p className="hint" style={{ marginTop: 0 }}>
         {vendor
-          ? "이 지역의 유지보수 사업자 이름과 연락처를 적습니다. 업체관리의 업체와는 별개인 안내 목록입니다."
+          ? "이 지역의 유지보수 사업자 이름과 연락처를 적습니다. 업체 관리의 업체와는 별개인 안내 목록입니다."
           : "같은 부서/구분 이름끼리 한 표로 묶입니다. 담당업무는 한 줄에 하나씩 적습니다."}
       </p>
       {!vendor && (

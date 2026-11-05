@@ -297,7 +297,7 @@ public class SchoolService {
             refuseUnusedService(me, ty, vid.equals(before.get(ty)));
             if (!v.serviceTypeList().contains(ty)) throw ApiException.badRequest(v.vendorName + "은(는) " + AsCodes.RCEPT_TY_NAME.get(ty) + " 유지관리 업체가 아닙니다.");
             if (!vid.equals(before.get(ty)) && !vendorCovers(v, school.regionId))
-                throw ApiException.badRequest(v.vendorName + "은(는) " + school.schoolName + "의 지역을 담당하지 않습니다. 업체관리에서 담당 지역을 확인해 주세요.");
+                throw ApiException.badRequest(v.vendorName + "은(는) " + school.schoolName + "의 지역을 담당하지 않습니다. 업체 관리에서 담당 지역을 확인해 주세요.");
             SchoolVendor sv = new SchoolVendor();
             sv.schoolId = schoolId; sv.rceptTy = ty; sv.vendorId = vid;
             Long eid = Params.lng(r, "engineerUserId");
@@ -379,7 +379,7 @@ public class SchoolService {
                 .filter(s -> s != null && before.contains(s.regionId)).map(s -> s.schoolName).distinct().toList();
         if (!used.isEmpty()) {
             String regionNames = String.join(", ", before.stream().filter(rm::containsKey).filter(id -> used.stream().anyMatch(n -> sm.values().stream().anyMatch(s -> n.equals(s.schoolName) && id.equals(s.regionId)))).map(id -> rm.get(id).regionName).toList());
-            throw ApiException.conflict(regionNames + "을(를) 담당 지역에서 뺄 수 없습니다. 이 업체가 배정된 학교가 있습니다: " + String.join(", ", used) + ". 기관정보관리에서 먼저 다른 업체로 바꿔 주세요.");
+            throw ApiException.conflict(regionNames + "을(를) 담당 지역에서 뺄 수 없습니다. 이 업체가 배정된 학교가 있습니다: " + String.join(", ", used) + ". 학교 관리에서 먼저 다른 업체로 바꿔 주세요.");
         }
     }
 

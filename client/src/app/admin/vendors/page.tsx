@@ -13,7 +13,7 @@ import { loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
 import type { Region } from "@/lib/types";
 
-/** 업체관리 (/api/as/vendors): 유지관리 업체, 담당 지역, 담당 분야(serviceTypes), 소속 기사. 문의처 안내의 유지보수 사업자와는 별개다. */
+/** 기관관리 > 업체 관리 (/api/as/vendors): 유지관리 업체, 담당 지역, 담당 분야(serviceTypes), 소속 기사. 문의처 안내의 유지보수 사업자와는 별개다. */
 export default function VendorsPage() {
   return (
     <SubPage perm="VENDOR_MANAGE">
@@ -57,7 +57,7 @@ function Vendors() {
   const pages = Math.max(1, Math.ceil(shown.length / size));
   const cur = Math.min(page, pages);
   const vis = shown.slice((cur - 1) * size, cur * size);
-  const head = ["담당 지역", "업체명", "연락처", "담당 분야", "사업자번호", "기사 수", "최근 수정", "관리"];
+  const head = ["담당 지역", "업체명", "연락처", "담당 분야", "기사 수", "최근 수정", "관리"];
 
   return (
     <>
@@ -87,7 +87,7 @@ function Vendors() {
       </FilterForm>
       <ListHead total={shown.length} page={cur} pages={pages}>
         <button className="btn sm sec" type="button" disabled={!shown.length}
-          onClick={() => downloadCsv("업체관리", head.slice(0, -1), shown.map((v) => [v.regionName, v.vendorName, v.tel, TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => AS_NAME[t]).join(", "), v.bizNo, v.engineerCount, fmtDate(v.updatedAt)]))}>
+          onClick={() => downloadCsv("업체관리", head.slice(0, -1), shown.map((v) => [v.regionName, v.vendorName, v.tel, TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => AS_NAME[t]).join(", "), v.engineerCount, fmtDate(v.updatedAt)]))}>
           엑셀출력 <Icon name="down" />
         </button>
         {canEdit && <button className="btn sm" type="button" onClick={() => setEdit("new")}>업체 등록</button>}
@@ -102,7 +102,6 @@ function Vendors() {
                 <td data-label="업체명" className="tl">{v.vendorName}</td>
                 <td data-label="연락처">{v.tel ? <a href={"tel:" + v.tel}>{v.tel}</a> : "-"}</td>
                 <td data-label="담당 분야">{TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => <span key={t} className="chip" style={{ marginRight: 4 }}>{AS_NAME[t]}</span>)}{!v.serviceTypes.length && <span className="hint">없음</span>}</td>
-                <td data-label="사업자번호">{v.bizNo ?? "-"}</td>
                 <td data-label="기사 수">{v.engineerCount}</td>
                 <td data-label="최근 수정">{fmtDate(v.updatedAt)}</td>
                 <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
@@ -211,7 +210,7 @@ const regionLabel = (v: Vendor) => v.allRegions ? "전체" : v.regions.length ? 
 function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | null; regions: Region[]; onClose: () => void; onSaved: (m: string) => void }) {
   const TYPES = useAsTypes();
   const [v, setV] = useState({
-    vendorName: vendor?.vendorName ?? "", bizNo: vendor?.bizNo ?? "",
+    vendorName: vendor?.vendorName ?? "",
     tel: vendor?.tel ?? "", address: vendor?.address ?? "", serviceTypes: vendor?.serviceTypes ?? [] as string[],
     allRegions: vendor?.allRegions ?? false,
   });
@@ -219,7 +218,7 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
   const [engineers, setEngineers] = useState<Engineer[] | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const set = (k: "vendorName" | "bizNo" | "tel" | "address") => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
+  const set = (k: "vendorName" | "tel" | "address") => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
   const toggleRegion = (id: number, on: boolean) => setPicked((p) => (on ? [...p, id] : p.filter((x) => x !== id)));
 
   useEffect(() => {
@@ -274,7 +273,6 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
             ))}
             <small className="hint"> 업체 기사는 담당 분야의 AS 메뉴만 보게 됩니다.</small>
           </FormRow>
-          <FormRow label="사업자번호"><input aria-label="사업자번호" placeholder="000-00-00000" value={v.bizNo} onChange={set("bizNo")} /></FormRow>
           <FormRow label="연락처"><input aria-label="연락처" value={v.tel} onChange={set("tel")} /></FormRow>
           <FormRow label="주소"><input aria-label="주소" style={{ width: "100%" }} value={v.address} onChange={set("address")} /></FormRow>
           {vendor && (
