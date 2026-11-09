@@ -82,7 +82,8 @@ sed -i '/^DDL_AUTO=update$/d' /cvms/bin/srv/asm/asm.env
 
 - 대상 PostgreSQL에는 Flyway 스키마가 있어야 합니다 (새 jar로 한 번 기동한 DB). 없으면 안내하고 멈춥니다.
 - 두 DB에 모두 있는 컬럼만 복사하고, id를 그대로 두며, 끝나면 id 카운터를 맞춥니다.
-- 개인정보(users.mobile·email)는 H2의 키(`SOURCE_DATA_KEY`, 기본은 개발 기본 키)로 풀어 대상의 `DATA_KEY`로 다시 암호화합니다. `DATA_KEY`가 없으면 비웁니다.
+- 암호화된 컬럼(users.mobile·email·totp_secret, otp_challenges.setup_secret)은 H2의 키(`SOURCE_DATA_KEY`, 기본은 개발 기본 키)로 풀어 대상의 `DATA_KEY`로 다시 암호화합니다. `DATA_KEY`가 없으면 비웁니다(그러면 Google OTP는 다시 등록).
+- H2와 대상의 Flyway 버전이 같아야 합니다(예: 둘 다 v6). 다르면 안내하고 멈춥니다. 같은 새 jar로 개발 서버와 운영을 한 번씩 띄우면 맞춰집니다.
 - 대상에 데이터가 있으면 `--replace` 없이는 멈춥니다. `--replace`는 대상의 기존 데이터를 **모두 지우고** H2 데이터로 바꿉니다.
 - 한 트랜잭션이라 중간에 실패하면 대상은 그대로입니다.
 

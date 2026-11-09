@@ -17,15 +17,16 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * QR: 자산 라벨·실 QR 이미지, 스캔 해석, 라벨 인쇄 데이터, 빈 라벨 번호 예약.
- * 라벨에 인쇄되는 주소(/a/{assetNo}, /r/{roomId})와 로그인 QR(/qr?t=)은 인증 없이 열리고 프런트 라우트로 넘긴다.
+ * 라벨에 인쇄되는 주소(/a/{assetNo} 자산, /d/{deviceId} 장비)와 로그인 QR(/qr?t=)은 인증 없이 열리고 프런트 라우트로 넘긴다.
  */
 @Tag(name = "QR", description = "자산·실 QR 이미지, 스캔 해석, 라벨 인쇄, 빈 라벨 번호 예약, 라벨 공개 링크")
 @RestController
 public class QrController {
     private final QrService qr;
     private final AppProperties props;
+    private final com.bingoasm.service.as.WirelessDeviceService devices;
 
-    public QrController(QrService qr, AppProperties props) { this.qr = qr; this.props = props; }
+    public QrController(QrService qr, AppProperties props, com.bingoasm.service.as.WirelessDeviceService devices) { this.qr = qr; this.props = props; this.devices = devices; }
 
     private static ResponseEntity<byte[]> png(byte[] bytes) {
         return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).cacheControl(CacheControl.noCache()).body(bytes);
@@ -38,13 +39,7 @@ public class QrController {
         return png(qr.png(qr.assetQrText(assetNo.toUpperCase()), size));
     }
 
-    @GetMapping("/api/qr/room/{roomId}.png")
-    @RequirePerm({"FLOOR_READ", "SPACE_MANAGE", "INVENTORY"})
-    public ResponseEntity<byte[]> roomPng(@PathVariable Long roomId, @RequestParam(required = false, defaultValue = "256") int size) {
-        return png(qr.png(qr.roomQrText(roomId), size));
-    }
-
-    /** 카메라로 읽은 문자열이 무엇인지. body: { text } → type ASSET(REGISTERED/RESERVED/NOT_FOUND) | ROOM | LOGIN | UNKNOWN */
+    /** 카메라로 읽은 문자열이 무엇인지. body: { text } → type ASSET(REGISTERED/RESERVED/NOT_FOUND) | DEVICE | LOGIN | UNKNOWN */
     @PostMapping("/api/qr/resolve")
     public ApiResponse resolve(@RequestBody Map<String, Object> body) {
         return ApiResponse.ok(qr.resolve(AuthContext.get(), String.valueOf(body.getOrDefault("text", ""))));
@@ -60,6 +55,16 @@ public class QrController {
     @RequirePerm({"ASSET_READ", "INVENTORY"})
     public ApiResponse labels(@RequestBody Map<String, Object> body) { return ApiResponse.ok(qr.labels(AuthContext.get(), body)); }
 
+    /** 장비 라벨 인쇄 항목. body: { deviceIds:[...] } — 관리하는 유형(무선·스쿨넷)의 장비만. */
+    @PostMapping("/api/qr/device-labels")
+    @RequirePerm({"WDEVICE_MANAGE", "SDEVICE_MANAGE"})
+    public ApiResponse deviceLabels(@RequestBody Map<String, Object> body) { return ApiResponse.ok(qr.deviceLabels(AuthContext.get(), body)); }
+
+    /** 장비 라벨 QR을 찍었을 때의 장비 정보 (학교 담당자는 자기 학교 장비만, 업체는 배정 학교만). */
+    @GetMapping("/api/qr/devices/{id}")
+    @RequirePerm({"WDEVICE_MANAGE", "SDEVICE_MANAGE", "AS_M_REQUEST", "AS_S_REQUEST", "AS_M_VIEW", "AS_S_VIEW", "AS_PROCESS"})
+    public ApiResponse device(@PathVariable Long id) { return ApiResponse.ok(devices.scanView(AuthContext.get(), id)); }
+
     /** 빈 라벨용 자산번호 예약. body: { count, year?, schoolId? } */
     @PostMapping("/api/qr/reserve")
     @RequirePerm("ASSET_WRITE")
@@ -74,9 +79,9 @@ public class QrController {
     }
 
     @PublicApi
-    @GetMapping("/r/{roomId}")
-    public ResponseEntity<Void> roomLink(@PathVariable Long roomId) {
-        return redirect(props.roomLinkTemplate().replace("{roomId}", String.valueOf(roomId)));
+    @GetMapping("/d/{deviceId}")
+    public ResponseEntity<Void> deviceLink(@PathVariable Long deviceId) {
+        return redirect(props.deviceLinkTemplate().replace("{deviceId}", String.valueOf(deviceId)));
     }
 
     /** 로그인 QR(/qr?t=토큰): 승인 화면으로. */

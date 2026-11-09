@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class QrService {
     private static final Pattern ASSET_IN_TEXT = Pattern.compile("(?:/a/|#asset/)([A-Za-z0-9-]+)");
-    private static final Pattern ROOM_IN_TEXT = Pattern.compile("(?:/r/|#room/)([0-9]+)");
+    private static final Pattern DEVICE_IN_TEXT = Pattern.compile("(?:/d/|#device/)([0-9]+)");
     private static final Pattern LOGIN_IN_TEXT = Pattern.compile("[?&]t=([A-Za-z0-9_-]+)");
     private static final Pattern ASSET_NO = Pattern.compile("^[A-Z]{1,6}-\\d{4}-\\d{4,6}$");
 
@@ -38,12 +38,20 @@ public class QrService {
     private final AssetNoReservationRepository reservations;
     private final SchoolService schoolService;
 
-    public QrService(AppProperties props, AssetRepository assets, RoomRepository rooms, OrgRepository orgs, AssetNoReservationRepository reservations, SchoolService schoolService) {
+    private final com.bingoasm.service.AssetService assetService;
+    private final WirelessDeviceService deviceService;
+
+    public QrService(AppProperties props, AssetRepository assets, RoomRepository rooms, OrgRepository orgs, AssetNoReservationRepository reservations, SchoolService schoolService,
+                     com.bingoasm.service.AssetService assetService, WirelessDeviceService deviceService) {
         this.props = props; this.assets = assets; this.rooms = rooms; this.orgs = orgs; this.reservations = reservations; this.schoolService = schoolService;
+        this.assetService = assetService; this.deviceService = deviceService;
     }
 
+    public String deviceQrText(Long deviceId) { return props.qrBaseUrl() + "/d/" + deviceId; }
+
+    public List<Json> deviceLabels(CurrentUser me, Map<String, Object> b) { return deviceService.labels(me, b.get("deviceIds"), props.qrBaseUrl()); }
+
     public String assetQrText(String assetNo) { return props.qrBaseUrl() + "/a/" + assetNo; }
-    public String roomQrText(Long roomId) { return props.qrBaseUrl() + "/r/" + roomId; }
 
     /** QR 본문 또는 직접 입력에서 자산번호를 뽑는다. 없으면 null. */
     public static String assetNoFrom(String text) {
@@ -71,21 +79,23 @@ public class QrService {
         }
     }
 
-    /** 스캔한 문자열이 무엇인지: ASSET(등록/예약/미등록) · ROOM · LOGIN · UNKNOWN */
+    /** 스캔한 문자열이 무엇인지: ASSET(등록/예약/미등록) · DEVICE(무선·스쿨넷 장비) · LOGIN · UNKNOWN */
     @Transactional(readOnly = true)
     public Json resolve(CurrentUser me, String text) {
         String t = text == null ? "" : text.trim();
-        Matcher r = ROOM_IN_TEXT.matcher(t);
-        if (r.find()) {
-            Long rid = Long.valueOf(r.group(1));
-            Room room = rooms.findById(rid).filter(x -> x.orgId.equals(me.orgId()) && "Y".equals(x.useYn)).orElse(null);
-            return Json.obj().with("type", "ROOM").with("roomId", rid).with("found", room != null).with("roomName", room == null ? null : room.roomName).with("schoolId", room == null ? null : room.schoolId);
-        }
+        Matcher dv = DEVICE_IN_TEXT.matcher(t);
+        if (dv.find()) return deviceService.resolve(me, Long.valueOf(dv.group(1)));
         Matcher l = LOGIN_IN_TEXT.matcher(t);
         if (l.find() && t.contains("/qr")) return Json.obj().with("type", "LOGIN").with("token", l.group(1));
         String no = assetNoFrom(t);
-        if (no == null) return Json.obj().with("type", "UNKNOWN").with("message", "원클릭AS 자산 QR이 아닙니다. 자산 라벨의 QR을 찍어 주세요.");
+        if (no == null) return Json.obj().with("type", "UNKNOWN").with("message", "원클릭AS QR이 아닙니다. 자산이나 장비 라벨의 QR을 찍어 주세요.");
         return byNo(me, no);
+    }
+
+    /** 위치는 볼 수 있는 학교의 자산만 알려 준다 (학교 담당자가 남의 학교 라벨을 찍어도 그 학교 건물·층은 안 보인다). */
+    private boolean inScope(CurrentUser me, Long schoolId) {
+        java.util.Set<Long> ids = schoolService.scopeSchoolIds(me);
+        return ids == null || (schoolId != null && ids.contains(schoolId));
     }
 
     @Transactional(readOnly = true)
@@ -93,7 +103,7 @@ public class QrService {
         String no = assetNo.trim().toUpperCase();
         Asset a = assets.findAll((root, q, cb) -> cb.and(cb.equal(root.get("orgId"), me.orgId()), cb.equal(root.get("assetNo"), no), cb.equal(root.get("useYn"), "Y"))).stream().findFirst().orElse(null);
         if (a != null) return Json.obj().with("type", "ASSET").with("state", "REGISTERED").with("assetNo", no).with("assetId", a.assetId).with("assetName", a.assetName)
-                .with("schoolId", a.schoolId).with("roomId", a.roomId);
+                .with("schoolId", a.schoolId).with("roomId", a.roomId).with("location", inScope(me, a.schoolId) ? assetService.location(a) : null);
         AssetNoReservation res = reservations.findByAssetNo(no).filter(x -> x.orgId.equals(me.orgId())).orElse(null);
         if (res != null) return Json.obj().with("type", "ASSET").with("state", "RESERVED").with("assetNo", no).with("schoolId", res.schoolId)
                 .with("message", "미등록 라벨입니다. 이 번호로 자산을 등록하세요.");

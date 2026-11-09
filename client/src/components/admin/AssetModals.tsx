@@ -2,13 +2,44 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { ASSET_STATUSES, badgeClass, label, protectedImage, type Asset, type Category, type Room, type SchoolFull } from "@/lib/admin";
+import { ASSET_STATUSES, badgeClass, label, protectedImage, type Asset, type AssetLocation, type Category, type Room, type SchoolFull } from "@/lib/admin";
 import { useAuth } from "@/lib/auth";
 import { fmtDate, fmtDateTime, won } from "@/lib/format";
 import { ErrorBox, FormMsg, FormRow, Loading, Modal } from "../ui";
 import { Confirm, StatusDot } from "./common";
 
 interface History { historyId: number; actionType: string; content?: string; workerName?: string; createdAt: string }
+
+/** 라벨 QR을 찍으면 맨 먼저 보이는 것: 이 자산이 어느 학교 · 건물 · 층 · 실에 있는지. */
+function LocationCard({ loc, canFix, onFix }: { loc: AssetLocation; canFix: boolean; onFix: () => void }) {
+  const steps: [string, string | undefined][] = [
+    ["기관", loc.schoolName],
+    ["건물", loc.buildingName],
+    ["층", loc.floorName],
+    ["실", loc.roomName ? loc.roomName + (loc.roomNo ? ` (${loc.roomNo})` : "") : undefined],
+  ];
+  return (
+    <section className={"aloc" + (loc.complete ? "" : " warn")} aria-label={`자산 위치: ${steps.map(([k, v]) => `${k} ${v ?? "미지정"}`).join(", ")}`}>
+      <span className="aloc-i" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.6" /></svg>
+      </span>
+      <div className="aloc-b">
+        <ol className="aloc-path">
+          {steps.map(([k, v]) => (
+            <li key={k} className={v ? "" : "none"}><small>{k}</small><b>{v ?? "미지정"}</b></li>
+          ))}
+        </ol>
+        {loc.detail && <p className="aloc-d">상세 위치: {loc.detail}</p>}
+        {!loc.complete && (
+          <p className="aloc-d warn">
+            건물·층이 정해지지 않은 자산입니다.{canFix ? " " : " 자산 담당자에게 위치(실) 지정을 요청해 주세요."}
+            {canFix && <button type="button" className="linkbtn" onClick={onFix}>위치(실) 지정하기</button>}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 /** 자산 상세: 정보 · 위치 · QR · 이력 (라벨 QR을 찍었을 때 열리는 화면). */
 export function AssetDetailModal({ assetId, rooms, schoolName, onClose, onEdit, onPrint }: {
@@ -36,19 +67,19 @@ export function AssetDetailModal({ assetId, rooms, schoolName, onClose, onEdit, 
     <Modal title="자산 상세" wide onClose={onClose}>
       {err ? <ErrorBox message={err} /> : !a ? <Loading /> : (
         <>
+          <LocationCard loc={a.location ?? {
+            schoolId: a.schoolId, schoolName: schoolName(a.schoolId), buildingName: a.buildingName, floorName: a.floorName,
+            roomName: room?.roomName, roomNo: room?.roomNo, detail: a.locationDetail, complete: !!(a.buildingName && a.floorName),
+          }} canFix={can("ASSET_WRITE")} onFix={() => onEdit(a)} />
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 420px", minWidth: 0 }}>
               <table className="ftab rpt"><tbody>
                 {r("자산번호", <b>{a.assetNo}</b>, "상태", <StatusDot cls={badgeClass(ASSET_STATUSES, a.status)} name={label(ASSET_STATUSES, a.status)} />)}
-                {r("기관", schoolName(a.schoolId), "분류", a.categoryName ?? "-")}
+                {r("분류", a.categoryName ?? "-", "진행 중 AS", `${a.openServiceCount ?? 0}건`)}
                 <tr><th scope="row">품명·규격</th><td colSpan={3} className="tl">{a.assetName}{a.spec ? ` · ${a.spec}` : ""}</td></tr>
                 {r("제조사 / 모델", `${a.manufacturer ?? "-"} / ${a.modelName ?? "-"}`, "시리얼", a.serialNo ?? "-")}
                 {r("취득일", fmtDate(a.acquiredAt), "취득가", won(a.acquirePrice))}
-                {r("내용연수", a.lifeYears ? `${a.lifeYears}년${a.lifeExceeded ? " (경과 — 불용 검토)" : ""}` : "-", "진행 중 AS", `${a.openServiceCount ?? 0}건`)}
-                <tr><th scope="row">위치</th><td colSpan={3} className="tl">
-                  {room ? room.fullName : [a.buildingName, a.floorName, a.locationDetail].filter(Boolean).join(" ") || "위치 미지정"}{" "}
-                  {a.roomId && <a className="linkbtn" href={`/admin/floorplan?room=${a.roomId}`}>도면에서 보기</a>}
-                </td></tr>
+                {r("내용연수", a.lifeYears ? `${a.lifeYears}년${a.lifeExceeded ? " (경과 — 불용 검토)" : ""}` : "-")}
                 {a.note && <tr><th scope="row">비고</th><td colSpan={3} className="tl" style={{ whiteSpace: "pre-wrap" }}>{a.note}</td></tr>}
               </tbody></table>
             </div>
@@ -177,7 +208,7 @@ export function AssetForm({ asset, schools, fixedSchool, categories, onClose, on
           </FormRow>
           <FormRow label="위치(실)">
             <select aria-label="위치(실)" value={v.roomId} onChange={set("roomId")} disabled={!v.schoolId}>
-              <option value="">{rooms.length ? "-- 위치 미지정 --" : "등록된 실이 없습니다 (공간(실) 관리에서 추가)"}</option>
+              <option value="">{rooms.length ? "-- 위치 미지정 --" : "등록된 실이 없습니다"}</option>
               {rooms.map((r) => <option key={r.roomId} value={r.roomId}>{r.fullName}</option>)}
             </select>
           </FormRow>

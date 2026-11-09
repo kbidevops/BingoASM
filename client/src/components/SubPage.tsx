@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { findMenu, visibleMenu, type MenuItem } from "@/lib/menu";
 import { Icon, Loading } from "./ui";
@@ -100,6 +100,7 @@ function SideMenu({ title, items, here }: { title: string; items: MenuItem[]; he
   const box = useRef<HTMLElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
   const current = items.find((it) => it.href === here);
+  const sectioned = new Set(items.map((it) => it.section).filter(Boolean)).size > 1;
 
   useEffect(() => {
     if (!open) return;
@@ -120,8 +121,12 @@ function SideMenu({ title, items, here }: { title: string; items: MenuItem[]; he
         {current?.title ?? title}
       </button>
       <div id="side-list" className={"side-list" + (open ? " open" : "")}>
-        {items.map((it) => (
-          <Link key={it.href} href={it.href} className={it.href === here ? "on" : ""} aria-current={it.href === here ? "page" : undefined} onClick={() => setOpen(false)}>{it.title}</Link>
+        {items.map((it, i) => (
+          <Fragment key={it.href}>
+            {/* 소제목은 이 사용자에게 보이는 구역이 둘 이상일 때만 (항목 하나에 제목만 붙지 않게). */}
+            {sectioned && it.section && it.section !== items[i - 1]?.section && <span className="side-sec">{it.section}</span>}
+            <Link href={it.href} className={it.href === here ? "on" : ""} aria-current={it.href === here ? "page" : undefined} onClick={() => setOpen(false)}>{it.title}</Link>
+          </Fragment>
         ))}
       </div>
     </aside>

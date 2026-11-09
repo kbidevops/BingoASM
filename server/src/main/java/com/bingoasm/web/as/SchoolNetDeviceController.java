@@ -17,8 +17,9 @@ public class SchoolNetDeviceController {
 
     public SchoolNetDeviceController(WirelessDeviceService devices) { this.devices = devices; }
 
+    /** 학교 담당자·기사도 스쿨넷 AS 신청·처리에서 자기 범위의 장비를 고르려고 조회한다 (수정은 관리 권한만). */
     @GetMapping
-    @RequirePerm("SDEVICE_MANAGE")
+    @RequirePerm({"SDEVICE_MANAGE", "AS_S_REQUEST", "AS_S_VIEW", "AS_PROCESS"})
     public ApiResponse list(@RequestParam(required = false) Long schoolId, @RequestParam(required = false) Long regionId,
                             @RequestParam(required = false) String deviceType, @RequestParam(required = false) String status,
                             @RequestParam(required = false) String keyword,
@@ -30,6 +31,17 @@ public class SchoolNetDeviceController {
     @RequirePerm("SDEVICE_MANAGE")
     public ApiResponse create(@RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.create(AuthContext.get(), "S", body)); }
 
+    /** 설치위치 고르기: 이 학교의 건물·층과 이미 쓴 상세 위치(실) 이름. */
+    @GetMapping("/places")
+    @RequirePerm("SDEVICE_MANAGE")
+    public ApiResponse places(@RequestParam Long schoolId) { return ApiResponse.ok(devices.places(AuthContext.get(), schoolId)); }
+
+    /** 위치 변경 기록 (최근 것부터). */
+    @GetMapping("/{id}/history")
+    @RequirePerm("SDEVICE_MANAGE")
+    public ApiResponse history(@PathVariable Long id) { return ApiResponse.ok(devices.history(AuthContext.get(), "S", id)); }
+
+    /** body에 unplace:true 를 함께 보내면 도면에서 빼고 새 설치위치를 적는다 (다른 층으로 옮기기). */
     @PutMapping("/{id}")
     @RequirePerm("SDEVICE_MANAGE")
     public ApiResponse update(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.update(AuthContext.get(), "S", id, body)); }

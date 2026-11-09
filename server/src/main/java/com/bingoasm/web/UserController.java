@@ -50,6 +50,13 @@ public class UserController {
         return ApiResponse.ok(null);
     }
 
+    /** 인증 앱(OTP) 등록 초기화: 휴대폰 분실·교체 때. 다음 로그인 때 새로 등록한다. */
+    @PostMapping("/api/users/{id}/otp-reset")
+    @RequirePerm("USER_WRITE")
+    public ApiResponse resetOtp(@PathVariable Long id) {
+        return ApiResponse.ok(users.resetOtp(AuthContext.get(), id));
+    }
+
     /** 로그인 실패 잠금 해제. */
     @PostMapping("/api/users/{id}/unlock")
     @RequirePerm("USER_WRITE")

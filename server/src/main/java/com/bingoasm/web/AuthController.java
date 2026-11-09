@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * Login (password → optional OTP), QR login, token refresh, my page.
- * Security: BCrypt(12), per-IP rate limit, time-based lockout, OTP hashed and single-use, QR token single-use.
+ * Security: BCrypt(12), per-IP rate limit, time-based lockout, OTP = 인증 앱 TOTP (비밀값 암호화, 번호 재사용 불가), QR token single-use.
  */
 @Tag(name = "인증", description = "로그인 · OTP · QR 로그인 · 토큰 갱신 · 내 정보 · 비밀번호 · 로그인 이력 · 즐겨찾기 메뉴")
 @RestController
@@ -43,14 +43,16 @@ public class AuthController {
     private final BCryptPasswordEncoder encoder;
     private final RateLimiter limiter;
     private final AppProperties props;
+    private final com.bingoasm.service.as.QrService qrService;
 
     public AuthController(UserRepository users, OrgRepository orgs, DepartmentRepository depts, SchoolRepository schools,
                           VendorRepository vendors, LoginHistoryRepository logins, OtpChallengeRepository otps,
                           QrLoginSessionRepository qrs, MenuScrapRepository scraps, JwtService jwt, PermissionService permissions,
-                          BCryptPasswordEncoder encoder, RateLimiter limiter, AppProperties props, RegionRepository regions) {
+                          BCryptPasswordEncoder encoder, RateLimiter limiter, AppProperties props, RegionRepository regions,
+                          com.bingoasm.service.as.QrService qrService) {
         this.users = users; this.orgs = orgs; this.depts = depts; this.schools = schools; this.vendors = vendors; this.logins = logins;
         this.otps = otps; this.qrs = qrs; this.scraps = scraps; this.jwt = jwt; this.permissions = permissions; this.encoder = encoder;
-        this.limiter = limiter; this.props = props; this.regions = regions;
+        this.limiter = limiter; this.props = props; this.regions = regions; this.qrService = qrService;
     }
 
     // ---------- views ----------
@@ -69,7 +71,7 @@ public class AuthController {
                 .with("positionName", u.positionName).with("email", u.email).with("mobile", u.mobile)
                 .with("schoolId", u.schoolId).with("schoolName", school).with("vendorId", u.vendorId).with("vendorName", vendor)
                 .with("regionId", regionId).with("regionName", region)
-                .with("memberType", PermissionService.memberType(u)).with("otpEnabled", Boolean.TRUE.equals(u.otpEnabled))
+                .with("memberType", PermissionService.memberType(u)).with("otpEnabled", Boolean.TRUE.equals(u.otpEnabled)).with("otpRegistered", u.totpSecret != null)
                 .with("passwordChangedAt", u.passwordChangedAt).with("createdAt", u.createdAt).with("lastLoginAt", u.lastLoginAt)
                 .with("roles", u.roles).with("permissions", new ArrayList<>(permissions.effectivePerms(u))).with("asTypes", permissions.asTypes(u.orgId));
     }
@@ -153,17 +155,37 @@ public class AuthController {
         return ApiResponse.ok(tokens(u, req, "PASSWORD"));
     }
 
-    /** Creates a 6-digit code valid for 5 minutes. The code would go out via messenger/SMS; in dev it is echoed back. */
+    /**
+     * 비밀번호가 맞은 뒤의 2단계: 인증 앱(Google OTP 등)의 6자리 번호를 기다린다.
+     * 앱을 아직 등록하지 않은 계정은 여기서 등록한다 (step "otp-setup": QR과 비밀값을 보여 주고 첫 번호로 확인).
+     */
     private Json startOtp(AppUser u) {
-        String code = String.format("%06d", RND.nextInt(1_000_000));
         OtpChallenge c = new OtpChallenge();
-        c.token = token(); c.userId = u.userId; c.codeHash = encoder.encode(code);
-        c.createdAt = Times.now(); c.expiresAt = c.createdAt.plusMinutes(5);
+        c.token = token(); c.userId = u.userId; c.codeHash = "-"; c.createdAt = Times.now();
+        boolean setup = u.totpSecret == null;
+        if (setup) c.setupSecret = Totp.newSecret();
+        c.expiresAt = c.createdAt.plusMinutes(setup ? 10 : 5);
         otps.save(c);
-        Json res = Json.obj().with("step", "otp").with("otpToken", c.token).with("expiresAt", c.expiresAt)
-                .with("message", "소통메신저로 보낸 6자리 인증번호를 입력하세요.");
-        if (props.otpDevEcho()) res.put("devCode", code);
+        Json res = Json.obj().with("step", setup ? "otp-setup" : "otp").with("otpToken", c.token).with("expiresAt", c.expiresAt);
+        if (setup) res.putAll(setupInfo(u, c.setupSecret));
         return res;
+    }
+
+    /** 인증 앱 등록 화면에 보여 줄 것: QR(등록 주소)과 직접 입력용 비밀값. QR은 로그인 전에도 보이도록 이미지 자체(data URL)로 준다. */
+    private Json setupInfo(AppUser u, String secret) {
+        // 앱 목록에 "원클릭AS · 아이디"로 보인다. 이름을 짧게 해야 QR이 성겨 휴대폰으로 잘 찍힌다.
+        String issuer = "원클릭AS";
+        String uri = Totp.uri(issuer, u.loginId, secret);
+        String png = java.util.Base64.getEncoder().encodeToString(qrService.png(uri, 220));
+        return Json.obj().with("qr", "data:image/png;base64," + png).with("secret", Totp.grouped(secret)).with("account", u.loginId).with("issuer", issuer);
+    }
+
+    /** 번호 확인: 맞으면 그 시간 칸을 기록해 같은 번호를 다시 못 쓰게 한다. */
+    private boolean acceptCode(AppUser u, String secret, String code) {
+        long step = Totp.verify(secret, code, u.totpLastStep);
+        if (step < 0) return false;
+        u.totpLastStep = step;
+        return true;
     }
 
     @PublicApi
@@ -173,31 +195,22 @@ public class AuthController {
         limiter.check("otp:" + clientIp(req), 20);
         OtpChallenge c = otps.findByToken(Optional.ofNullable(Params.str(body, "otpToken")).orElse("-"))
                 .orElseThrow(() -> ApiException.unauthorized("인증 요청을 찾을 수 없습니다. 처음부터 다시 로그인해 주세요."));
-        if (Boolean.TRUE.equals(c.used) || c.expiresAt.isBefore(Times.now())) throw ApiException.unauthorized("인증번호가 만료되었습니다. 다시 받아 주세요.");
-        String code = Params.str(body, "code");
-        if (code == null || !encoder.matches(code, c.codeHash)) {
+        if (Boolean.TRUE.equals(c.used) || c.expiresAt.isBefore(Times.now())) throw ApiException.unauthorized("인증 시간이 지났습니다. 처음부터 다시 로그인해 주세요.");
+        AppUser u = users.findById(c.userId).orElseThrow(() -> ApiException.unauthorized("다시 로그인해 주세요."));
+        String secret = c.setupSecret != null ? c.setupSecret : u.totpSecret;
+        if (!acceptCode(u, secret, Params.str(body, "code"))) {
             c.tries++;
             if (c.tries >= 5) c.used = true;
             otps.save(c);
-            throw ApiException.unauthorized(c.used ? "인증번호를 5회 틀려 만료되었습니다." : "인증번호가 올바르지 않습니다. (" + c.tries + "/5)");
+            throw ApiException.unauthorized(c.used ? "인증번호를 5회 틀려 만료되었습니다. 처음부터 다시 로그인해 주세요."
+                    : "인증번호가 올바르지 않습니다. 인증 앱의 지금 번호를 입력하세요. (" + c.tries + "/5)");
         }
+        // 로그인 중 등록: 첫 번호가 맞았으니 이 비밀값을 계정에 저장한다.
+        if (c.setupSecret != null) u.totpSecret = c.setupSecret;
         c.used = true;
         otps.save(c);
-        AppUser u = users.findById(c.userId).orElseThrow(() -> ApiException.unauthorized("다시 로그인해 주세요."));
+        users.save(u);
         return ApiResponse.ok(tokens(u, req, "OTP"));
-    }
-
-    @PublicApi
-    @PostMapping("/otp/resend")
-    @Transactional
-    public ApiResponse resendOtp(@RequestBody Map<String, Object> body, HttpServletRequest req) {
-        limiter.check("otp:" + clientIp(req), 10);
-        OtpChallenge c = otps.findByToken(Optional.ofNullable(Params.str(body, "otpToken")).orElse("-"))
-                .orElseThrow(() -> ApiException.unauthorized("인증 요청을 찾을 수 없습니다."));
-        if (c.createdAt.isBefore(Times.now().minusMinutes(30))) throw ApiException.unauthorized("처음부터 다시 로그인해 주세요.");
-        c.used = true;
-        otps.save(c);
-        return ApiResponse.ok(startOtp(users.findById(c.userId).orElseThrow()));
     }
 
     // ---------- QR login ----------
@@ -301,7 +314,7 @@ public class AuthController {
         return ApiResponse.ok(me(AuthContext.get().user()));
     }
 
-    /** 회원정보 수정: 이름·직위·휴대전화·이메일·OTP 사용 여부만 본인이 바꿀 수 있다. */
+    /** 회원정보 수정: 이름·직위·휴대전화·이메일만 본인이 바꿀 수 있다. 2단계 인증은 아래 /me/otp/* 로 (인증 앱 번호 확인이 필요). */
     @PutMapping("/me")
     @Transactional
     public ApiResponse updateMe(@RequestBody Map<String, Object> b) {
@@ -310,7 +323,59 @@ public class AuthController {
         if (b.containsKey("positionName")) u.positionName = Params.str(b, "positionName");
         if (b.containsKey("mobile")) u.mobile = Params.str(b, "mobile");
         if (b.containsKey("email")) u.email = Params.str(b, "email");
-        if (b.containsKey("otpEnabled")) u.otpEnabled = Boolean.parseBoolean(String.valueOf(b.get("otpEnabled")));
+        users.save(u);
+        return ApiResponse.ok(me(u));
+    }
+
+    /** 2단계 인증 켜기 1/2: 새 비밀값으로 QR을 만든다. 10분 안에 /me/otp/enable 로 첫 번호를 보내면 켜진다. */
+    @PostMapping("/me/otp/setup")
+    @Transactional
+    public ApiResponse otpSetup() {
+        AppUser u = users.findById(AuthContext.get().userId()).orElseThrow();
+        OtpChallenge c = new OtpChallenge();
+        c.token = token(); c.userId = u.userId; c.codeHash = "-"; c.createdAt = Times.now(); c.expiresAt = c.createdAt.plusMinutes(10);
+        c.setupSecret = Totp.newSecret();
+        otps.save(c);
+        Json res = Json.obj().with("otpToken", c.token).with("expiresAt", c.expiresAt).with("replaces", u.totpSecret != null);
+        res.putAll(setupInfo(u, c.setupSecret));
+        return ApiResponse.ok(res);
+    }
+
+    /** 2단계 인증 켜기 2/2: 앱에 뜬 번호가 맞으면 이 비밀값으로 등록하고 2단계 인증을 켠다 (기존 등록은 바뀐다). */
+    @PostMapping("/me/otp/enable")
+    @Transactional(noRollbackFor = ApiException.class)
+    public ApiResponse otpEnable(@RequestBody Map<String, Object> b) {
+        AppUser u = users.findById(AuthContext.get().userId()).orElseThrow();
+        OtpChallenge c = otps.findByToken(Optional.ofNullable(Params.str(b, "otpToken")).orElse("-"))
+                .filter(x -> u.userId.equals(x.userId) && x.setupSecret != null)
+                .orElseThrow(() -> ApiException.badRequest("등록을 처음부터 다시 시작해 주세요."));
+        if (Boolean.TRUE.equals(c.used) || c.expiresAt.isBefore(Times.now())) throw ApiException.badRequest("등록 시간이 지났습니다. 처음부터 다시 시작해 주세요.");
+        u.totpLastStep = null;  // 새 비밀값: 예전 번호 기록은 의미가 없다.
+        if (!acceptCode(u, c.setupSecret, Params.str(b, "code"))) {
+            c.tries++;
+            if (c.tries >= 5) c.used = true;
+            otps.save(c);
+            throw ApiException.badRequest(c.used ? "번호를 5회 틀렸습니다. 처음부터 다시 시작해 주세요." : "번호가 올바르지 않습니다. 앱에 지금 보이는 6자리를 입력하세요. (" + c.tries + "/5)");
+        }
+        c.used = true;
+        otps.save(c);
+        u.totpSecret = c.setupSecret;
+        u.otpEnabled = true;
+        users.save(u);
+        return ApiResponse.ok(me(u));
+    }
+
+    /** 2단계 인증 끄기: 지금 앱 번호로 본인임을 확인한 뒤 등록도 지운다 (다시 켜면 새로 등록). */
+    @PostMapping("/me/otp/disable")
+    @Transactional
+    public ApiResponse otpDisable(@RequestBody Map<String, Object> b, HttpServletRequest req) {
+        limiter.check("otp:" + clientIp(req), 20);
+        AppUser u = users.findById(AuthContext.get().userId()).orElseThrow();
+        if (u.totpSecret != null && !acceptCode(u, u.totpSecret, Params.str(b, "code")))
+            throw ApiException.badRequest("인증 앱의 번호가 올바르지 않습니다.");
+        u.otpEnabled = false;
+        u.totpSecret = null;
+        u.totpLastStep = null;
         users.save(u);
         return ApiResponse.ok(me(u));
     }

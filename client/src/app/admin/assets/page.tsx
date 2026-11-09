@@ -24,7 +24,7 @@ export default function AssetsPage() {
   );
 }
 
-type Resolve = { type: string; state?: string; assetId?: number; assetNo?: string; roomId?: number; token?: string; message?: string; schoolId?: number };
+type Resolve = { type: string; state?: string; assetId?: number; assetNo?: string; roomId?: number; deviceId?: number; token?: string; message?: string; schoolId?: number };
 
 function Assets() {
   const params = useSearchParams();
@@ -83,7 +83,7 @@ function Assets() {
         if (!can("ASSET_WRITE")) return toast(r.message ?? "등록되지 않은 자산입니다.");
         toast(r.message ?? "등록되지 않은 번호입니다. 이 번호로 자산을 등록하세요.");
         setForm({ assetNo: r.assetNo, schoolId: r.schoolId ?? schoolId ?? undefined });
-      } else if (r.type === "ROOM" && r.roomId) router.push(`/admin/floorplan?room=${r.roomId}`);
+      } else if (r.type === "DEVICE" && r.deviceId) router.push(`/device?id=${r.deviceId}`);
       else if (r.type === "LOGIN" && r.token) router.push(`/login/qr-approve?t=${encodeURIComponent(r.token)}`);
       else toast(r.message ?? "원클릭AS QR이 아닙니다.");
     } catch (e) {
@@ -127,7 +127,6 @@ function Assets() {
         {can("ASSET_BULK") && <ToolButton icon={<Icon name="inbox" />} label="엑셀 일괄 등록" onClick={() => setBulk(true)} />}
         <ToolButton icon={<Icon name="print" />} label={`QR 라벨 출력${sel.size ? ` (${sel.size})` : ""}`} onClick={() => printLabels([...sel])} />
         {can("ASSET_WRITE") && <ToolButton icon={<Icon name="report" />} label="미등록 라벨 발급" onClick={() => setReserve(true)} />}
-        <ToolButton icon={<Icon name="school" />} label="도면에서 위치 보기" href="/admin/floorplan" />
       </div>
       <Tiles
         tiles={[

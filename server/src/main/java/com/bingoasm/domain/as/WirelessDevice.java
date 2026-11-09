@@ -27,6 +27,10 @@ public class WirelessDevice {
     public String macAddress;
     /** 설치 위치 */
     public String location;
+    /** 무선장비 위치(도면): 놓인 층과 그 층 도면 위 좌표 (도면 크기 대비 %, 0~100). 셋 다 있거나 셋 다 없다. */
+    public Long floorId;
+    public Double posX;
+    public Double posY;
     public LocalDate installedAt;
     public LocalDate lastCheckedAt;
     /** 스쿨넷 회선: 통신사 · 회선번호 · 회선 속도 */

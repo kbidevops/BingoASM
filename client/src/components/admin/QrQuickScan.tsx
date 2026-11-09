@@ -7,7 +7,7 @@ import { Modal, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type Resolve = { type: string; state?: string; assetNo?: string; roomId?: number; found?: boolean; schoolId?: number; token?: string; message?: string };
+type Resolve = { type: string; state?: string; assetNo?: string; roomId?: number; deviceId?: number; found?: boolean; schoolId?: number; token?: string; message?: string; location?: { path?: string } };
 
 /** Who gets the one-button scanner: anyone who can open assets (school users, 교육지원청, 도교육청). */
 export function useCanQuickScan() {
@@ -17,7 +17,7 @@ export function useCanQuickScan() {
 
 /**
  * "QR 찍기": one scanner for every label. What was read decides where it goes —
- * an asset label opens that asset (or registration for a new label), a room label opens the room on the floor plan.
+ * an asset label opens that asset (or registration for a new label), a room label opens that room's asset list.
  */
 export default function QrQuickScan({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -31,13 +31,17 @@ export default function QrQuickScan({ onClose }: { onClose: () => void }) {
     setMsg("");
     try {
       const r = await api.post<Resolve>("/api/qr/resolve", { text });
-      if (r.type === "ASSET" && r.assetNo) return go(`/admin/assets?no=${encodeURIComponent(r.assetNo)}`);
-      if (r.type === "ROOM" && r.roomId) {
-        if (!r.found) return setMsg("이 기관에 등록되지 않은 교실 QR입니다.");
-        return go(`/admin/floorplan?room=${r.roomId}`);
+      if (r.type === "ASSET" && r.assetNo) {
+        // 찍자마자 어디 있는 자산인지 알려 주고, 상세(위치 카드)로 간다.
+        if (r.location?.path) toast(`${r.assetNo} · ${r.location.path}`);
+        return go(`/admin/assets?no=${encodeURIComponent(r.assetNo)}`);
+      }
+      if (r.type === "DEVICE" && r.deviceId) {
+        if (!r.found) return setMsg("이 기관에 등록되지 않은 장비 QR입니다.");
+        return go(`/device?id=${r.deviceId}`);
       }
       if (r.type === "LOGIN" && r.token) return go(`/login/qr-approve?t=${encodeURIComponent(r.token)}`);
-      setMsg(r.message ?? "원클릭AS QR이 아닙니다. 자산 라벨이나 교실 문의 QR을 찍어 주세요.");
+      setMsg(r.message ?? "원클릭AS QR이 아닙니다. 자산이나 장비 라벨의 QR을 찍어 주세요.");
     } catch (e) {
       toast((e as Error).message);
     }
@@ -47,7 +51,7 @@ export default function QrQuickScan({ onClose }: { onClose: () => void }) {
     <Modal title="QR 찍기" onClose={onClose}>
       <ul className="qqs-help">
         <li><b>자산 라벨</b> → 그 자산 정보 (미등록 라벨이면 등록 화면)</li>
-        <li><b>교실 문 QR</b> → 그 교실의 자산</li>
+        <li><b>장비 라벨</b> (무선·스쿨넷) → 장비 정보 · AS 신청</li>
       </ul>
       <QrScanner onText={handle} />
       {msg && <p className="scan-msg" role="alert">{msg}</p>}

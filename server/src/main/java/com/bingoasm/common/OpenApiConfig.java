@@ -56,7 +56,7 @@ public class OpenApiConfig {
     @Bean
     public GroupedOpenApi oneClickAsGroup() {
         return GroupedOpenApi.builder().group("2. 원클릭 AS")
-                .pathsToMatch("/api/as/**", "/api/qr/**", "/api/assets/bulk/**", "/api/assets/by-no/**", "/api/files/**", "/files/*/download", "/a/**", "/r/**")
+                .pathsToMatch("/api/as/**", "/api/qr/**", "/api/assets/bulk/**", "/api/assets/by-no/**", "/api/files/**", "/files/*/download", "/a/**", "/d/**")
                 .build();
     }
 

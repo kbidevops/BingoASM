@@ -40,10 +40,12 @@ public class AsRequestService {
     private final AsCostItemRepository costItems;
     private final PermissionService permissions;
     private final NotificationService notices;
+    private final WirelessDeviceService deviceService;
 
     public AsRequestService(AsRequestRepository requests, AsHistoryRepository histories, SchoolService schoolService, UserRepository users,
                             WirelessDeviceRepository devices, AssetRepository assets, com.bingoasm.repo.FileRepository files, AsCostItemRepository costItems,
-                            PermissionService permissions, NotificationService notices) {
+                            PermissionService permissions, NotificationService notices, WirelessDeviceService deviceService) {
+        this.deviceService = deviceService;
         this.files = files; this.costItems = costItems; this.permissions = permissions; this.notices = notices;
         this.requests = requests; this.histories = histories; this.schoolService = schoolService; this.users = users;
         this.devices = devices; this.assets = assets;
@@ -237,6 +239,8 @@ public class AsRequestService {
         AsRequest r = load(me, sn);
         Ref ref = ref(me.orgId());
         Json j = row(r, ref);
+        // installPlace·deviceName은 신청 당시 그대로 두고, 장비가 옮겨졌을 수 있으니 지금 위치를 따로 준다.
+        j.put("deviceCurrentPlace", deviceService.currentPlace(me.orgId(), r.deviceId));
         School s = r.schoolId == null ? null : ref.schools().get(r.schoolId);
         if (s != null) j.put("school", Json.obj().with("schoolId", s.schoolId).with("schoolName", s.schoolName).with("address", s.address).with("tel", s.tel));
         Vendor v = r.vendorId == null ? null : ref.vendors().get(r.vendorId);
@@ -418,7 +422,9 @@ public class AsRequestService {
         if (b.containsKey("deviceId")) {
             Long did = Params.lng(b, "deviceId");
             if (did != null) {
-                WirelessDevice d = devices.findById(did).filter(x -> x.orgId.equals(me.orgId()) && "M".equals(x.rceptTy)).orElseThrow(() -> ApiException.badRequest("무선장비관리번호를 선택해주세요."));
+                // 무선망 AS는 무선장비, 스쿨넷 AS는 스쿨넷 장비만 (장비 라벨 QR에서 바로 신청할 때도 같은 규칙).
+                WirelessDevice d = devices.findById(did).filter(x -> x.orgId.equals(me.orgId()) && x.rceptTy.equals(ty) && "Y".equals(x.useYn))
+                        .orElseThrow(() -> ApiException.badRequest("S".equals(ty) ? "스쿨넷 장비를 다시 선택해 주세요." : "무선장비관리번호를 선택해주세요."));
                 r.deviceId = d.deviceId; r.deviceName = d.deviceCode + " " + d.deviceName + (d.location == null ? "" : " (" + d.location + ")");
             } else r.deviceId = null;
         }

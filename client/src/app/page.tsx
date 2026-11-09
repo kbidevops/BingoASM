@@ -95,12 +95,6 @@ function HomePublic() {
 
 const QUICK = [
   {
-    href: "/admin/start",
-    title: "우리 학교 자산",
-    icon: "list",
-    perm: "SPACE_MANAGE",
-  },
-  {
     href: "/as/wireless",
     title: "무선망 AS신청",
     icon: "wifi",

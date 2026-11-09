@@ -399,7 +399,7 @@ https://www.cbe.go.kr/as/main.do 를 역설계해 같은 백엔드에 모듈로 
 학교 담당자 ──신청──▶ AsRequest(A) ──접수(방문예정)──▶ R ──처리 보고서──▶ C ──만족도──▶ 평가 완료
    │                      │  반려(X) ⇄ 반려취소          │ 이관(다른 유형 업체로, A로 복귀)
    │                      └── 학교×유형 → 업체·기사 자동 배정 (school_vendors)
-   ├─ 도면: 건물 → 층(이미지) → 실(rect %) → 자산 (실 QR /r/{id}, 자산 라벨 QR /a/{assetNo})
+   ├─ 도면: 건물 → 층(이미지) → 무선장비 위치(%) (자산 라벨 QR /a/{assetNo}, 장비 라벨 QR /d/{deviceId})
    ├─ 재물조사: 실 선택 → 라벨 스캔 → FOUND / MOVED / UNKNOWN → 보고서 → 이동 반영
    └─ 일괄 등록: 양식(xlsx) → 검증(행별 오류) → 확정(자동 채번·실 연결)
 업체 기사/관리자 ── 권한은 업체 serviceTypes(C,M,S,T)에서 로그인 때 계산 (접근권한표와 동일)
@@ -411,7 +411,7 @@ https://www.cbe.go.kr/as/main.do 를 역설계해 같은 백엔드에 모듈로 
 | 역할·권한 | `Roles`에 4개 역할 추가, `PermissionService.effectivePerms()`가 업체 서비스 유형별 `AS_{ty}_REQUEST/_VIEW`를 더함. 컨트롤러 `@RequirePerm` + 서비스 스코프(학교/업체/전체) 이중 검사 |
 | 계정 보안 | BCrypt 12, `PasswordPolicy`, `CryptoConverter`(이메일·휴대폰 AES-256-GCM, 키 `DATA_KEY`; 키는 정적 초기화 + `CryptoKeyInit`로 Hibernate 생성 순서와 무관하게 준비, 기동 시 `PiiMigration`이 평문 행을 암호화), 5회 실패 30분 잠금, `RateLimiter`(IP당 분당 20회), OTP(해시·1회용·5분), QR 로그인 세션(3분·1회 발급), 로그인 이력(IP 마스킹) |
 | 상태 기계 | `AsRequestService.allowedActions()`가 (상태 × 역할 × 소유)로 가능한 처리를 계산하고 `act()`가 같은 표로 검사 → 화면은 `allowedActions`만 보고 버튼을 그림 |
-| 도면·위치 | 기존 Building/Floor(도면 이미지) 위에 `Room`(rect %) 추가, `Asset.schoolId/roomId`. 실 QR·자산 라벨 QR은 zxing으로 생성 |
+| 도면·위치 | 기존 Building/Floor(도면 이미지) 위에 `Room`(rect %) 추가, `Asset.schoolId/roomId`. 자산·장비 라벨 QR은 zxing으로 생성 (실 QR은 쓰지 않음) |
 | 재물조사 | `InventorySession` + `InventoryScan`(FOUND/MOVED/UNKNOWN), 보고서는 완료한 실만 미확인을 계산, `applyMoves`가 `SpaceService.moveAssets`로 이력까지 남김 |
 | 일괄 등록 | Apache POI로 양식 생성(데이터 유효성 드롭다운)·읽기, 파일과 JSON 행 둘 다 같은 `validateRows()` 로 검증 후 `AssetService.create()` 재사용 |
 | 데이터 | 테이블 18개 추가, 기존 테이블 컬럼 추가(`ddl-auto: update`로 H2·PostgreSQL 모두 제자리 업그레이드 확인) |

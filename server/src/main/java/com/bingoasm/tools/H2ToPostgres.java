@@ -15,14 +15,18 @@ import java.util.*;
  *        org.springframework.boot.loader.launch.PropertiesLauncher --source=/path/bingoasm.mv.db [--dry-run] [--replace]
  * </pre>
  *
- * Target: DB_URL / DB_USER / DB_PASSWORD (as in asm.env). Personal data (users.mobile/email) is decrypted with
- * SOURCE_DATA_KEY (default: the dev default key) and re-encrypted with DATA_KEY; without DATA_KEY it is cleared.
+ * Target: DB_URL / DB_USER / DB_PASSWORD (as in asm.env). Encrypted columns (users.mobile/email/totp_secret,
+ * otp_challenges.setup_secret) are decrypted with SOURCE_DATA_KEY (default: the dev default key) and re-encrypted
+ * with DATA_KEY; without DATA_KEY they are cleared (users then register Google OTP again).
+ * Source and target must be at the same Flyway version (start the new server once against the target first).
  * Only columns present in both databases are copied. IDs are kept and identity counters are moved past them.
  * Everything runs in one transaction: on any error the target is left as it was. See docs/DB_MIGRATIONS.md.
  */
 public final class H2ToPostgres {
     /** Columns stored encrypted by CryptoConverter. */
-    private static final Map<String, Set<String>> ENCRYPTED = Map.of("users", Set.of("mobile", "email"));
+    private static final Map<String, Set<String>> ENCRYPTED = Map.of(
+            "users", Set.of("mobile", "email", "totp_secret"),
+            "otp_challenges", Set.of("setup_secret"));
     private static final Set<String> SKIP = Set.of("flyway_schema_history");
     private static final int BATCH = 500;
 
@@ -59,6 +63,11 @@ public final class H2ToPostgres {
             src.setReadOnly(true);
             if (!tables(dst).contains("flyway_schema_history"))
                 fail("The target has no Flyway schema yet. Start the new server once against it (it creates the tables), stop it, then run this again.");
+            String sv = schemaVersion(src), tv = schemaVersion(dst);
+            System.out.println("Schema      : source v" + sv + ", target v" + tv);
+            if (!Objects.equals(sv, tv))
+                fail("Source and target are at different schema versions (v" + sv + " vs v" + tv + "). Start the same new server jar once against each "
+                        + "(dev H2 and the target PostgreSQL) so both are migrated, stop them, then run this again.");
 
             Map<String, List<String>> srcCols = columns(src), dstCols = columns(dst);
             List<String> order = insertOrder(dst, dstCols.keySet());
@@ -128,7 +137,7 @@ public final class H2ToPostgres {
             }
             ins.executeBatch();
         } catch (IllegalStateException e) {
-            throw new IllegalStateException("Could not decrypt " + table + " personal data with SOURCE_DATA_KEY. Set SOURCE_DATA_KEY to the DATA_KEY the H2 database was written with.", e);
+            throw new IllegalStateException("Could not decrypt " + table + " encrypted columns with SOURCE_DATA_KEY. Set SOURCE_DATA_KEY to the DATA_KEY the H2 database was written with.", e);
         }
         System.out.printf("  %-26s %8d rows%n", table, n);
         return n;
@@ -189,6 +198,15 @@ public final class H2ToPostgres {
             out.put(t, cols);
         }
         return out;
+    }
+
+    /** Latest applied Flyway version, or null when there is no history table. */
+    private static String schemaVersion(Connection c) throws SQLException {
+        if (!tables(c).contains("flyway_schema_history")) return null;
+        try (Statement s = c.createStatement(); ResultSet rs = s.executeQuery(
+                "SELECT version FROM flyway_schema_history WHERE success = TRUE AND version IS NOT NULL ORDER BY installed_rank DESC")) {
+            return rs.next() ? rs.getString(1) : null;
+        }
     }
 
     private static long count(Connection c, String table) throws SQLException {

@@ -32,6 +32,11 @@ public class AppUser {
     public Long regionId;
     /** 2단계 인증(OTP) 사용 여부 */
     public Boolean otpEnabled = false;
+    /** 인증 앱(Google OTP 등)의 TOTP 비밀값 (Base32). 없으면 다음 로그인 때 등록한다. Encrypted at rest. */
+    @Convert(converter = com.bingoasm.common.CryptoConverter.class)
+    public String totpSecret;
+    /** 마지막으로 받은 번호의 시간 칸: 같은 번호를 두 번 쓰지 못하게 한다. */
+    public Long totpLastStep;
     /** 로그인 실패 누적으로 잠긴 경우 해제 시각 */
     public LocalDateTime lockedUntil;
     public LocalDateTime passwordChangedAt;

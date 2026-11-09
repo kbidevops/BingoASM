@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """원클릭 AS 백엔드 통합 테스트. 서버(:8090, 새 H2)에 대해 로그인/OTP/QR, AS 워크플로, 게시판, 공간, 재물조사, 일괄등록, QR, 파일, 권한표를 검사한다."""
-import io, json, sys, time, urllib.request, urllib.error, urllib.parse, uuid
+import base64, hashlib, hmac, io, json, struct, sys, time, urllib.request, urllib.error, urllib.parse, uuid
 
 import os
 BASE = os.environ.get("BINGOASM_URL", "http://localhost:8080")
@@ -84,6 +84,29 @@ for k in range(10):
 print("seed ready after", k, "retries")
 
 
+# ---------- 인증 앱(Google OTP) 흉내: TOTP RFC 6238, SHA1 · 30초 · 6자리 ----------
+TOTP_SECRET, TOTP_LAST = {}, {}
+
+
+def totp(secret, step):
+    raw = secret.replace(" ", "")
+    key = base64.b32decode(raw + "=" * (-len(raw) % 8))
+    h = hmac.new(key, struct.pack(">Q", step), hashlib.sha1).digest()
+    o = h[-1] & 15
+    return "%06d" % ((struct.unpack(">I", h[o:o + 4])[0] & 0x7fffffff) % 1000000)
+
+
+def app_code(uid):
+    """휴대폰 앱이 지금 보여 줄 번호. 서버는 한 번 쓴 시간 칸을 다시 받지 않으므로, 같은 칸을 이미 썼으면 다음 칸(+30초, 서버가 ±1칸 허용)을 쓴다."""
+    now = int(time.time()) // 30
+    step = max(now, TOTP_LAST.get(uid, -1) + 1)
+    while step > now + 1:  # 너무 앞서 가면 기다린다
+        time.sleep(5)
+        now = int(time.time()) // 30
+    TOTP_LAST[uid] = step
+    return totp(TOTP_SECRET[uid], step)
+
+
 def login(uid, pw):
     for _ in range(4):  # 분당 로그인 제한(20회)에 걸리면 잠시 기다렸다 다시
         st, j, _ = call("POST", "/api/auth/login", {"loginId": uid, "password": pw})
@@ -92,8 +115,10 @@ def login(uid, pw):
         time.sleep(20)
     assert st == 200, (uid, st, j)
     d = j["data"]
-    if d.get("step") == "otp":
-        st2, j2, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": d["devCode"]})
+    if d.get("step") == "otp-setup":
+        TOTP_SECRET[uid] = d["secret"]
+    if d.get("step") in ("otp", "otp-setup"):
+        st2, j2, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": app_code(uid)})
         assert st2 == 200, (uid, st2, j2)
         d = j2["data"]
     return d.get("accessToken") or d.get("token")
@@ -110,16 +135,58 @@ check("login: 5 accounts", all([S, S2, N, V, A]))
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["C", "M", "S", "T"]}, token=A)
 check("as-services: all four on for the permission-table checks", st == 200 and data((st, j, None))["asTypes"] == ["C", "M", "S", "T"], j)
 
+# eduadmin: 2단계 인증 사용, 인증 앱은 아직 미등록 → 첫 로그인에서 등록(QR + 첫 번호)
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"})
 d = j["data"]
-check("OTP: eduadmin login returns otp step + devCode", st == 200 and d.get("step") == "otp" and d.get("devCode"), j)
-st, j2, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": "000000" if d["devCode"] != "000000" else "111111"})
+check("OTP: unregistered account → otp-setup with QR + secret, no echoed code",
+      st == 200 and d.get("step") == "otp-setup" and d.get("qr", "").startswith("data:image/png;base64,") and len(d.get("secret", "").replace(" ", "")) == 32 and "devCode" not in d, {k: v for k, v in d.items() if k != "qr"})
+TOTP_SECRET["eduadmin"] = d["secret"]
+right = app_code("eduadmin")
+st, j2, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": "000000" if right != "000000" else "111111"})
 check("OTP: wrong code rejected", st in (400, 401), j2)
-st, j3, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": d["devCode"]})
+st, j3, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": right})
 E = (j3.get("data") or {}).get("accessToken") if st == 200 else None
-check("OTP: right code → token", st == 200 and E, j3)
-st, j4, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": d["devCode"]})
-check("OTP: code is single-use", st != 200, j4)
+check("OTP: app code → token, app registered", st == 200 and E and j3["data"]["me"]["otpRegistered"] is True, j3)
+st, j4, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": right})
+check("OTP: login attempt is single-use", st != 200, j4)
+# 다음 로그인: 등록된 앱 번호 (step "otp", QR 없음). 같은 번호를 다시 쓰면 거절.
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"}); d = j["data"]
+check("OTP: registered account → otp step without QR", st == 200 and d.get("step") == "otp" and "qr" not in d and "secret" not in d, d)
+st, j5, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": right})
+check("OTP: already-used app code rejected (replay)", st in (400, 401), j5)
+st, j6, _ = call("POST", "/api/auth/otp/verify", {"otpToken": d["otpToken"], "code": app_code("eduadmin")})
+check("OTP: next app code accepted", st == 200, j6)
+
+# 마이페이지: 인증 앱 등록하고 켜기 → 로그인에 번호 필요 → 끄기 (school02)
+st, j, _ = call("POST", "/api/auth/me/otp/setup", {}, token=S2); su = data((st, j, None)) or {}
+check("my OTP setup: QR + secret", st == 200 and su.get("qr", "").startswith("data:image/png") and su.get("secret"), {k: v for k, v in su.items() if k != "qr"})
+TOTP_SECRET["school02"] = su["secret"]
+good = app_code("school02")
+st, j, _ = call("POST", "/api/auth/me/otp/enable", {"otpToken": su["otpToken"], "code": "000000" if good != "000000" else "111111"}, token=S2)
+check("my OTP enable: wrong code → 400", st == 400, j)
+st, j, _ = call("POST", "/api/auth/me/otp/enable", {"otpToken": su["otpToken"], "code": good}, token=S2)
+check("my OTP enable: app code → on + registered", st == 200 and data((st, j, None))["otpEnabled"] and data((st, j, None))["otpRegistered"], j)
+st, j, _ = call("PUT", "/api/auth/me", {"otpEnabled": False}, token=S2)
+check("my OTP: cannot switch off through profile save", st == 200 and data((st, j, None))["otpEnabled"] is True, j)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "school02", "password": "user1234!"})
+check("my OTP: login now asks for the app code", st == 200 and data((st, j, None)).get("step") == "otp", j)
+S2 = login("school02", "user1234!")
+check("my OTP: login with app code", bool(S2))
+st, j, _ = call("POST", "/api/auth/me/otp/disable", {"code": "000000" if app_code("school02") != "000000" else "111111"}, token=S2)
+check("my OTP disable: wrong code → 400", st == 400, j)
+st, j, _ = call("POST", "/api/auth/me/otp/disable", {"code": app_code("school02")}, token=S2)
+check("my OTP disable: app code → off, registration removed", st == 200 and not data((st, j, None))["otpEnabled"] and not data((st, j, None))["otpRegistered"], j)
+
+# 관리자: 휴대폰 분실 → 인증 앱 등록 초기화 → 다음 로그인에서 다시 등록
+st, j, _ = call("GET", "/api/users?keyword=eduadmin", token=A)
+eid = next(u["userId"] for u in data((st, j, None))["content"] if u["loginId"] == "eduadmin")
+st, j, _ = call("POST", f"/api/users/{eid}/otp-reset", {}, token=S); check("OTP reset: school user → 403", st == 403, j)
+st, j, _ = call("POST", f"/api/users/{eid}/otp-reset", {}, token=A); ru = data((st, j, None)) or {}
+check("OTP reset: registration cleared, 2단계 인증 still on", st == 200 and ru.get("otpEnabled") is True and ru.get("otpRegistered") is False, ru)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"})
+check("OTP reset: next login registers again", st == 200 and data((st, j, None)).get("step") == "otp-setup", j)
+E = login("eduadmin", "user1234!")
+check("OTP reset: re-registered login works", bool(E))
 
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "school02", "password": "wrong"})
 check("login: wrong password → 401 with counter", st == 401 and "(1/" in (msg((st, j, None)) or ""), j)
@@ -232,7 +299,10 @@ st, j, _ = call("PUT", f"/api/as/schoolnet-devices/{nr.get('deviceId')}", {"stat
 check("schoolnet update", st == 200 and data((st, j, None))["status"] == "FAULT" and data((st, j, None))["bandwidth"] == "500Mbps", j)
 st, j, _ = call("GET", f"/api/as/schoolnet-devices?keyword=KT-TEST", token=E); check("schoolnet search by 회선번호", st == 200 and data((st, j, None))["totalElements"] == 1, j)
 st, j, _ = call("DELETE", f"/api/as/schoolnet-devices/{nr.get('deviceId')}", token=E); check("schoolnet delete", st == 200, j)
-st, j, _ = call("GET", "/api/as/schoolnet-devices", token=S); check("schoolnet: school user (no SDEVICE_MANAGE) → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/schoolnet-devices", token=S)
+check("schoolnet: school user reads own school's devices (to pick one for 스쿨넷 AS)", st == 200 and all(x["schoolId"] == bh["schoolId"] for x in data((st, j, None))["content"]), j)
+st, j, _ = call("GET", f"/api/as/schoolnet-devices?schoolId={oc['schoolId']}", token=S); check("schoolnet: school user, other school → 403", st == 403, j)
+st, j, _ = call("POST", "/api/as/schoolnet-devices", {"schoolId": bh["schoolId"], "deviceName": "x", "deviceType": "ROUTER"}, token=S); check("schoolnet: school user cannot register", st == 403, j)
 
 # ---------- 5. AS 워크플로 (무선망: 학교 → 업체 기사 → 학교 평가) ----------
 body = {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "2층 복도 AP 접속 불가(테스트)", "installPlace": "본관 2층 복도",
@@ -342,6 +412,102 @@ check("stats satisfaction: evaluated ≥ 5, distribution 1..5, byEngineer", st =
 st, j, _ = call("GET", f"/api/as/spaces/buildings?schoolId={bh['schoolId']}", token=S); bl = data((st, j, None))
 check("spaces buildings: 본관 3 floors, 2F has plan", st == 200 and len(bl) == 1 and len(bl[0]["floors"]) == 3 and any(f.get("planUrl") for f in bl[0]["floors"]), j)
 fl2 = next(f for f in bl[0]["floors"] if f["floorNo"] == 2); fl3 = next(f for f in bl[0]["floors"] if f["floorNo"] == 3)
+
+# 무선장비 위치(도면): 장비를 그 학교 층 도면 위 (x, y)%에 놓는다.
+pos = lambda dev, body, tok=E: call("PUT", f"/api/as/wireless-devices/{dev['deviceId']}/position", body, token=tok)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 42.5, "y": 61.25}); pd = data((st, j, None)) or {}
+check("device position: placed on 2F plan", st == 200 and pd.get("floorId") == fl2["floorId"] and pd.get("posX") == 42.5 and pd.get("posY") == 61.25 and pd.get("floorFullName") == "본관 2층", j)
+st, j, _ = call("GET", f"/api/as/wireless-devices?schoolId={bh['schoolId']}&size=100", token=E)
+check("device list carries position", any(d["deviceId"] == apB2["deviceId"] and d.get("posX") == 42.5 and d.get("floorFullName") == "본관 2층" for d in data((st, j, None))["content"]), j)
+st, j, _ = pos(apB2, {"floorId": fl3["floorId"], "x": 10, "y": 10}); check("device position: floor without plan → 400", st == 400, j)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 120, "y": 10}); check("device position: x out of 0..100 → 400", st == 400, j)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": "a", "y": 10}); check("device position: x not a number → 400", st == 400, j)
+st, j, _ = call("GET", f"/api/as/wireless-devices?schoolId={oc['schoolId']}&size=100", token=E); ocd = data((st, j, None))["content"]
+st, j, _ = pos(ocd[0], {"floorId": fl2["floorId"], "x": 5, "y": 5}); check("device position: other school's floor → 400", st == 400, j)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 5, "y": 5}, S); check("device position: school user (no WDEVICE_MANAGE) → 403", st == 403, j)
+st, j, _ = pos(apB2, {"floorId": None}); check("device position: removed from plan", st == 200 and data((st, j, None)).get("floorId") is None and data((st, j, None)).get("posX") is None, j)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 30, "y": 40}); check("device position: placed again", st == 200, j)
+
+# 다른 층으로 옮기면 설치위치 문구도 따라가고, AS 상세는 신청 당시 설치장소 + 장비 현재 위치를 함께 보인다.
+PNG1 = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+st, j, _ = call("POST", f"/api/places/floors/{fl3['floorId']}/plan", files=[("file", ("3f.png", PNG1, "image/png"))], token=E); check("plan upload for 3F", st == 200, j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "AP 이동 전 신청(테스트)", "installPlace": "본관 2층 복도",
+                                              "deviceId": apB2["deviceId"], "visitRequestAt": "2026-11-20T10:00", "contactTel": "010-2000-0001"}, token=S); mvr = data((st, j, None)) or {}
+check("AS for device on 2F", st == 200 and "(본관 2층 복도)" in (mvr.get("deviceName") or ""), j)
+st, j, _ = pos(apB2, {"floorId": fl3["floorId"], "x": 50, "y": 50}); check("device moved to 3F: 설치위치 '본관 2층 복도' → '본관 3층 복도'", st == 200 and data((st, j, None)).get("location") == "본관 3층 복도", j)
+st, j, _ = call("GET", f"/api/as/requests/{mvr.get('asvcSn')}", token=S); mvd = data((st, j, None)) or {}
+check("AS detail: installPlace/deviceName as requested, deviceCurrentPlace = now",
+      st == 200 and mvd.get("installPlace") == "본관 2층 복도" and "(본관 2층 복도)" in (mvd.get("deviceName") or "") and mvd.get("deviceCurrentPlace") == "본관 3층 복도", mvd)
+st, j, _ = call("GET", "/api/as/requests?size=5", token=S); check("AS list rows have no deviceCurrentPlace (detail only)", st == 200 and all("deviceCurrentPlace" not in x for x in data((st, j, None))["content"]), j)
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{apB2['deviceId']}", {"location": "교무실 천장"}, token=E); check("device location set by hand", st == 200, j)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 30, "y": 40}); check("device moved with hand-written 설치위치 → kept", st == 200 and data((st, j, None)).get("location") == "교무실 천장", j)
+st, j, _ = call("GET", f"/api/as/requests/{mvr.get('asvcSn')}", token=S); check("AS detail: current place = 건물 층 (설치위치)", data((st, j, None)).get("deviceCurrentPlace") == "본관 2층 (교무실 천장)", j)
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{apB2['deviceId']}", {"location": "본관 2층 복도"}, token=E); check("device location restored", st == 200, j)
+st, j, _ = call("GET", f"/api/as/requests/{mvr.get('asvcSn')}", token=S); check("AS detail: current place same as installPlace", data((st, j, None)).get("deviceCurrentPlace") == "본관 2층 복도", j)
+st, j, _ = call("DELETE", f"/api/as/requests/{mvr.get('asvcSn')}", token=E); check("cleanup: AS deleted", st == 200, j)
+
+# 설치위치 = 건물 · 층 · 상세 위치(실): 고르기 목록, 도면 층 고정, 다른 층으로 옮기기, 위치 변경 기록
+D2 = f"/api/as/wireless-devices/{apB2['deviceId']}"
+st, j, _ = call("GET", f"/api/as/wireless-devices/places?schoolId={bh['schoolId']}", token=E); pl = data((st, j, None)) or {}
+check("places: 본관 3 floors (plan flags) + details used in the school",
+      st == 200 and pl["buildings"][0]["buildingName"] == "본관" and len(pl["buildings"][0]["floors"]) == 3
+      and any(f["hasPlan"] for f in pl["buildings"][0]["floors"]) and "복도" in pl["details"] and all(not d.startswith("본관 ") for d in pl["details"]), pl)
+st, j, _ = call("GET", f"/api/as/wireless-devices/places?schoolId={bh['schoolId']}", token=S); check("places: school user (no WDEVICE_MANAGE) → 403", st == 403, j)
+st, j, _ = call("GET", f"/api/as/schoolnet-devices/places?schoolId={bh['schoolId']}", token=E); check("places: schoolnet devices too", st == 200 and data((st, j, None))["buildings"], j)
+st, j, _ = call("GET", D2 + "/history", token=E); hs = data((st, j, None)) or []
+check("history: earlier moves recorded (도면에서 옮김 · 장비 수정)", st == 200 and {"PLAN", "EDIT"} <= {h["actionType"] for h in hs} and hs[0]["workerName"], hs)
+n0 = len(hs)
+st, j, _ = call("GET", D2 + "/history", token=S); check("history: school user → 403", st == 403, j)
+st, j, _ = call("PUT", D2, {"location": "본관 3층 컴퓨터실"}, token=E)
+check("on-plan device: 설치위치 floor follows the plan (typed 3층 → 2층)", st == 200 and data((st, j, None))["location"] == "본관 2층 컴퓨터실", j)
+st, j, _ = call("GET", D2 + "/history", token=E); hs = data((st, j, None)) or []
+check("history: EDIT 본관 2층 복도 → 본관 2층 컴퓨터실", len(hs) == n0 + 1 and hs[0]["actionType"] == "EDIT" and hs[0]["fromPlace"] == "본관 2층 복도" and hs[0]["toPlace"] == "본관 2층 컴퓨터실", hs[:1])
+st, j, _ = call("PUT", D2, {"note": "메모만"}, token=E); st2, j2, _ = call("GET", D2 + "/history", token=E)
+check("history: saving without a location change adds nothing", st == 200 and len(data((st2, j2, None))) == n0 + 1, j2)
+st, j, _ = call("PUT", D2, {"unplace": True, "location": "본관 3층 음악실"}, token=E); mv = data((st, j, None)) or {}
+check("다른 층으로 옮기기: off the plan + new 설치위치", st == 200 and mv.get("floorId") is None and mv.get("posX") is None and mv.get("location") == "본관 3층 음악실", j)
+st, j, _ = call("GET", D2 + "/history", token=E); hs = data((st, j, None)) or []
+check("history: FLOOR 본관 2층 컴퓨터실 → 본관 3층 음악실", hs[0]["actionType"] == "FLOOR" and hs[0]["actionName"] == "다른 층으로 옮김" and hs[0]["toPlace"] == "본관 3층 음악실", hs[:1])
+st, j, _ = call("PUT", D2, {"unplace": True}, token=E); check("다른 층으로 옮기기: not on a plan → 400", st == 400, j)
+st, j, _ = pos(apB2, {"floorId": fl3["floorId"], "x": 40, "y": 40}); st2, j2, _ = call("GET", D2 + "/history", token=E)
+check("placed on the new floor: 설치위치 kept, no extra history", st == 200 and data((st, j, None))["location"] == "본관 3층 음악실" and len(data((st2, j2, None))) == len(hs), (j, j2))
+st, j, _ = call("GET", f"/api/qr/devices/{apB2['deviceId']}", token=E); check("device scan (admin): recent history", st == 200 and data((st, j, None))["history"][0]["toPlace"] == "본관 3층 음악실", j)
+st, j, _ = call("GET", f"/api/qr/devices/{apB2['deviceId']}", token=S); check("device scan (school): no history", st == 200 and "history" not in data((st, j, None)), j)
+# 원래대로 (뒤 시험은 2층 복도를 본다)
+pos(apB2, {"floorId": fl2["floorId"], "x": 30, "y": 40}); st, j, _ = call("PUT", D2, {"location": "본관 2층 복도"}, token=E)
+check("restore AP-BH-002 to 본관 2층 복도", st == 200 and data((st, j, None))["location"] == "본관 2층 복도" and data((st, j, None))["floorId"] == fl2["floorId"], j)
+# 도면에서 옮길 때 옮길 실(room)을 함께 보내면 설치위치 = "건물 층 실". 빈 실은 400.
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 35, "y": 45, "room": "  "}); check("move on plan with blank room → 400", st == 400, j)
+st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 35, "y": 45, "room": "과학실"}); mvp = data((st, j, None)) or {}
+check("move on plan with room → 설치위치 본관 2층 과학실 + new spot", st == 200 and mvp.get("location") == "본관 2층 과학실" and mvp.get("posX") == 35, j)
+st, j, _ = call("GET", D2 + "/history", token=E); check("history: PLAN 본관 2층 복도 → 본관 2층 과학실", data((st, j, None))[0]["actionType"] == "PLAN" and data((st, j, None))[0]["toPlace"] == "본관 2층 과학실", j)
+pos(apB2, {"floorId": fl2["floorId"], "x": 30, "y": 40, "room": "복도"}); st, j, _ = call("GET", f"/api/as/wireless-devices?schoolId={bh['schoolId']}&size=100", token=E)
+check("restore again: 본관 2층 복도", any(d["deviceId"] == apB2["deviceId"] and d["location"] == "본관 2층 복도" for d in data((st, j, None))["content"]), j)
+st, j, _ = call("GET", f"/api/as/schoolnet-devices?schoolId={bh['schoolId']}", token=E); sn0 = data((st, j, None))["content"][0]
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{sn0['deviceId']}/position", {"floorId": fl2["floorId"], "x": 5, "y": 5}, token=E)
+check("device position: schoolnet device via wireless API → 404", st == 404, j)
+
+# 장비 라벨 QR: 라벨 인쇄 → /d/{id} → 장비 정보 (학교는 자기 학교 장비, 바로 AS 신청)
+st, j, _ = call("POST", "/api/qr/device-labels", {"deviceIds": [apB2["deviceId"], sn0["deviceId"]]}, token=E); lb = data((st, j, None)) or []
+check("device labels: wireless + schoolnet, /d/{id} QR", st == 200 and len(lb) == 2 and lb[0]["qrText"].endswith(f"/d/{apB2['deviceId']}") and lb[0]["code"] == "AP-BH-002" and "봉황초등학교" in lb[0]["sub"], lb)
+st, j, _ = call("POST", "/api/qr/device-labels", {"deviceIds": [apB2["deviceId"]]}, token=S); check("device labels: school user → 403", st == 403, j)
+st, _, h = call("GET", f"/d/{apB2['deviceId']}", raw=True, follow=False); check("public /d/{id} → 302 to device page", st == 302 and h.get("Location") == f"/device?id={apB2['deviceId']}", (st, h.get("Location")))
+st, j, _ = call("POST", "/api/qr/resolve", {"text": lb[0]["qrText"]}, token=S); rz = data((st, j, None))
+check("qr resolve device label → DEVICE", st == 200 and rz["type"] == "DEVICE" and rz["deviceId"] == apB2["deviceId"] and rz["found"] and rz["rceptTy"] == "M", rz)
+st, j, _ = call("GET", f"/api/qr/devices/{apB2['deviceId']}", token=S); dv = data((st, j, None)) or {}
+check("device scan (school): where 학교·건물·층, can request, cannot manage",
+      st == 200 and dv["where"]["schoolName"] == "봉황초등학교" and dv["where"]["buildingName"] == "본관" and dv["where"]["floorName"] == "2층" and dv["where"]["onPlan"]
+      and dv["canRequest"] is True and dv["canManage"] is False and dv.get("location"), dv)
+st, j, _ = call("GET", f"/api/qr/devices/{apB2['deviceId']}", token=S2); check("device scan: other school → 404", st == 404, j)
+st, j, _ = call("GET", f"/api/qr/devices/{apB2['deviceId']}", token=E); check("device scan (admin): can manage", st == 200 and data((st, j, None))["canManage"] is True, j)
+st, j, _ = call("GET", f"/api/qr/devices/{sn0['deviceId']}", token=S); dsn = data((st, j, None)) or {}
+check("device scan schoolnet (school): no plan → where has school only", st == 200 and dsn["rceptTy"] == "S" and dsn["where"]["schoolName"] == "봉황초등학교" and not dsn["where"]["onPlan"] and dsn["canRequest"], dsn)
+# 스쿨넷 AS도 대상 장비를 고른다 (라벨에서 바로 신청)
+st, j, _ = call("GET", "/api/as/requests/codes", token=S); sft = list(data((st, j, None))["faultTypes"]["S"].keys())[0]
+sbody = {"rceptTy": "S", "faultTypeCode": sft, "symptom": "인터넷 끊김(장비 라벨에서 신청)", "visitRequestAt": "2026-11-20T10:00", "contactTel": "010-2000-0001"}
+st, j, _ = call("POST", "/api/as/requests", {**sbody, "deviceId": apB2["deviceId"]}, token=S); check("스쿨넷 AS with a wireless device → 400", st == 400, j)
+st, j, _ = call("POST", "/api/as/requests", {**sbody, "deviceId": sn0["deviceId"]}, token=S); sr = data((st, j, None)) or {}
+check("스쿨넷 AS with its schoolnet device", st == 200 and sr.get("deviceId") == sn0["deviceId"] and sn0["deviceCode"] in (sr.get("deviceName") or ""), sr)
 st, j, _ = call("GET", f"/api/as/spaces/rooms?schoolId={bh['schoolId']}", token=S); rl = data((st, j, None))
 check("spaces rooms: 8 rooms with asset counts", st == 200 and len(rl) == 8 and sum(r.get("assetCount", 0) for r in rl) >= 10, j)
 pcroom = next(r for r in rl if r["roomName"] == "컴퓨터실"); r11 = next(r for r in rl if r["roomName"] == "1-1 교실")
@@ -369,13 +535,26 @@ st, j, _ = call("DELETE", f"/api/as/spaces/buildings/{nb['buildingId']}", token=
 a1 = rd["assets"][0]
 st, b, h = call("GET", f"/api/qr/asset/{a1['assetNo']}.png", token=S, raw=True)
 check("qr asset png", st == 200 and b[:8] == b"\x89PNG\r\n\x1a\n" and h.get("Content-Type", "").startswith("image/png"), (st, h.get("Content-Type")))
-st, b, h = call("GET", f"/api/qr/room/{pcroom['roomId']}.png", token=S, raw=True); check("qr room png", st == 200 and b[:4] == b"\x89PNG", st)
 st, b, h = call("GET", f"/api/qr/asset/{a1['assetNo']}.png", raw=True); check("qr png needs auth", st == 401, st)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/a/{a1['assetNo']}"}, token=S); rz = data((st, j, None))
 check("qr resolve asset label → REGISTERED", st == 200 and rz["type"] == "ASSET" and rz["state"] == "REGISTERED" and rz["assetId"] == a1["assetId"], j)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": a1["assetNo"].lower()}, token=S); check("qr resolve bare asset no (case-insensitive)", st == 200 and data((st, j, None))["state"] == "REGISTERED", j)
-st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/r/{pcroom['roomId']}"}, token=S); rz = data((st, j, None))
-check("qr resolve room → ROOM found", st == 200 and rz["type"] == "ROOM" and rz["found"] and rz["roomName"] == "컴퓨터실", j)
+
+# 자산 QR → 어느 학교 · 건물 · 층 · 실인지
+loc = rz.get("location") or {}
+check("qr resolve asset: location 학교·건물·층·실", loc.get("schoolName") == "봉황초등학교" and loc.get("buildingName") == "본관" and loc.get("floorName") == "2층"
+      and loc.get("roomName") == "컴퓨터실" and loc.get("complete") is True and loc.get("path", "").startswith("봉황초등학교 › 본관 › 2층 › 컴퓨터실"), loc)
+st, j, _ = call("GET", f"/api/assets/{a1['assetId']}", token=S); check("asset detail: same location", st == 200 and data((st, j, None)).get("location", {}).get("path") == loc.get("path"), j)
+st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/a/{a1['assetNo']}"}, token=S2); rz2 = data((st, j, None))
+check("qr resolve: other school's asset → no location", st == 200 and rz2["state"] == "REGISTERED" and rz2.get("location") is None, rz2)
+# 실을 바꾸면 건물·층도 그 실을 따라간다
+st, j, _ = call("PUT", f"/api/assets/{a1['assetId']}", {"roomId": nr["roomId"]}, token=S)
+st, j, _ = call("GET", f"/api/assets/{a1['assetId']}", token=S); ad = data((st, j, None)) or {}
+check("asset room change syncs 건물·층", ad.get("roomId") == nr["roomId"] and ad.get("floorId") == fl3["floorId"] and ad.get("floorName") == "3층"
+      and ad.get("location", {}).get("roomName") == "음악실" and ad["location"].get("floorName") == "3층", ad.get("location"))
+st, j, _ = call("PUT", f"/api/assets/{a1['assetId']}", {"roomId": pcroom["roomId"]}, token=S); check("asset room change back", st == 200, j)
+st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/r/{pcroom['roomId']}"}, token=S)
+check("qr resolve: 교실 QR no longer used → UNKNOWN", st == 200 and data((st, j, None))["type"] == "UNKNOWN", j)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": "https://example.com/other"}, token=S); check("qr resolve unknown", st == 200 and data((st, j, None))["type"] == "UNKNOWN", j)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/qr?t=abc123"}, token=S); check("qr resolve login QR", st == 200 and data((st, j, None))["type"] == "LOGIN" and data((st, j, None))["token"] == "abc123", j)
 st, j, _ = call("GET", f"/api/assets/by-no/{a1['assetNo']}", token=S); check("asset by-no", st == 200 and data((st, j, None))["assetId"] == a1["assetId"], j)
@@ -394,7 +573,7 @@ st, j, _ = call("GET", f"/api/assets/{newId}", token=S); ad = data((st, j, None)
 check("asset detail: lifeYears from category, lifeExceeded true for 2020 desktop", st == 200 and ad.get("lifeYears") == 5 and ad.get("lifeExceeded") is True, j)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/a/CB-1999-99999"}, token=S); check("qr resolve unknown number → NOT_FOUND", st == 200 and data((st, j, None))["state"] == "NOT_FOUND", j)
 st, _, h = call("GET", f"/a/{a1['assetNo']}", raw=True, follow=False); check("public /a/{assetNo} → 302 to asset route", st == 302 and h.get("Location") == f"/admin/assets?no={a1['assetNo']}", (st, h.get("Location")))
-st, _, h = call("GET", f"/r/{pcroom['roomId']}", raw=True, follow=False); check("public /r/{roomId} → 302 to room route", st == 302 and h.get("Location") == f"/admin/floorplan?room={pcroom['roomId']}", (st, h.get("Location")))
+st, _, h = call("GET", f"/r/{pcroom['roomId']}", raw=True, follow=False); check("public /r/{roomId} no longer redirects", st != 302, (st, h.get("Location")))
 
 # ---------- 10. 재물조사 ----------
 st, j, _ = call("POST", "/api/as/inventory", {"schoolId": bh["schoolId"]}, token=S); inv = data((st, j, None)); sid = inv["sessionId"]

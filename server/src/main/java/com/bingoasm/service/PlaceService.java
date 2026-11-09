@@ -23,9 +23,11 @@ public class PlaceService {
     private final FileRepository files;
     private final AssetRepository assets;
     private final AppProperties props;
+    private final com.bingoasm.service.as.SchoolService schoolService;
 
-    public PlaceService(BuildingRepository buildings, FloorRepository floors, FileRepository files, AssetRepository assets, AppProperties props) {
-        this.buildings = buildings; this.floors = floors; this.files = files; this.assets = assets; this.props = props;
+    public PlaceService(BuildingRepository buildings, FloorRepository floors, FileRepository files, AssetRepository assets, AppProperties props,
+                        com.bingoasm.service.as.SchoolService schoolService) {
+        this.buildings = buildings; this.floors = floors; this.files = files; this.assets = assets; this.props = props; this.schoolService = schoolService;
     }
 
     public Path uploadDir() {
@@ -67,7 +69,9 @@ public class PlaceService {
 
     private Floor floor(CurrentUser me, Long id) {
         Floor f = floors.findById(id).orElseThrow(() -> ApiException.notFound("층을 찾을 수 없습니다."));
-        building(me, f.buildingId);
+        Building b = building(me, f.buildingId);
+        // 학교 건물이면 그 학교를 다룰 수 있는 사람만 (학교 담당자는 자기 학교, 교육지원청은 관내).
+        if (b.schoolId != null) schoolService.checkSchoolScope(me, b.schoolId);
         return f;
     }
 

@@ -29,6 +29,8 @@ interface UserRow {
   mobile?: string;
   status: "ACTIVE" | "LOCKED" | "DISABLED";
   locked: boolean;
+  otpEnabled?: boolean;
+  otpRegistered?: boolean;
   roles: string[];
   memberType: string;
   affiliation?: string;
@@ -64,6 +66,8 @@ function Users() {
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<UserRow | "new" | null>(null);
   const [del, setDel] = useState<UserRow | null>(null);
+  const [otpReset, setOtpReset] = useState<UserRow | null>(null);
+  const [otpBusy, setOtpBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
   const load = useCallback(() => {
@@ -89,6 +93,21 @@ function Users() {
   const vis = shown.slice((cur - 1) * size, cur * size);
   const count = (role: string) => visible.filter((u) => (role === "ETC" ? !kindOf(u) : kindOf(u) === role)).length;
   const canTouch = (u: UserRow) => isTop || !u.roles.some((r) => TOP_ROLES.includes(r));
+
+  const resetOtp = async (u: UserRow) => {
+    setOtpBusy(true);
+    try {
+      await api.post(`/api/users/${u.userId}/otp-reset`, {});
+      toast(`${u.userName}의 인증 앱 등록을 초기화했습니다. 다음 로그인 때 새로 등록합니다.`);
+      setOtpReset(null);
+      load();
+    } catch (e) {
+      setMsg((e as Error).message);
+      setOtpReset(null);
+    } finally {
+      setOtpBusy(false);
+    }
+  };
 
   const unlock = async (u: UserRow) => {
     setMsg("");
@@ -135,12 +154,14 @@ function Users() {
                   <td data-label="소속" className="tl">{u.affiliation ?? "-"}</td>
                   <td data-label="상태">
                     {u.status === "DISABLED" ? <span className="hint">삭제됨</span> : u.locked ? <b className="st s4">잠김</b> : <b className="st s1">정상</b>}
+                    {u.otpEnabled && <small className="hint" style={{ display: "block" }}>{u.otpRegistered ? "2단계 인증" : "2단계 인증 · 앱 미등록"}</small>}
                   </td>
                   <td data-label="최근 로그인">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "-"}</td>
                   <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
                     {editable ? (
                       <>
                         {u.locked && <><button className="btn sm sec" type="button" onClick={() => unlock(u)}>잠금 해제</button>{" "}</>}
+                        {u.otpRegistered && <><button className="btn sm sec" type="button" onClick={() => setOtpReset(u)}>OTP 초기화</button>{" "}</>}
                         <button className="btn sm sec" type="button" onClick={() => setEdit(u)}>수정</button>
                         {!self && u.status !== "DISABLED" && <>{" "}<button className="btn sm sec" type="button" onClick={() => setDel(u)}>삭제</button></>}
                       </>
@@ -158,6 +179,12 @@ function Users() {
           onSaved={(m) => { setEdit(null); toast(m); load(); }} />
       )}
       {del && <DeleteUser user={del} onClose={() => setDel(null)} onDeleted={(m) => { setDel(null); toast(m); load(); }} />}
+      {otpReset && (
+        <Modal title="OTP 초기화" onClose={() => setOtpReset(null)}>
+          <Confirm text={`${otpReset.userName}(${otpReset.loginId})의 인증 앱 등록을 지울까요? 휴대폰을 잃어버렸거나 바꾼 경우에 씁니다. 2단계 인증은 계속 켜져 있어, 다음 로그인 때 새 휴대폰으로 다시 등록합니다.`}
+            busy={otpBusy} onNo={() => setOtpReset(null)} onYes={() => resetOtp(otpReset)} />
+        </Modal>
+      )}
     </>
   );
 }

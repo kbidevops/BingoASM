@@ -7,6 +7,8 @@ export interface MenuItem {
   perm?: string;
   /** Shown in the side menu only (not in the GNB mega menu). */
   sideOnly?: boolean;
+  /** Small heading above this item in the side menu (items of one section sit together). */
+  section?: string;
 }
 
 export interface MenuGroup {
@@ -54,15 +56,13 @@ export const MENU: MenuGroup[] = [
     ],
   },
   {
-    title: "자산관리",
+    // 장비 목록(무엇이 있나) → 위치(어디 있나). 건물·층은 도면이 쓰는 기준이라 도면 앞에 둔다.
+    title: "장비관리",
     items: [
-      // 학교 담당자에게는 자산관리의 첫 화면이 된다.
-      { title: "자산 관리 홈", href: "/admin/start", perm: "SPACE_MANAGE" },
-      { title: "기관자산관리", href: "/admin/assets", perm: "ASSET_READ" },
-      { title: "무선장비관리", href: "/admin/devices", perm: "WDEVICE_MANAGE" },
-      { title: "스쿨넷장비관리", href: "/admin/schoolnet-devices", perm: "SDEVICE_MANAGE" },
-      { title: "공간(실) 관리", href: "/admin/spaces", perm: "SPACE_MANAGE" },
-      { title: "자산 위치(도면)", href: "/admin/floorplan", perm: "FLOOR_READ" },
+      { title: "무선장비관리", href: "/admin/devices", perm: "WDEVICE_MANAGE", section: "장비 목록" },
+      { title: "스쿨넷장비관리", href: "/admin/schoolnet-devices", perm: "SDEVICE_MANAGE", section: "장비 목록" },
+      { title: "건물·층 관리", href: "/admin/spaces", perm: "SPACE_MANAGE", section: "위치" },
+      { title: "무선장비 위치(도면)", href: "/admin/floorplan", perm: "WDEVICE_MANAGE", section: "위치" },
     ],
   },
   {
@@ -91,7 +91,11 @@ export const MENU: MenuGroup[] = [
 ];
 
 /** Pages outside the menu that still need a title and breadcrumb. */
-const EXTRA: Record<string, string> = { "/mypage": "마이페이지", "/login": "통합 로그인", "/sitemap": "누리집 지도", "/notifications": "알림" };
+const EXTRA: Record<string, string> = { "/mypage": "마이페이지", "/login": "통합 로그인", "/sitemap": "누리집 지도", "/notifications": "알림",
+  // 메뉴에는 없지만 자산 라벨 QR(/a/{번호})이 여는 화면.
+  "/admin/assets": "기관자산관리",
+  // 장비 라벨 QR(/d/{id})이 여는 화면.
+  "/device": "장비 정보" };
 
 export function findMenu(pathname: string): { group?: MenuGroup; item?: MenuItem; title: string } {
   const path = pathname.replace(/\/$/, "") || "/";

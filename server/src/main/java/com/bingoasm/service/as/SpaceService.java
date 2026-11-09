@@ -28,11 +28,12 @@ public class SpaceService {
     private final AssetRepository assets;
     private final AssetHistoryRepository assetHistories;
     private final SchoolService schoolService;
+    private final WirelessDeviceService deviceService;
 
     public SpaceService(BuildingRepository buildings, FloorRepository floors, RoomRepository rooms, AssetRepository assets,
-                        AssetHistoryRepository assetHistories, SchoolService schoolService) {
+                        AssetHistoryRepository assetHistories, SchoolService schoolService, WirelessDeviceService deviceService) {
         this.buildings = buildings; this.floors = floors; this.rooms = rooms; this.assets = assets; this.assetHistories = assetHistories;
-        this.schoolService = schoolService;
+        this.schoolService = schoolService; this.deviceService = deviceService;
     }
 
     /** 실 이름으로 교실/특별실/행정·지원 추정 (일괄 등록·샘플용). */
@@ -104,6 +105,7 @@ public class SpaceService {
         school(me, bd.schoolId);
         if (!me.can("SPACE_MANAGE")) throw ApiException.forbidden("권한이 없습니다.");
         for (Room r : rooms.findBySchoolIdAndUseYnOrderByBuildingIdAscFloorIdAscRoomNoAsc(bd.schoolId, "Y")) if (buildingId.equals(r.buildingId)) deleteRoomInternal(me, r);
+        deviceService.clearFloors(floors.findByBuildingIdInOrderBySortOrderAsc(List.of(buildingId)).stream().map(f -> f.floorId).toList());
         bd.useYn = "N";
     }
 

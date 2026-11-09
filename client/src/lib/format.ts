@@ -40,7 +40,7 @@ export function fileSize(n: number) {
   return n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB";
 }
 
-export const LOGIN_METHOD: Record<string, string> = { PASSWORD: "아이디", OTP: "아이디 + 인증번호", QR: "QR" };
+export const LOGIN_METHOD: Record<string, string> = { PASSWORD: "아이디", OTP: "아이디 + 인증 앱", QR: "QR" };
 
 export function browserOf(ua?: string) {
   if (!ua) return "-";

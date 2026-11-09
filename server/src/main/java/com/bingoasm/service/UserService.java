@@ -47,7 +47,8 @@ public class UserService {
                 .with("schoolId", u.schoolId).with("vendorId", u.vendorId).with("regionId", u.regionId)
                 .with("memberType", PermissionService.memberType(u)).with("affiliation", affiliation(u))
                 .with("locked", "LOCKED".equals(u.status) || (u.lockedUntil != null && u.lockedUntil.isAfter(Times.now())))
-                .with("permOverrides", u.grantedPerms.size() + u.deniedPerms.size());
+                .with("permOverrides", u.grantedPerms.size() + u.deniedPerms.size())
+                .with("otpEnabled", Boolean.TRUE.equals(u.otpEnabled)).with("otpRegistered", u.totpSecret != null);
     }
 
     /** 소속 이름 (학교·업체·교육지원청). */
@@ -232,6 +233,16 @@ public class UserService {
         if (open > 0) throw ApiException.conflict("담당 중인 AS가 " + open + "건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 기사에게 넘겨 주세요.");
         for (var sv : schoolVendors.findByEngineerUserId(id)) sv.engineerUserId = null;
         u.status = "DISABLED";
+    }
+
+    /** 휴대폰을 잃어버렸을 때: 인증 앱 등록을 지운다. 2단계 인증은 그대로 켜져 있어 다음 로그인 때 새로 등록한다. */
+    public Json resetOtp(CurrentUser me, Long id) {
+        requireUserAdmin(me);
+        AppUser u = load(me, id);
+        guardTarget(me, u);
+        u.totpSecret = null;
+        u.totpLastStep = null;
+        return view(u, deptNames(me.orgId()), orgName(me.orgId()));
     }
 
     public Json unlock(CurrentUser me, Long id) {

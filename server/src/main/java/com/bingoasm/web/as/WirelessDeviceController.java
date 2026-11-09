@@ -30,9 +30,25 @@ public class WirelessDeviceController {
     @RequirePerm("WDEVICE_MANAGE")
     public ApiResponse create(@RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.create(AuthContext.get(), "M", body)); }
 
+    /** 설치위치 고르기: 이 학교의 건물·층과 이미 쓴 상세 위치(실) 이름. */
+    @GetMapping("/places")
+    @RequirePerm("WDEVICE_MANAGE")
+    public ApiResponse places(@RequestParam Long schoolId) { return ApiResponse.ok(devices.places(AuthContext.get(), schoolId)); }
+
+    /** 위치 변경 기록 (최근 것부터). */
+    @GetMapping("/{id}/history")
+    @RequirePerm("WDEVICE_MANAGE")
+    public ApiResponse history(@PathVariable Long id) { return ApiResponse.ok(devices.history(AuthContext.get(), "M", id)); }
+
+    /** body에 unplace:true 를 함께 보내면 도면에서 빼고 새 설치위치를 적는다 (다른 층으로 옮기기). */
     @PutMapping("/{id}")
     @RequirePerm("WDEVICE_MANAGE")
     public ApiResponse update(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.update(AuthContext.get(), "M", id, body)); }
+
+    /** 무선장비 위치(도면): {floorId, x, y} (x·y는 도면 대비 %) — floorId를 비우면 도면에서 뺀다. */
+    @PutMapping("/{id}/position")
+    @RequirePerm("WDEVICE_MANAGE")
+    public ApiResponse position(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.position(AuthContext.get(), "M", id, body)); }
 
     @DeleteMapping("/{id}")
     @RequirePerm("WDEVICE_MANAGE")

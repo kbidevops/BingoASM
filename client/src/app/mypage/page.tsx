@@ -5,13 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import AsDetailModal from "@/components/AsDetailModal";
 import SubPage from "@/components/SubPage";
-import { AsBadge, ErrorBox, FormMsg, FormRow, Loading, NoticeBox, SubmitBar, TelInput, telValid, useToast } from "@/components/ui";
+import OtpSetupPanel from "@/components/OtpSetupPanel";
+import { AsBadge, ErrorBox, FormMsg, FormRow, Loading, Modal, NoticeBox, SubmitBar, TelInput, telValid, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { AS_LIST_HREF } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { browserOf, fmtDate, fmtDateTime, LOGIN_METHOD } from "@/lib/format";
 import { useScraps } from "@/lib/scraps";
-import type { AsRow, AsSummary, LoginLog, Me, Page } from "@/lib/types";
+import type { AsRow, AsSummary, LoginLog, Me, OtpSetup, Page } from "@/lib/types";
 
 const TABS = [["info", "회원정보"], ["pw", "비밀번호 변경"], ["as", "나의 AS 신청내역"], ["scrap", "스크랩한 메뉴"], ["log", "로그인 기록"]] as const;
 type Tab = (typeof TABS)[number][0];
@@ -59,7 +60,8 @@ function MyPageBody() {
 function InfoTab({ me }: { me: Me }) {
   const { setMe } = useAuth();
   const toast = useToast();
-  const [v, setV] = useState({ userName: me.userName, positionName: me.positionName ?? "", mobile: me.mobile ?? "010--", email: me.email ?? "", otpEnabled: me.otpEnabled });
+  const [v, setV] = useState({ userName: me.userName, positionName: me.positionName ?? "", mobile: me.mobile ?? "010--", email: me.email ?? "" });
+  const [otpDlg, setOtpDlg] = useState<"on" | "off" | null>(null);
   const [err, setErr] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ kind?: "ok" | "bad"; text: string }>({ text: "" });
   const [busy, setBusy] = useState(false);
@@ -100,16 +102,101 @@ function InfoTab({ me }: { me: Me }) {
           <FormRow label="휴대전화" required error={err.mobile}><TelInput value={v.mobile} onChange={(x) => setV({ ...v, mobile: x })} /></FormRow>
           <FormRow label="이메일" error={err.email}><input type="email" aria-label="이메일" value={v.email} style={{ width: 260, maxWidth: "100%" }} onChange={(e) => setV({ ...v, email: e.target.value })} /></FormRow>
           <FormRow label="2단계 인증">
-            <label><input type="radio" name="otp" checked={v.otpEnabled} onChange={() => setV({ ...v, otpEnabled: true })} /> 사용</label>{" "}
-            <label><input type="radio" name="otp" checked={!v.otpEnabled} onChange={() => setV({ ...v, otpEnabled: false })} /> 사용 안 함</label>{" "}
-            <small className="hint">로그인할 때 비밀번호 다음에 6자리 인증번호를 한 번 더 입력합니다.</small>
+            <span className="otp-state">
+              {me.otpEnabled && me.otpRegistered ? <b className="st s1">사용 중 · 인증 앱 등록됨</b>
+                : me.otpEnabled ? <b className="st s2">사용 · 인증 앱 미등록</b> : <b className="st s3">사용 안 함</b>}
+              {me.otpEnabled && me.otpRegistered ? (
+                <>
+                  <button type="button" className="btn sm sec" onClick={() => setOtpDlg("on")}>휴대폰 바꾸기</button>
+                  <button type="button" className="btn sm sec" onClick={() => setOtpDlg("off")}>끄기</button>
+                </>
+              ) : <button type="button" className="btn sm" onClick={() => setOtpDlg("on")}>{me.otpEnabled ? "인증 앱 등록" : "인증 앱 등록하고 켜기"}</button>}
+            </span>
+            <small className="hint" style={{ display: "block", marginTop: 6 }}>
+              켜면 로그인할 때 비밀번호 다음에 휴대폰 인증 앱(Google OTP 등)의 6자리 번호를 입력합니다. 문자·인터넷 없이 동작하고 무료입니다.
+            </small>
           </FormRow>
           <FormRow label="가입일 / 최근 로그인">{fmtDate(me.createdAt)} &nbsp;/&nbsp; {fmtDateTime(me.lastLoginAt)}</FormRow>
         </tbody></table>
         <FormMsg kind={msg.kind} text={msg.text} />
         <SubmitBar label="회원정보 저장" busy={busy} />
       </form>
+      {otpDlg === "on" && <OtpEnableDialog onClose={() => setOtpDlg(null)} onDone={(m) => { setOtpDlg(null); setMe(m); toast("2단계 인증을 켰습니다. 다음 로그인부터 인증 앱 번호를 입력합니다."); }} />}
+      {otpDlg === "off" && <OtpDisableDialog onClose={() => setOtpDlg(null)} onDone={(m) => { setOtpDlg(null); setMe(m); toast("2단계 인증을 껐습니다. 인증 앱의 원클릭AS 항목은 지워도 됩니다."); }} />}
     </>
+  );
+}
+
+/** 2단계 인증 켜기(또는 휴대폰 바꾸기): QR로 인증 앱을 등록하고 첫 번호로 확인. */
+function OtpEnableDialog({ onClose, onDone }: { onClose: () => void; onDone: (m: Me) => void }) {
+  const [setup, setSetup] = useState<OtpSetup | null>(null);
+  const [code, setCode] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.post<OtpSetup>("/api/auth/me/otp/setup", {}).then(setSetup).catch((e) => setMsg((e as Error).message));
+  }, []);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(code)) return setMsg("인증 앱에 보이는 6자리 숫자를 입력해 주세요.");
+    setBusy(true);
+    try {
+      onDone(await api.post<Me>("/api/auth/me/otp/enable", { otpToken: setup!.otpToken, code }));
+    } catch (er) {
+      setMsg((er as Error).message);
+      setCode("");
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title={setup?.replaces ? "인증 앱 다시 등록 (휴대폰 바꾸기)" : "2단계 인증 켜기"} onClose={onClose}>
+      {!setup ? (msg ? <FormMsg kind="bad" text={msg} /> : <Loading />) : (
+        <form className="otp-dlg" noValidate onSubmit={submit}>
+          {setup.replaces && <p className="hint" style={{ marginTop: 0 }}>새 휴대폰으로 등록하면 이전 휴대폰의 번호는 더 이상 쓸 수 없습니다.</p>}
+          <OtpSetupPanel setup={setup} />
+          <label htmlFor="otp-new">인증 앱 번호 6자리</label>
+          <input id="otp-new" className="otp-in" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+          <FormMsg kind={msg ? "bad" : undefined} text={msg} />
+          <div className="otp-dlg-f">
+            <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
+            <button type="submit" className="btn sm" disabled={busy}>{busy ? "확인 중…" : "확인하고 켜기"}</button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+/** 2단계 인증 끄기: 지금 인증 앱 번호로 본인 확인. */
+function OtpDisableDialog({ onClose, onDone }: { onClose: () => void; onDone: (m: Me) => void }) {
+  const [code, setCode] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(code)) return setMsg("인증 앱에 보이는 6자리 숫자를 입력해 주세요.");
+    setBusy(true);
+    try {
+      onDone(await api.post<Me>("/api/auth/me/otp/disable", { code }));
+    } catch (er) {
+      setMsg((er as Error).message);
+      setCode("");
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="2단계 인증 끄기" onClose={onClose}>
+      <form className="otp-dlg" noValidate onSubmit={submit}>
+        <p className="hint" style={{ marginTop: 0 }}>본인 확인을 위해 인증 앱의 지금 번호를 입력하세요. 끄면 비밀번호만으로 로그인합니다.</p>
+        <label htmlFor="otp-off">인증 앱 번호 6자리</label>
+        <input id="otp-off" className="otp-in" inputMode="numeric" autoComplete="one-time-code" maxLength={6} autoFocus value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+        <FormMsg kind={msg ? "bad" : undefined} text={msg} />
+        <div className="otp-dlg-f">
+          <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
+          <button type="submit" className="btn sm danger" disabled={busy}>{busy ? "확인 중…" : "끄기"}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

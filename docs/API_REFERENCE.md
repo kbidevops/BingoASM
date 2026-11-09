@@ -108,16 +108,19 @@
 | 개인정보 암호화 | 이메일·휴대폰은 AES-256-GCM으로 암호화해 저장 (`CryptoConverter`, 키 `DATA_KEY`, 저장 형태 `enc:base64(iv+ct)`) — DB가 유출돼도 평문이 없음. 암호화 이전의 평문 행은 기동 시 `PiiMigration`이 암호화 |
 | 로그인 실패 | 5회 실패 시 30분 잠금(`lockedUntil`), 실패 횟수 응답에 표시 `(1/5)` |
 | 요청 제한 | 로그인·OTP·QR 시작: IP당 분당 20회, 초과 시 429 (`RateLimiter`) |
-| 2단계 인증 | `otpEnabled` 사용자는 비밀번호 확인 후 6자리 OTP(5분, 1회용, 해시 저장). 메신저/SMS 발송은 연동 지점만 두고 개발 모드(`OTP_DEV_ECHO=true`)에서는 `devCode`로 돌려줌 |
+| 2단계 인증 | `otpEnabled` 사용자는 비밀번호 확인 후 **인증 앱(Google OTP 등) 6자리 번호** (TOTP RFC 6238: SHA1·30초·6자리, ±30초 허용). 비밀값은 `DATA_KEY`로 암호화 저장, 한 번 받은 번호(시간 칸)는 다시 받지 않음, 5회 틀리면 그 로그인 시도 만료. 문자·외부 서비스 없음 |
 | QR 로그인 | PC가 QR을 띄우고 이미 로그인한 휴대폰이 승인 — 세션 토큰 32바이트 난수, 2자리 확인 숫자, 3분 만료, 토큰 1회 발급 후 `CONSUMED` |
 | 토큰 | JWT HS384, 비밀키가 기본값(`change-me`)이면 기동 시 경고 |
 | 로그인 이력 | 방법(PASSWORD/OTP/QR)·성공 여부·마스킹된 IP(`10.0.***.5`, IPv6 `2001:db8:****`)·UA 저장, 본인 최근 5건 조회 |
 
 | 메서드 | 경로 | 권한 | 요청 | 응답 |
 |---|---|---|---|---|
-| POST | `/api/auth/login` | 공개 | `{loginId, password, orgCode?}` | 토큰 `{accessToken, refreshToken}` 또는 OTP 단계 `{step:"otp", otpToken, expiresAt, devCode?}` |
+| POST | `/api/auth/login` | 공개 | `{loginId, password, orgCode?}` | 토큰 `{accessToken, refreshToken}` 또는 OTP 단계 `{step:"otp", otpToken, expiresAt}` · 인증 앱 미등록이면 `{step:"otp-setup", otpToken, expiresAt(10분), qr(data URL), secret, account, issuer}` |
 | POST | `/api/auth/otp/verify` | 공개 | `{otpToken, code}` | 토큰 |
-| POST | `/api/auth/otp/resend` | 공개 | `{otpToken}` | 새 OTP 단계 |
+| POST | `/api/auth/me/otp/setup` | 로그인 | – | 인증 앱 등록 시작 `{otpToken, qr, secret, account, issuer, replaces}` |
+| POST | `/api/auth/me/otp/enable` | 로그인 | `{otpToken, code}` | 첫 번호가 맞으면 등록하고 2단계 인증 켜기 → 내 정보 |
+| POST | `/api/auth/me/otp/disable` | 로그인 | `{code}` | 지금 앱 번호로 확인 후 끄기(등록도 지움) → 내 정보 |
+| POST | `/api/users/{id}/otp-reset` | `USER_WRITE` | – | 인증 앱 등록 초기화(휴대폰 분실). 2단계 인증은 켜진 채, 다음 로그인 때 다시 등록 |
 | POST | `/api/auth/qr/start` | 공개 | – | `{token, num, expiresAt, qrText}` — `qrText`를 QR로 표시 |
 | GET | `/api/auth/qr/{token}` | 공개 | – | `{status: PENDING/APPROVED/CONSUMED/EXPIRED/REJECTED, num}`; APPROVED일 때 한 번만 토큰 포함 |
 | GET | `/api/auth/qr/{token}/info` | 로그인(휴대폰) | – | `{status, num, clientIp}` — 사용자가 PC 화면의 숫자와 비교 |
@@ -153,7 +156,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | GET | `/api/as/requests` | 결과조회 권한 | 목록. 파라미터: `rceptTy`, `status`(A/R/C/X), `searchType`(school/applicant/region), `keyword`, `fromDate`, `toDate`, `schoolId`, `regionId`, `vendorId`, `engineerUserId`, `mine`, `unassigned`, `sort`(asc/desc), `page`, `size` |
 | GET | `/api/as/requests/summary` | 〃 | 유형별·상태별 건수, 오늘 신청, 평가 대기 |
 | GET | `/api/as/requests/excel` | 〃 | 같은 필터로 xlsx 내려받기 |
-| GET | `/api/as/requests/{sn}` | 〃 + 스코프 | 상세: 신청 내용, 업체·기사, 처리 보고서(`report`), 첨부(`attachments`, `reportFiles`), 평가, `histories`, **`allowedActions`**(현재 사용자가 지금 할 수 있는 처리) |
+| GET | `/api/as/requests/{sn}` | 〃 + 스코프 | 상세: 신청 내용, 업체·기사, 처리 보고서(`report`), 첨부(`attachments`, `reportFiles`), 평가, `histories`, `deviceCurrentPlace`(대상장비의 지금 위치 — `installPlace`·`deviceName`은 신청 당시 그대로), **`allowedActions`**(현재 사용자가 지금 할 수 있는 처리) |
 | POST | `/api/as/requests` | `AS_{ty}_REQUEST` / `SMART_REQUEST` | 신청. 아래 필드 |
 | PUT | `/api/as/requests/{sn}` | 작성자(A 상태) | 신청 수정 |
 | POST | `/api/as/requests/{sn}/{action}` | 상태·역할에 따라 | `receive {visitPlannedAt}` · `return {reason}` · `return-cancel` · `transfer {rceptTy, content}` · `cancel` · `visit {visitPlannedAt}` · `report {...}` · `evaluate {score 1~5, opinion}` · `assign {vendorId, engineerUserId?}` · `delete` |
@@ -198,7 +201,14 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | GET | `/api/as/vendors/{id}/usage` | `VENDOR_MANAGE`, 도교육청만 — 삭제 전 확인: `schools, users, openRequests`(사용 중 서비스의 처리 중 AS, 삭제를 막음), `openList`(그 목록, 20건까지), `hiddenOpenRequests`(꺼진 서비스의 처리 중 AS, 막지 않음), `allRequests` |
 | GET | `/api/as/wireless-devices?schoolId&regionId&deviceType&status&keyword` | 장비관리·무선망 신청/조회·기사 |
 | POST / PUT / DELETE | `/api/as/wireless-devices[/{id}]` | `WDEVICE_MANAGE` — `{schoolId, deviceCode, deviceName, deviceType AP/SWITCH/CONTROLLER, modelName, ipAddress, macAddress, location, installedAt, lastCheckedAt, status NORMAL/FAULT/REPLACED, note}` |
-| GET | `/api/as/schoolnet-devices?schoolId&regionId&deviceType&status&keyword` | `SDEVICE_MANAGE` — 스쿨넷장비관리. 검색어는 회선번호도 찾는다 |
+| PUT | `/api/as/wireless-devices/{id}/position` | `WDEVICE_MANAGE` — 무선장비 위치(도면). `{floorId, x, y}`: 장비 학교의 건물 층(도면이 있어야 함) 위 좌표, 도면 크기 대비 % (0~100). `floorId: null`이면 도면에서 뺀다. 목록·상세에 `floorId`, `posX`, `posY`, `floorFullName`("본관 2층")이 나온다. 설치위치도 맞춘다: 비었으면 "건물 층", 이 학교의 "건물 층"으로 시작하면("본관 2층 복도") 그 부분을 새 층으로 바꾸고("본관 3층 복도"), 직접 적은 다른 문구는 그대로 둔다. 서버를 시작할 때도 도면 층과 다른 "건물 층"으로 시작하는 설치위치를 한 번 맞춘다. 건물을 지우면 그 층의 장비는 도면에서 빠진다 |
+| POST | `/api/qr/device-labels` | `WDEVICE_MANAGE`·`SDEVICE_MANAGE` | 장비 라벨 인쇄 항목 `{deviceIds}` → `[{deviceId, code, qrText(/d/{id}), title, sub}]` (관리하는 유형·범위만, 60장까지) |
+| GET | `/api/qr/devices/{id}` | 장비관리·AS 신청/조회·기사 | 장비 라벨 QR → 장비 정보 + `where{schoolName, buildingName, floorName, onPlan, path}` + `canManage`·`canRequest`. 범위 밖 학교 장비는 404 |
+| GET | `/d/{deviceId}` | 공개 | 장비 라벨 QR 주소 → `DEVICE_LINK`(기본 `/device?id={deviceId}`)로 302. `POST /api/qr/resolve`는 `{type:"DEVICE", deviceId, found, rceptTy}` |
+| GET | `/api/as/{wireless|schoolnet}-devices/places?schoolId` | `WDEVICE_MANAGE` / `SDEVICE_MANAGE` — 장비 등록·수정의 설치위치 고르기: `{buildings:[{buildingId, buildingName, floors:[{floorId, floorName, hasPlan}]}], details:[상세 위치(실) 이름]}`. details는 이 학교 장비 설치위치에서 "건물 층"을 뗀 나머지(많이 쓴 순, 30개). 화면은 건물·층을 고르고 상세 위치만 적어 `location`("본관 2층 교무실")으로 저장한다 |
+| PUT | `/api/as/{wireless|schoolnet}-devices/{id}` 설치위치 규칙 | 도면에 놓인 무선장비는 `location`의 "건물 층"이 도면 층을 따른다(다른 층을 적어도 도면 층으로 바뀜). `unplace: true`를 함께 보내면 **다른 층으로 옮기기**: 도면에서 빼고 새 `location`을 저장(도면에 없는 장비면 400). 다른 학교로 바꾸면 도면에서 빠진다 |
+| GET | `/api/as/{wireless|schoolnet}-devices/{id}/history` | 관리 권한 — 위치 변경 기록(최근 것부터) `[{actionType EDIT/PLAN/FLOOR, actionName, fromPlace, toPlace, workerName, createdAt}]`. 설치위치가 바뀔 때마다(장비 수정 · 도면에서 옮김 · 다른 층으로 옮김) 한 줄 (`device_histories`, V7). 장비 QR 화면(`/api/qr/devices/{id}`)은 관리자에게 최근 5건을 `history`로 준다 |
+| GET | `/api/as/schoolnet-devices?schoolId&regionId&deviceType&status&keyword` | `SDEVICE_MANAGE`·스쿨넷 AS 신청/조회·기사(범위 안 학교만) — 스쿨넷장비관리, 스쿨넷 AS의 대상장비 선택. 검색어는 회선번호도 찾는다 |
 | POST / PUT / DELETE | `/api/as/schoolnet-devices[/{id}]` | `SDEVICE_MANAGE` — 무선장비와 같은 필드 + `carrier`(통신사), `circuitId`(회선번호), `bandwidth`(회선 속도). `deviceType` ROUTER/L3/L2/FIREWALL/ETC (필수). 번호를 비우면 `N-0001` 식으로 부여. 두 장비는 같은 표(`wireless_devices.rcept_ty` M/S)라 다른 쪽 API로는 404 |
 
 ### 3.3 통계 (`/api/as/stats`, 권한 `AS_STATS`)
@@ -261,7 +271,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | POST | `/api/as/spaces/buildings/{id}/floors` | 〃 | `{floorNo, floorName?}` |
 | POST | `/api/places/floors/{floorId}/plan` (multipart `file`) | `FLOOR_WRITE` | 도면 이미지 업로드(기존 API 재사용) |
 | GET | `/api/as/spaces/rooms?schoolId&floorId` | 읽기 | 실 목록(`fullName`, `assetCount`, `rect`) |
-| GET | `/api/as/spaces/rooms/{id}` | 읽기 | 실 상세 + **이 실의 자산 목록** (실 QR을 찍었을 때 화면) |
+| GET | `/api/as/spaces/rooms/{id}` | 읽기 | 실 상세 + **이 실의 자산 목록** |
 | POST / PUT / DELETE | `/api/as/spaces/rooms[/{id}]` | `SPACE_MANAGE` | `{schoolId, floorId, roomNo, roomName, roomType OFFICE/CLASS/LAB/SERVER/ETC, ownerName, rect:{x,y,w,h}}` — `rect`만 보내면 도면 위 위치만 바뀜(동료 UI `placeAt`) |
 | POST | `/api/as/spaces/rooms/move-assets` | `SPACE_MANAGE`/`INVENTORY` | `{roomId, assetIds[], how?}` — 자산을 실에 배정(`assignRoom`), 자산 이력 기록 |
 
@@ -270,18 +280,17 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | 메서드 | 경로 | 권한 | 설명 |
 |---|---|---|---|
 | GET | `/api/qr/asset/{assetNo}.png?size` | 자산 읽기 | 자산 라벨 QR 이미지 (내용 `{QR_BASE_URL}/a/{assetNo}`) |
-| GET | `/api/qr/room/{roomId}.png` | 도면 읽기 | 실 QR 이미지 (`/r/{roomId}`) |
-| POST | `/api/qr/resolve` | 로그인 | `{text}` 카메라로 읽은 문자열 → `{type: ASSET(state REGISTERED/RESERVED/NOT_FOUND) | ROOM | LOGIN | UNKNOWN, ...}` (동료 UI `gotScan`) |
+| POST | `/api/qr/resolve` | 로그인 | `{text}` 카메라로 읽은 문자열 → `{type: ASSET(state REGISTERED/RESERVED/NOT_FOUND) | DEVICE | LOGIN | UNKNOWN, ...}` (실 QR은 더 이상 쓰지 않아 UNKNOWN) (동료 UI `gotScan`) |
 | GET | `/api/assets/by-no/{assetNo}` | 자산 읽기 | 자산번호로 조회 |
 | POST | `/api/qr/labels` | 자산 읽기 | `{assetIds[] | assetNos[]}` → 라벨 인쇄 항목 `[{assetNo, qrText, title, sub:"학교 · 실"}]` (최대 60장, `labelsHtml`) |
 | POST | `/api/qr/reserve` | `ASSET_WRITE` | `{count 1~100, year?, schoolId?}` → 빈 라벨용 번호 예약 `CB-2026-5xxxx`. 라벨을 먼저 붙이고 나중에 그 번호로 자산을 등록하면 자동 연결 |
-| GET | `/a/{assetNo}`, `/r/{roomId}` | 공개 | 라벨에 인쇄된 주소 → 302로 프런트 라우트(`ASSET_LINK`, `ROOM_LINK` 템플릿) |
+| GET | `/a/{assetNo}` | 공개 | 자산 라벨에 인쇄된 주소 → 302로 프런트 라우트(`ASSET_LINK` 템플릿) |
 
 자산번호 체계: `{기관접두어}-{취득연도}-{일련번호 5자리}` (예 `CB-2024-00012`). 접두어는 `Org.assetNoPrefix`, 없으면 기존 `HW-2026-0008` 형식.
 
 ### 5.3 재물조사 — `/api/as/inventory` (권한 `INVENTORY`)
 
-실 QR 또는 실 선택 → 자산 라벨 QR을 차례로 스캔 → 실 완료 → 보고서 → 이동 반영.
+실 선택 → 자산 라벨 QR을 차례로 스캔 → 실 완료 → 보고서 → 이동 반영.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
@@ -318,7 +327,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | UI(클론 HTML) | 백엔드 |
 |---|---|
 | `loginOk` | `POST /api/auth/login` → 토큰 또는 `step:"otp"` |
-| `otpHtml` | `POST /api/auth/otp/verify`, `/otp/resend` |
+| `otpHtml` | `POST /api/auth/otp/verify` (인증 앱 번호) |
 | `qrLoginHtml`, `newQr` | `POST /api/auth/qr/start` → `qrText`를 QR로; 2초마다 `GET /api/auth/qr/{token}`; 휴대폰은 `/qr/{token}/info` → `/approve` |
 | `ME` | `GET /api/auth/me` (`permissions`로 메뉴 가드) |
 | `MENU`(스크랩) | `GET/POST/DELETE /api/auth/me/scraps` |
@@ -369,9 +378,8 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 |---|---|---|
 | `JWT_SECRET` | change-me… | **운영 전 반드시 변경** (32자 이상) |
 | `DATA_KEY` | bingoasm-dev-data-key… | 이메일·휴대폰 AES-256-GCM 키. **운영 전 반드시 변경**, 바꾸면 기존 암호문은 복호화 불가 |
-| `OTP_DEV_ECHO` | true | `false`면 OTP 코드를 응답에 넣지 않음(운영) |
 | `QR_BASE_URL` | http://localhost:8080 | 라벨 QR과 로그인 QR에 들어갈 주소 (휴대폰이 접속할 수 있는 주소) |
-| `ASSET_LINK` / `ROOM_LINK` | `/assets/by-no/{assetNo}` / `/rooms/{roomId}` | `/a/`, `/r/` 공개 주소가 보낼 프런트 라우트 |
+| `ASSET_LINK` / `DEVICE_LINK` | `/admin/assets?no={assetNo}` / `/device?id={deviceId}` | `/a/`(자산), `/d/`(장비) 공개 주소가 보낼 프런트 라우트 |
 | `PORT`, `DATA_DIR`, `SPRING_PROFILES_ACTIVE=postgres`, `DB_URL/DB_USER/DB_PASSWORD` | 기존 | 기존과 같음 |
 | `DDL_AUTO` | `validate` | Hibernate 스키마 처리. 평소에는 비워 둡니다. Flyway 이전부터 쓰던 DB의 첫 기동에만 `update` ([DB_MIGRATIONS.md](DB_MIGRATIONS.md)) |
 
@@ -384,7 +392,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | `school01` / `school02` | user1234! | 학교 담당자 (봉황초등학교 / 온천중학교) |
 | `netengineer` | user1234! | 한빛네트웍스 기사 (무선망·스쿨넷) — 접근권한표의 엔지니어 |
 | `vendoradmin` | user1234! | 한빛네트웍스 업체 관리자 |
-| `eduadmin` | user1234! + OTP | 교육청 관리자 (통합관리). 개발 모드에서는 로그인 응답의 `devCode`가 OTP |
+| `eduadmin` | user1234! + OTP | 교육청 관리자 (통합관리). 2단계 인증 사용 — 새 DB에서는 첫 로그인 때 인증 앱(Google OTP)을 QR로 등록 |
 | `regionadmin` | user1234! | 교육지원청 담당자 (청주교육지원청). 관내 학교만 |
 | `admin` | admin1234! | 시스템 관리자 (기존) |
 

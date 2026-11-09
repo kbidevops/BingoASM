@@ -20,6 +20,8 @@ export interface Me {
   regionName?: string;
   memberType?: string;
   otpEnabled: boolean;
+  /** 인증 앱이 등록돼 있는지 (켜져 있는데 미등록이면 다음 로그인 때 등록) */
+  otpRegistered?: boolean;
   passwordChangedAt?: string;
   createdAt?: string;
   lastLoginAt?: string;
@@ -50,11 +52,23 @@ export interface LoginResult {
   accessToken?: string;
   refreshToken?: string;
   me?: Me;
-  step?: "otp";
+  /** otp: 인증 앱 번호 입력 · otp-setup: 인증 앱을 처음 등록 (QR·비밀값을 보여 주고 첫 번호로 확인) */
+  step?: "otp" | "otp-setup";
   otpToken?: string;
   expiresAt?: string;
-  devCode?: string;
   message?: string;
+}
+
+/** 인증 앱(Google OTP 등) 등록 정보: QR(data URL), 직접 입력용 비밀값, 앱에 보이는 이름. */
+export interface OtpSetup {
+  otpToken: string;
+  expiresAt?: string;
+  qr: string;
+  secret: string;
+  account: string;
+  issuer: string;
+  /** 이미 등록된 앱이 있어 바뀌는 경우 */
+  replaces?: boolean;
 }
 
 export type RceptTy = "C" | "M" | "S" | "T";
@@ -100,6 +114,9 @@ export interface AsRow {
   requestTypeName?: string;
   symptom?: string;
   installPlace?: string;
+  /** 상세에서만: 대상장비의 지금 위치 (신청 뒤 옮겨졌을 수 있음) */
+  deviceCurrentPlace?: string | null;
+  deviceId?: number | null;
   deviceName?: string;
   equipmentName?: string;
   modelName?: string;

@@ -6,4 +6,5 @@ public interface WirelessDeviceRepository extends JpaRepository<WirelessDevice, 
     List<WirelessDevice> findByOrgIdAndUseYnOrderBySchoolIdAscDeviceCodeAsc(Long orgId, String useYn);
     List<WirelessDevice> findByOrgIdAndRceptTyAndUseYnOrderBySchoolIdAscDeviceCodeAsc(Long orgId, String rceptTy, String useYn);
     List<WirelessDevice> findBySchoolIdAndUseYnOrderByDeviceCodeAsc(Long schoolId, String useYn);
+    List<WirelessDevice> findByFloorIdIn(java.util.Collection<Long> floorIds);
 }

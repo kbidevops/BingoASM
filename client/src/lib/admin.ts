@@ -32,6 +32,11 @@ export interface Device {
   location?: string;
   installedAt?: string;
   lastCheckedAt?: string;
+  /** 무선장비 위치(도면): 놓인 층과 도면 위 좌표(%), "건물 층" 이름 */
+  floorId?: number | null;
+  posX?: number | null;
+  posY?: number | null;
+  floorFullName?: string | null;
   /** 스쿨넷 회선 */
   carrier?: string;
   circuitId?: string;
@@ -43,6 +48,23 @@ export interface Device {
   regionId?: number;
   regionName?: string;
   note?: string;
+}
+
+/** GET /api/as/{wireless|schoolnet}-devices/places: 설치위치 고르기 (건물·층 + 이미 쓴 상세 위치 이름). */
+export interface DevicePlaces {
+  buildings: { buildingId: number; buildingName: string; floors: { floorId: number; floorName: string; hasPlan: boolean }[] }[];
+  details: string[];
+}
+
+/** 장비 위치 변경 기록 한 줄. */
+export interface DeviceHistoryRow {
+  historyId: number;
+  actionType: "EDIT" | "PLAN" | "FLOOR";
+  actionName: string;
+  fromPlace?: string | null;
+  toPlace?: string | null;
+  workerName?: string;
+  createdAt: string;
 }
 
 export interface SchoolFull extends School {
@@ -87,6 +109,18 @@ export interface Category {
   lifeYears?: number;
 }
 
+/** 자산이 있는 곳 (GET /api/assets/{id}, QR resolve): 기관 · 건물 · 층 · 실과 이를 이은 path. */
+export interface AssetLocation {
+  schoolId?: number; schoolName?: string;
+  buildingId?: number; buildingName?: string;
+  floorId?: number; floorName?: string;
+  roomId?: number; roomName?: string; roomNo?: string;
+  detail?: string;
+  path?: string;
+  /** 학교·건물·층이 모두 정해졌는지 */
+  complete: boolean;
+}
+
 export interface Asset {
   assetId: number;
   assetNo: string;
@@ -112,6 +146,8 @@ export interface Asset {
   lifeExceeded?: boolean;
   note?: string;
   openServiceCount?: number;
+  /** 상세에서만 */
+  location?: AssetLocation;
 }
 
 export interface Floor {

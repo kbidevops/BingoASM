@@ -74,13 +74,26 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, []);
 
-  // 무선망: wireless devices of the chosen school.
+  // 무선망·스쿨넷: the chosen school's devices of that kind.
+  const pickDevice = ty === "M" || ty === "S";
   useEffect(() => {
-    if (ty !== "M" || !f.schoolId) return setDevices([]);
-    api.get<Page<WirelessDevice> | WirelessDevice[]>("/api/as/wireless-devices", { schoolId: f.schoolId, size: 200 })
+    if (!pickDevice || !f.schoolId) return setDevices([]);
+    api.get<Page<WirelessDevice> | WirelessDevice[]>(ty === "M" ? "/api/as/wireless-devices" : "/api/as/schoolnet-devices", { schoolId: f.schoolId, size: 200 })
       .then((d) => setDevices(rows(d)))
       .catch(() => setDevices([]));
-  }, [ty, f.schoolId]);
+  }, [ty, pickDevice, f.schoolId]);
+
+  // 장비 라벨 QR → "이 장비로 AS 신청" (?device=123): 학교·대상장비·설치장소를 채워 둔다.
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("device")) || null;
+    if (!id || !pickDevice) return;
+    api.get<{ deviceId: number; rceptTy?: string; schoolId: number; location?: string; deviceCode: string; deviceName: string }>(`/api/qr/devices/${id}`).then((d) => {
+      if (d.rceptTy && d.rceptTy !== ty) return;
+      setF((p) => ({ ...p, schoolId: p.schoolId || String(d.schoolId), deviceId: String(d.deviceId), installPlace: p.installPlace || d.location || "" }));
+      toast(`${d.deviceCode} ${d.deviceName} 장비로 신청합니다.`);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loadErr) return <ErrorBox message={loadErr} onRetry={load} />;
   if (!codes) return <Loading />;
@@ -128,7 +141,7 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
         installPlace: f.installPlace.trim() || undefined,
         visitRequestAt: f.visitRequestAt,
         contactTel: f.contactTel,
-        deviceId: ty === "M" && f.deviceId ? Number(f.deviceId) : undefined,
+        deviceId: pickDevice && f.deviceId ? Number(f.deviceId) : undefined,
         equipmentName: (ty === "C" || ty === "T") && f.equipmentName.trim() ? f.equipmentName.trim() : undefined,
         modelName: (ty === "C" || ty === "T") && f.modelName.trim() ? f.modelName.trim() : undefined,
         quantity: (ty === "C" || ty === "T") && f.quantity ? Number(f.quantity) : undefined,
@@ -198,10 +211,10 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
             <FormRow label="연락처" required error={errors.contactTel}>
               <TelInput value={f.contactTel} onChange={(v) => set("contactTel", v)} />
             </FormRow>
-            {ty === "M" && (
+            {pickDevice && (
               <FormRow label="대상장비">
                 <select aria-label="대상장비" value={f.deviceId} onChange={(e) => set("deviceId", e.target.value)} disabled={!f.schoolId}>
-                  <option value="">{f.schoolId ? (devices.length ? "-- 선택 안 함 --" : "등록된 무선장비가 없습니다") : "기관을 먼저 선택하세요"}</option>
+                  <option value="">{f.schoolId ? (devices.length ? "-- 선택 안 함 --" : `등록된 ${ty === "M" ? "무선장비" : "스쿨넷 장비"}가 없습니다`) : "기관을 먼저 선택하세요"}</option>
                   {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.deviceCode} {d.deviceName}{d.location ? ` (${d.location})` : ""}</option>)}
                 </select>
               </FormRow>

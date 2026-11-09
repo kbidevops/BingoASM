@@ -28,12 +28,42 @@ public class AssetService {
     private final OrgRepository orgs;
     private final com.bingoasm.repo.as.AssetNoReservationRepository reservations;
     private final com.bingoasm.service.as.SchoolService schoolService;
+    private final com.bingoasm.repo.as.RoomRepository rooms;
+    private final BuildingRepository buildings;
 
     public AssetService(AssetRepository assets, AssetHistoryRepository histories, ServiceRequestRepository services,
                         CategoryRepository categories, FloorRepository floors, RefData refData, OrgRepository orgs,
-                        com.bingoasm.repo.as.AssetNoReservationRepository reservations, com.bingoasm.service.as.SchoolService schoolService) {
+                        com.bingoasm.repo.as.AssetNoReservationRepository reservations, com.bingoasm.service.as.SchoolService schoolService,
+                        com.bingoasm.repo.as.RoomRepository rooms, BuildingRepository buildings) {
         this.assets = assets; this.histories = histories; this.services = services; this.categories = categories;
         this.floors = floors; this.refData = refData; this.orgs = orgs; this.reservations = reservations; this.schoolService = schoolService;
+        this.rooms = rooms; this.buildings = buildings;
+    }
+
+    // ---------- 위치 (QR을 찍었을 때 "어느 학교 · 건물 · 층 · 실") ----------
+
+    /**
+     * 자산이 있는 곳: 기관(학교) · 건물 · 층 · 실 · 상세 위치와 이를 이은 path ("봉황초등학교 › 본관 › 2층 › 컴퓨터실").
+     * 실이 정해져 있으면 건물·층은 실의 것을 쓴다 (예전에 실만 바꾼 자산도 맞게 보이도록).
+     */
+    public Json location(Asset a) {
+        com.bingoasm.domain.as.Room room = a.roomId == null ? null
+                : rooms.findById(a.roomId).filter(r -> r.orgId.equals(a.orgId) && "Y".equals(r.useYn)).orElse(null);
+        Long bid = room != null ? room.buildingId : a.buildingId, fid = room != null ? room.floorId : a.floorId;
+        Building b = bid == null ? null : buildings.findById(bid).orElse(null);
+        Floor f = fid == null ? null : floors.findById(fid).orElse(null);
+        Long sid = room != null ? room.schoolId : a.schoolId;
+        com.bingoasm.domain.as.School s = sid == null ? null : schoolService.schoolMap(a.orgId).get(sid);
+        String roomLabel = room == null ? null : room.roomName + (room.roomNo == null || room.roomNo.isBlank() ? "" : " (" + room.roomNo + ")");
+        List<String> parts = new ArrayList<>();
+        for (String p : new String[]{s == null ? null : s.schoolName, b == null ? null : b.buildingName, f == null ? null : f.floorName, roomLabel})
+            if (p != null && !p.isBlank()) parts.add(p);
+        return Json.obj().with("schoolId", sid).with("schoolName", s == null ? null : s.schoolName)
+                .with("buildingId", bid).with("buildingName", b == null ? null : b.buildingName)
+                .with("floorId", fid).with("floorName", f == null ? null : f.floorName)
+                .with("roomId", room == null ? null : room.roomId).with("roomName", room == null ? null : room.roomName).with("roomNo", room == null ? null : room.roomNo)
+                .with("detail", a.locationDetail).with("path", parts.isEmpty() ? null : String.join(" › ", parts))
+                .with("complete", s != null && b != null && f != null);
     }
 
     // ---------- school scope (원클릭 AS) ----------
@@ -225,6 +255,7 @@ public class AssetService {
         Asset a = load(me, id);
         RefData.Ref ref = refData.forOrg(me.orgId());
         Json view = row(a, ref, openCounts(me.orgId()), parentsOf(List.of(a)));
+        view.put("location", location(a));
         if ("HW".equals(a.assetType)) {
             view.put("hw", hwJson(a));
             view.put("installedSoftware", assets.findByParentAssetIdAndUseYn(a.assetId, "Y").stream()
@@ -308,6 +339,14 @@ public class AssetService {
                 default -> { }
             }
             if (!Objects.equals(before, get(a, k))) changed.add(k);
+        }
+        if (body.containsKey("roomId") && a.roomId != null) {
+            com.bingoasm.domain.as.Room r = rooms.findById(a.roomId).filter(x -> x.orgId.equals(a.orgId) && "Y".equals(x.useYn))
+                    .orElseThrow(() -> ApiException.badRequest("위치(실)를 찾을 수 없습니다."));
+            if (a.schoolId != null && r.schoolId != null && !a.schoolId.equals(r.schoolId)) throw ApiException.badRequest("다른 학교의 실은 고를 수 없습니다.");
+            if (!Objects.equals(a.buildingId, r.buildingId)) changed.add("buildingId");
+            if (!Objects.equals(a.floorId, r.floorId)) changed.add("floorId");
+            a.schoolId = r.schoolId; a.buildingId = r.buildingId; a.floorId = r.floorId;
         }
         Map<String, Object> hw = Params.map(body, "hw");
         if (hw != null && "HW".equals(a.assetType)) {

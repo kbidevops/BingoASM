@@ -73,6 +73,9 @@ export default function AsDetailModal({ sn, onClose, onChanged }: { sn: number; 
                 {r("신청일시", fmtDateTime(d.requestAt), "방문요청일시", fmtDateTime(d.visitRequestAt))}
                 {r("장애유형", d.faultTypeName ?? "-", d.rceptTy === "M" ? "요청내용" : "설치장소", d.rceptTy === "M" ? d.requestTypeName ?? "-" : d.installPlace ?? "-")}
                 {d.rceptTy === "M" && r("설치장소", d.installPlace ?? "-", "대상장비", d.deviceName ?? "-")}
+                {d.rceptTy === "S" && d.deviceId && wide("대상장비", d.deviceName ?? "-")}
+                {d.deviceCurrentPlace && d.deviceCurrentPlace !== (d.installPlace ?? "").trim() &&
+                  wide("장비 현재 위치", <>{d.deviceCurrentPlace} <small className="muted">(설치장소·대상장비는 신청 당시 기준)</small></>)}
                 {(d.equipmentName || d.modelName) && r("장비", d.equipmentName ?? "-", "모델 / 수량", `${d.modelName ?? "-"} / ${d.quantity ?? "-"}`)}
                 {wide(d.rceptTy === "S" ? "신청내용" : "장애증상", d.symptom ?? "-")}
                 {d.attachments?.length ? wide("첨부파일", <Files files={d.attachments} />) : null}

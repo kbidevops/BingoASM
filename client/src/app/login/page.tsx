@@ -2,13 +2,14 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import OtpSetupPanel from "@/components/OtpSetupPanel";
 import QrCode from "@/components/QrCode";
 import SubPage from "@/components/SubPage";
 import { useToast } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime, LOGIN_METHOD, mmss } from "@/lib/format";
-import type { LoginLog, LoginResult, Me } from "@/lib/types";
+import type { LoginLog, LoginResult, Me, OtpSetup } from "@/lib/types";
 
 export default function LoginPage() {
   return (
@@ -64,7 +65,7 @@ function Login() {
           <h3>안전한 로그인 안내</h3>
           <ul className="dash">
             <li>비밀번호를 5회 연속 틀리면 30분 동안 잠깁니다.</li>
-            <li>2단계 인증을 켠 계정은 비밀번호 확인 후 소통메신저로 받은 6자리 인증번호를 한 번 더 입력합니다.</li>
+            <li>2단계 인증을 켠 계정은 비밀번호 확인 후 휴대폰 인증 앱(Google OTP 등)의 6자리 번호를 한 번 더 입력합니다.</li>
             <li>30분 동안 사용이 없으면 자동으로 로그아웃됩니다.</li>
             <li>공용 PC에서는 사용 후 반드시 로그아웃해 주세요.</li>
           </ul>
@@ -88,7 +89,7 @@ function IdLogin({ notice, onDone }: { notice: string; onDone: (r: LoginResult) 
   const [caps, setCaps] = useState(false);
   const [msg, setMsg] = useState(notice);
   const [busy, setBusy] = useState(false);
-  const [otp, setOtp] = useState<{ token: string; exp: number; devCode?: string } | null>(null);
+  const [otp, setOtp] = useState<{ token: string; exp: number; setup?: OtpSetup } | null>(null);
   const pwRef = useRef<HTMLInputElement>(null);
 
   const submit = async (e: React.FormEvent) => {
@@ -98,8 +99,9 @@ function IdLogin({ notice, onDone }: { notice: string; onDone: (r: LoginResult) 
     setMsg("");
     try {
       const res = await api.post<LoginResult>("/api/auth/login", { loginId: loginId.trim(), password: pw });
-      if (res.step === "otp") {
-        setOtp({ token: res.otpToken!, exp: Date.now() + 5 * 60_000, devCode: res.devCode });
+      if (res.step === "otp" || res.step === "otp-setup") {
+        const setup = res.step === "otp-setup" ? (res as unknown as OtpSetup) : undefined;
+        setOtp({ token: res.otpToken!, exp: Date.now() + (setup ? 10 : 5) * 60_000, setup });
         setPw("");
       } else onDone(res);
     } catch (err) {
@@ -110,7 +112,7 @@ function IdLogin({ notice, onDone }: { notice: string; onDone: (r: LoginResult) 
     }
   };
 
-  if (otp) return <OtpForm otp={otp} setOtp={setOtp} onDone={onDone} onCancel={() => setOtp(null)} />;
+  if (otp) return <OtpForm otp={otp} onDone={onDone} onCancel={() => setOtp(null)} />;
 
   return (
     <>
@@ -136,9 +138,9 @@ function IdLogin({ notice, onDone }: { notice: string; onDone: (r: LoginResult) 
   );
 }
 
-function OtpForm({ otp, setOtp, onDone, onCancel }: {
-  otp: { token: string; exp: number; devCode?: string };
-  setOtp: (o: { token: string; exp: number; devCode?: string }) => void;
+/** 2단계 인증: 인증 앱(Google OTP 등)의 6자리 번호. 앱을 처음 쓰는 계정은 여기서 QR로 등록한다. */
+function OtpForm({ otp, onDone, onCancel }: {
+  otp: { token: string; exp: number; setup?: OtpSetup };
   onDone: (r: LoginResult) => void;
   onCancel: () => void;
 }) {
@@ -154,44 +156,38 @@ function OtpForm({ otp, setOtp, onDone, onCancel }: {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (left <= 0) return setMsg("인증번호 유효시간이 지났습니다. 다시 받아 주세요.");
-    if (!/^\d{6}$/.test(code)) return setMsg("6자리 숫자를 입력해 주세요.");
+    if (left <= 0) return setMsg("입력 시간이 지났습니다. ‘처음으로’를 눌러 다시 로그인해 주세요.");
+    if (!/^\d{6}$/.test(code)) return setMsg("인증 앱에 보이는 6자리 숫자를 입력해 주세요.");
     setBusy(true);
     try {
       onDone(await api.post<LoginResult>("/api/auth/otp/verify", { otpToken: otp.token, code }));
     } catch (err) {
       setMsg((err as Error).message);
+      setCode("");
       setBusy(false);
     }
   };
 
-  const resend = async () => {
-    try {
-      const res = await api.post<LoginResult>("/api/auth/otp/resend", { otpToken: otp.token });
-      setOtp({ token: res.otpToken!, exp: Date.now() + 5 * 60_000, devCode: res.devCode });
-      setCode("");
-      setMsg("새 인증번호를 보냈습니다. 이전 번호는 더 이상 쓸 수 없습니다.");
-    } catch (err) {
-      setMsg((err as Error).message);
-    }
-  };
-
   return (
-    <form className="login-form" noValidate onSubmit={submit}>
-      <h3 className="lg-h">2단계 인증</h3>
-      <p className="hint" style={{ margin: "0 0 6px" }}>소통메신저로 보낸 6자리 인증번호를 입력하세요. <b className="otp-t">{mmss(left)}</b> 남음</p>
-      <label htmlFor="otp">인증번호 6자리</label>
+    <form className={"login-form" + (otp.setup ? " otp-setup" : "")} noValidate onSubmit={submit}>
+      <h3 className="lg-h">{otp.setup ? "2단계 인증 — 인증 앱 등록" : "2단계 인증"}</h3>
+      {otp.setup ? (
+        <>
+          <p className="hint" style={{ margin: "0 0 10px" }}>이 계정은 2단계 인증을 사용합니다. 처음 한 번, 휴대폰 인증 앱을 등록해 주세요. <b className="otp-t">{mmss(left)}</b> 남음</p>
+          <OtpSetupPanel setup={otp.setup} />
+        </>
+      ) : (
+        <p className="hint" style={{ margin: "0 0 6px" }}>휴대폰 인증 앱(Google OTP 등)의 <b>원클릭AS</b> 항목에 보이는 6자리 번호를 입력하세요. <b className="otp-t">{mmss(left)}</b> 남음</p>
+      )}
+      <label htmlFor="otp">인증 앱 번호 6자리</label>
       <input id="otp" name="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="otp-in" required autoFocus
         value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
       <p className="lg-msg" role="alert">{msg}</p>
-      <button className="btn" type="submit" disabled={busy}>{busy ? "확인 중…" : "확인"}</button>
+      <button className="btn" type="submit" disabled={busy}>{busy ? "확인 중…" : otp.setup ? "등록하고 로그인" : "확인"}</button>
       <div className="otp-row">
-        <button type="button" className="linkbtn" onClick={resend}>인증번호 다시 받기</button>
+        <span className="hint">번호는 30초마다 바뀝니다.{otp.setup ? "" : " 휴대폰을 바꿨거나 잃어버렸으면 관리자에게 ‘OTP 초기화’를 요청하세요."}</span>
         <button type="button" className="linkbtn" onClick={onCancel}>처음으로</button>
       </div>
-      {otp.devCode && (
-        <p className="lg-demo" style={{ marginTop: 12 }}><small>개발 모드(OTP_DEV_ECHO): 메신저 대신 여기 표시 → 인증번호 <b>{otp.devCode}</b></small></p>
-      )}
     </form>
   );
 }

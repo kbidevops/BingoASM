@@ -82,7 +82,7 @@ Node.js가 있으면 같은 일을 `npm run dev:server`, `npm run dev:server:pg`
 | 인증 | `POST /api/auth/login` → `accessToken`을 `Authorization: Bearer <토큰>` 헤더로. 쿠키는 쓰지 않습니다 |
 | 응답 | 성공 `{success:true, data}` / 실패 `{success:false, message}` + HTTP 상태 (400·401·403·404·409·423·429) |
 | 메뉴·버튼 | `GET /api/auth/me`의 `permissions`로 메뉴를, AS 상세의 `allowedActions`로 처리 버튼을 결정하면 됩니다 |
-| QR | 라벨 QR에 들어갈 주소는 서버의 `QR_BASE_URL`, QR이 보낼 화면 경로는 `ASSET_LINK`·`ROOM_LINK`로 맞춥니다 (아래 7절) |
+| QR | 라벨 QR에 들어갈 주소는 서버의 `QR_BASE_URL`, QR이 보낼 화면 경로는 `ASSET_LINK`·`DEVICE_LINK`로 맞춥니다 (아래 7절) |
 | 예시 코드 | `scripts/as_integration_test.py`에 모든 API의 요청·응답 예시가 있습니다 |
 
 ---
@@ -97,7 +97,7 @@ Node.js가 있으면 같은 일을 `npm run dev:server`, `npm run dev:server:pg`
 | school01 / school02 | user1234! | 학교 담당자 (봉황초등학교 / 온천중학교) | AS 신청·만족도 평가, 자기 학교 자산·도면(실)·재물조사·일괄 등록·QR 라벨, 게시판 |
 | netengineer | user1234! | AS 기사 — 한빛네트웍스 (무선망·스쿨넷) | 접수·방문·처리 보고서·이관·반려. 동료가 보낸 **엔지니어 접근권한표**와 같은 메뉴 |
 | vendoradmin | user1234! | 업체 관리자 (한빛네트웍스) | 기사 권한 + 자기 업체 AS 통계 |
-| eduadmin | user1234! **+ OTP** | 교육청 관리자 (통합관리) | 학교·업체·장비·게시판·문의처·통계 전체. 개발 모드에서는 로그인 응답의 `devCode`가 OTP |
+| eduadmin | user1234! **+ OTP** | 교육청 관리자 (통합관리) | 학교·업체·장비·게시판·문의처·통계 전체. 첫 로그인 때 휴대폰 인증 앱(Google OTP)을 QR로 등록하고, 이후 앱의 6자리 번호 |
 | regionadmin | user1234! | 교육지원청 담당자 (청주교육지원청 정보지원팀) | 관내 학교(봉황초·미래중·푸른고·새봄초)만: AS 조회·배정·취소, 통계, 학교·무선장비·자산·공간·재물조사. 업체 관리·공지·문의처·사용자 관리·AS 삭제는 없음 |
 | helpdesk / engineer / user01 | user1234! | 기존 BingoASM 접수자·처리자·요청자 | 기존 서비스 요청 흐름 |
 
@@ -126,10 +126,9 @@ BINGOASM_URL=http://localhost:8090 python3 scripts/as_integration_test.py
 |---|---|---|
 | `JWT_SECRET` | 개발용 키 | 토큰 서명 키. **반드시 변경** (48자 이상) |
 | `DATA_KEY` | 개발용 키 | 이메일·휴대폰 번호 AES-256-GCM 암호화 키. **반드시 변경**, 처음 설치할 때 정하고 이후 바꾸지 않기 |
-| `OTP_DEV_ECHO` | `true` | 운영에서는 `false` (OTP 코드를 응답에 넣지 않음). 실제 발송은 `AuthController.startOtp`에 연결 |
 | `CORS_ORIGINS` | `*` | 화면이 뜨는 출처만 허용 (쉼표로 여러 개) |
 | `QR_BASE_URL` | `http://localhost:8080` | 자산 라벨·로그인 QR에 들어갈 주소 — 휴대폰이 접속할 수 있는 주소로 |
-| `ASSET_LINK`, `ROOM_LINK` | `/admin/assets?no={assetNo}`, `/admin/floorplan?room={roomId}` | 라벨 QR(`/a/번호`, `/r/실ID`)이 보낼 화면 경로 (client의 기관자산관리·자산 위치 화면) |
+| `ASSET_LINK`, `DEVICE_LINK` | `/admin/assets?no={assetNo}`, `/device?id={deviceId}` | 라벨 QR(`/a/번호` 자산, `/d/장비ID` 장비)이 보낼 화면 경로 |
 | `PORT`, `DATA_DIR` | `8080`, `./data` | 포트, H2·업로드 폴더 |
 | `SPRING_PROFILES_ACTIVE=postgres` + `DB_URL`, `DB_USER`, `DB_PASSWORD` | – | PostgreSQL 사용 |
 
