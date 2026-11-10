@@ -217,6 +217,12 @@ export function loadSchools(force = false): Promise<SchoolFull[]> {
   return schoolsCache;
 }
 
+/** 로그인 · 로그아웃 때: 학교 목록은 사용자의 범위(학교 · 업체 · 교육지원청)마다 다르다. */
+export function clearAdminCaches() {
+  schoolsCache = null;
+  categoriesCache = null;
+}
+
 export function loadCategories(): Promise<Category[]> {
   categoriesCache ??= api.get<Category[]>("/api/assets/categories").catch((e) => {
     categoriesCache = null;

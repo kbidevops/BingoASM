@@ -65,6 +65,12 @@ export function clearRegionCache() {
   regionsCache = null;
 }
 
+/** 로그인 · 로그아웃 때: 게시판(쓰기 권한)과 지역(교육지원청은 관할 지역만)은 사용자마다 다르다. */
+export function clearBoardCaches() {
+  boardsCache = null;
+  regionsCache = null;
+}
+
 export function loadRegions(): Promise<Region[]> {
   regionsCache ??= api.get<Region[]>("/api/as/regions").catch((e) => {
     regionsCache = null;

@@ -3,6 +3,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, AUTH_EXPIRED_EVENT, tokens, type Tokens } from "./api";
 import type { Me, RceptTy, SiteInfo } from "./types";
+import { clearBoardCaches } from "./boards";
+import { clearAdminCaches } from "./admin";
+
+/**
+ * 사용자마다 다른 목록(지역 · 학교 · 게시판)은 모듈 캐시에 담겨 페이지를 새로 고치기 전까지 남는다.
+ * 로그아웃 뒤 다른 계정으로 로그인하면 앞 사람의 목록(예: 관리자의 전체 지역)이 보이므로, 로그인 · 로그아웃마다 비운다.
+ */
+function clearUserCaches() {
+  clearBoardCaches();
+  clearAdminCaches();
+}
 
 /** Signed-in users are logged out after 30 idle minutes, with a warning 2 minutes before. */
 export const IDLE_SECONDS = 30 * 60;
@@ -45,6 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback((message?: string) => {
     tokens.clear();
+    clearUserCaches();
     setMeState(null);
     setStatus("anon");
     setNotice(message ?? "");
@@ -52,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback((t: Tokens, m: Me) => {
     tokens.set(t);
+    clearUserCaches();
     lastActive.current = Date.now();
     warned.current = false;
     setMeState(m);
