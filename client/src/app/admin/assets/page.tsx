@@ -79,6 +79,8 @@ function Assets() {
       const r = await api.post<Resolve>("/api/qr/resolve", { text });
       setScan(false);
       if (r.type === "ASSET" && r.state === "REGISTERED" && r.assetId) setDetail(r.assetId);
+      // 담당 범위 밖 학교(관할 밖 · 다른 학교)의 자산 · 라벨: 알리기만 하고 등록 화면은 열지 않는다.
+      else if (r.type === "ASSET" && r.state === "OUT_OF_SCOPE") toast(r.message ?? "담당 범위 밖 학교의 자산입니다.");
       else if (r.type === "ASSET") {
         if (!can("ASSET_WRITE")) return toast(r.message ?? "등록되지 않은 자산입니다.");
         toast(r.message ?? "등록되지 않은 번호입니다. 이 번호로 자산을 등록하세요.");

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Confirm, FilterField, FilterForm, ListHead } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
+import UserBulkModal from "@/components/admin/UserBulkModal";
 import { ErrorBox, FormMsg, FormRow, Loading, Modal, Pager, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fetchAll, loadSchools, type SchoolFull, type Vendor } from "@/lib/admin";
@@ -29,6 +30,8 @@ interface UserRow {
   mobile?: string;
   status: "ACTIVE" | "LOCKED" | "DISABLED";
   locked: boolean;
+  /** 관리자가 정한 임시 비밀번호 (본인이 아직 안 바꿈) */
+  mustChangePassword?: boolean;
   otpEnabled?: boolean;
   otpRegistered?: boolean;
   roles: string[];
@@ -54,7 +57,7 @@ const kindOf = (u: UserRow) => KINDS.find((k) => u.roles.includes(k.role))?.role
 
 function Users() {
   const toast = useToast();
-  const { me } = useAuth();
+  const { me, can } = useAuth();
   const isTop = !!me?.roles.includes("SUPER_ADMIN");
   const [all, setAll] = useState<UserRow[] | null>(null);
   const [err, setErr] = useState("");
@@ -67,6 +70,7 @@ function Users() {
   const [edit, setEdit] = useState<UserRow | "new" | null>(null);
   const [del, setDel] = useState<UserRow | null>(null);
   const [otpReset, setOtpReset] = useState<UserRow | null>(null);
+  const [bulk, setBulk] = useState(false);
   const [otpBusy, setOtpBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -137,7 +141,8 @@ function Users() {
       <FormMsg kind={msg ? "bad" : undefined} text={msg} />
       <ListHead total={shown.length} page={cur} pages={pages}>
         <label className="us-off"><input type="checkbox" checked={showOff} onChange={(e) => { setShowOff(e.target.checked); setPage(1); }} /> 삭제된 계정 표시</label>
-        <button className="btn sm" type="button" onClick={() => setEdit("new")}>사용자 등록</button>
+        {can("USER_CREATE") && <button className="btn sm" type="button" onClick={() => setEdit("new")}>사용자 등록</button>}
+        {can("ROLE_GRANT") && can("USER_BULK") && <button className="btn sm sec" type="button" onClick={() => setBulk(true)}>일괄 등록</button>}
       </ListHead>
       <div className="tw">
         <table className="cards" style={{ minWidth: 780 }}>
@@ -154,16 +159,17 @@ function Users() {
                   <td data-label="소속" className="tl">{u.affiliation ?? "-"}</td>
                   <td data-label="상태">
                     {u.status === "DISABLED" ? <span className="hint">삭제됨</span> : u.locked ? <b className="st s4">잠김</b> : <b className="st s1">정상</b>}
+                    {u.mustChangePassword && u.status !== "DISABLED" && <small className="um-pill warn" style={{ display: "inline-block", marginLeft: 4 }} title="다음 로그인 때 비밀번호를 바꿔야 합니다">임시 비밀번호</small>}
                     {u.otpEnabled && <small className="hint" style={{ display: "block" }}>{u.otpRegistered ? "2단계 인증" : "2단계 인증 · 앱 미등록"}</small>}
                   </td>
                   <td data-label="최근 로그인">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "-"}</td>
                   <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
                     {editable ? (
                       <>
-                        {u.locked && <><button className="btn sm sec" type="button" onClick={() => unlock(u)}>잠금 해제</button>{" "}</>}
-                        {u.otpRegistered && <><button className="btn sm sec" type="button" onClick={() => setOtpReset(u)}>OTP 초기화</button>{" "}</>}
-                        <button className="btn sm sec" type="button" onClick={() => setEdit(u)}>수정</button>
-                        {!self && u.status !== "DISABLED" && <>{" "}<button className="btn sm sec" type="button" onClick={() => setDel(u)}>삭제</button></>}
+                        {u.locked && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => unlock(u)}>잠금 해제</button>{" "}</>}
+                        {u.otpRegistered && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => setOtpReset(u)}>OTP 초기화</button>{" "}</>}
+                        {can("USER_EDIT") && <button className="btn sm sec" type="button" onClick={() => setEdit(u)}>수정</button>}
+                        {!self && u.status !== "DISABLED" && can("USER_DELETE") && <>{" "}<button className="btn sm sec" type="button" onClick={() => setDel(u)}>삭제</button></>}
                       </>
                     ) : <span className="hint">통합 관리자만</span>}
                   </td>
@@ -178,6 +184,7 @@ function Users() {
         <UserForm user={edit === "new" ? null : edit} isTop={isTop} self={edit !== "new" && edit.userId === me?.userId} onClose={() => setEdit(null)}
           onSaved={(m) => { setEdit(null); toast(m); load(); }} />
       )}
+      {bulk && <UserBulkModal onClose={() => setBulk(false)} onDone={(m) => { toast(m); load(); }} />}
       {del && <DeleteUser user={del} onClose={() => setDel(null)} onDeleted={(m) => { setDel(null); toast(m); load(); }} />}
       {otpReset && (
         <Modal title="OTP 초기화" onClose={() => setOtpReset(null)}>

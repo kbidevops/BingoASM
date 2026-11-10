@@ -139,7 +139,8 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
         </table>
         <div className="btns">
           <button className="btn dk sm" type="submit">검색</button>{" "}
-          <button className="btn sky sm" type="button" onClick={excel} disabled={!data?.totalElements}>엑셀출력 <Icon name="down" /></button>
+          {/* 장애접수관리를 가진 계정은 엑셀 다운로드 기능(AS_EXCEL)을 따로 끌 수 있다 */}
+          {(!can("AS_MANAGE") || can("AS_EXCEL")) && <button className="btn sky sm" type="button" onClick={excel} disabled={!data?.totalElements}>엑셀출력 <Icon name="down" /></button>}
         </div>
       </form>
 

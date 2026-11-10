@@ -11,8 +11,8 @@ import { AsBadge, DateTimeInput, ErrorBox, FilePicker, Loading, Modal, useToast 
 const SCORE = ["", "매우불만족", "불만족", "보통", "만족", "매우만족"];
 /** 처리 보고서 첨부 개수. 한 번 업로드에 5개까지라(FileService) 새 파일도 그 안에 들어간다. */
 const REPORT_FILES_MAX = 5;
-/** Actions this screen offers. `update` (edit request) and `assign` (admin re-assign) are not built yet. */
-const SHOWN = ["receive", "visit", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
+/** Actions this screen offers (서버 allowedActions 중). `update`(신청 수정)는 신청 화면에서 한다. */
+const SHOWN = ["receive", "assign", "visit", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
 function nowLocal() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -158,7 +158,25 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     processContent: d.report?.processContent ?? "",
     score: "",
     opinion: "",
+    vendorId: d.vendorId ? String(d.vendorId) : "",
+    engineerUserId: d.engineerUserId ? String(d.engineerUserId) : "",
   });
+  // 업체 배정: 이 AS 유형을 맡는 업체 (학교 지역을 맡는 업체가 먼저) · 고른 업체의 기사
+  const [vendors, setVendors] = useState<{ vendorId: number; vendorName: string; allRegions?: boolean; regions?: { regionId: number }[] }[]>([]);
+  const [engineers, setEngineers] = useState<{ userId: number; userName: string; mobile?: string }[]>([]);
+  useEffect(() => {
+    if (action !== "assign") return;
+    api.get<typeof vendors>("/api/as/vendors", { rceptTy: d.rceptTy }).then((list) => {
+      const serves = (x: (typeof list)[number]) => !!x.allRegions || !!x.regions?.some((g) => g.regionId === d.regionId);
+      setVendors([...list.filter(serves), ...list.filter((x) => !serves(x))]);
+    }).catch(() => setVendors([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action]);
+  useEffect(() => {
+    if (action !== "assign" || !v.vendorId) { setEngineers([]); return; }
+    api.get<typeof engineers>(`/api/as/vendors/${v.vendorId}/engineers`).then(setEngineers).catch(() => setEngineers([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action, v.vendorId]);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV((p) => ({ ...p, [k]: e.target.value }));
   // 비용 항목. 예전 보고서의 단일 금액은 "기타" 한 줄로 보여 준다.
   const [lines, setLines] = useState<CostLine[]>(() =>
@@ -211,6 +229,10 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
       case "evaluate":
         if (!v.score) check = "만족도를 선택해 주세요.";
         body = { score: Number(v.score), opinion: v.opinion.trim() };
+        break;
+      case "assign":
+        if (!v.vendorId) check = "배정할 업체를 선택해 주세요.";
+        body = { vendorId: Number(v.vendorId), engineerUserId: v.engineerUserId ? Number(v.engineerUserId) : null };
         break;
     }
     if (check) return setMsg(check);
@@ -296,6 +318,26 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
                 ? <FilePicker files={repFiles} onChange={setRepFiles} max={REPORT_FILES_MAX - repKeep.length} />
                 : <p className="hint" style={{ margin: 0 }}>최대 {REPORT_FILES_MAX}개까지 첨부할 수 있습니다. 바꾸려면 기존 파일을 삭제하세요.</p>}
               <small className="hint">현장 사진, 점검표, 교체 부품 사진 등 (파일당 20MB 이하)</small>
+            </td></tr>
+          </>
+        )}
+        {action === "assign" && (
+          <>
+            <tr><th scope="row"><i>*</i>업체</th><td>
+              <select aria-label="배정할 업체" value={v.vendorId} onChange={(e) => setV((p) => ({ ...p, vendorId: e.target.value, engineerUserId: "" }))}>
+                <option value="">-- 선택 --</option>
+                {vendors.map((x) => {
+                  const serves = !!x.allRegions || !!x.regions?.some((g) => g.regionId === d.regionId);
+                  return <option key={x.vendorId} value={x.vendorId}>{x.vendorName}{serves ? "" : " (다른 지역 담당)"}</option>;
+                })}
+              </select>{" "}
+              <small className="hint">{AS_NAME[d.rceptTy]} 유지관리 업체만 보입니다.</small>
+            </td></tr>
+            <tr><th scope="row">담당 기사</th><td>
+              <select aria-label="담당 기사" value={v.engineerUserId} disabled={!v.vendorId} onChange={set("engineerUserId")}>
+                <option value="">-- 기사 지정 안 함 --</option>
+                {engineers.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.mobile ? ` (${x.mobile})` : ""}</option>)}
+              </select>
             </td></tr>
           </>
         )}

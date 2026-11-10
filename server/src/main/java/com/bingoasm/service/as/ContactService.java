@@ -68,6 +68,7 @@ public class ContactService {
 
     /** 전체 교체. rows: [{regionId, groupName, itemName, tel, note, duties:[...]|"a\nb"}] */
     public List<Json> replaceAll(CurrentUser me, List<Map<String, Object>> rows) {
+        if (!me.scope().province()) throw ApiException.forbidden("문의처 전체는 도교육청 관리자만 바꿀 수 있습니다.");
         contacts.deleteByOrgId(me.orgId());
         save(me, rows, null, false);
         return grouped(me);

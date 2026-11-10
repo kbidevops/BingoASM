@@ -84,6 +84,7 @@ export const MENU: MenuGroup[] = [
     title: "관리자 메뉴",
     items: [
       { title: "사용자 관리", href: "/admin/users", perm: "USER_WRITE" },
+      { title: "역할 권한 관리", href: "/admin/roles", perm: "ORG_WRITE" },
       { title: "사용자 메뉴 권한", href: "/admin/user-menus", perm: "ROLE_GRANT" },
       { title: "AS 서비스 설정", href: "/admin/services", perm: "ORG_WRITE" },
     ],
@@ -117,3 +118,9 @@ export function visibleMenu(perms: Set<string> | null, off: Set<string> = new Se
     .map((g) => ({ ...g, items: g.items.filter(allowed) }))
     .filter((g) => g.items.length > 0);
 }
+
+/** 편집 기능 (Roles.EDIT_PERMS). 처리 기능처럼 역할에 있는 것만 끌 수 있다. */
+/** (사용자 메뉴 권한 · 역할 권한 관리 화면) */
+export const EDITS: [string, string, string][] = [
+  ["CONTACT_EDIT", "문의처 안내 편집", "문의처 안내의 연락처를 고칩니다. 교육지원청 담당자는 자기 교육지원청 구역만 고칠 수 있습니다."],
+];

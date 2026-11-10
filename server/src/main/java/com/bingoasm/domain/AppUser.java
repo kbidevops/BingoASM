@@ -40,6 +40,9 @@ public class AppUser {
     /** 로그인 실패 누적으로 잠긴 경우 해제 시각 */
     public LocalDateTime lockedUntil;
     public LocalDateTime passwordChangedAt;
+    /** 임시 비밀번호 (V9): 관리자가 정한 비밀번호. 로그인하면 바꾸게 하고, 본인이 바꾸면 false. */
+    @Column(nullable = false)
+    public Boolean mustChangePassword = false;
     /** ACTIVE / LOCKED / DISABLED */
     @Column(length = 20)
     public String status = "ACTIVE";

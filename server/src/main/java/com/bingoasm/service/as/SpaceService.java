@@ -61,10 +61,11 @@ public class SpaceService {
                 .collect(Collectors.groupingBy(f -> f.buildingId, LinkedHashMap::new, Collectors.toList()));
         Map<Long, Long> roomCounts = rooms.findBySchoolIdAndUseYnOrderByBuildingIdAscFloorIdAscRoomNoAsc(schoolId, "Y").stream()
                 .filter(r -> r.floorId != null).collect(Collectors.groupingBy(r -> r.floorId, Collectors.counting()));
+        Map<Long, Long> deviceCounts = deviceService.placedCounts(fm.values().stream().flatMap(List::stream).map(f -> f.floorId).toList());
         return bs.stream().map(b -> Json.obj().with("buildingId", b.buildingId).with("schoolId", b.schoolId).with("buildingName", b.buildingName)
                 .with("address", b.address).with("floors", fm.getOrDefault(b.buildingId, List.of()).stream().map(f -> Json.obj()
                         .with("floorId", f.floorId).with("floorNo", f.floorNo).with("floorName", f.floorName).with("sortOrder", f.sortOrder)
-                        .with("planUrl", f.planFileId == null ? null : "/files/" + f.planFileId).with("roomCount", roomCounts.getOrDefault(f.floorId, 0L))).toList())).toList();
+                        .with("planUrl", f.planFileId == null ? null : "/files/" + f.planFileId).with("roomCount", roomCounts.getOrDefault(f.floorId, 0L)).with("deviceCount", deviceCounts.getOrDefault(f.floorId, 0L))).toList())).toList();
     }
 
     public Json createBuilding(CurrentUser me, Map<String, Object> b) {
@@ -107,6 +108,24 @@ public class SpaceService {
         for (Room r : rooms.findBySchoolIdAndUseYnOrderByBuildingIdAscFloorIdAscRoomNoAsc(bd.schoolId, "Y")) if (buildingId.equals(r.buildingId)) deleteRoomInternal(me, r);
         deviceService.clearFloors(floors.findByBuildingIdInOrderBySortOrderAsc(List.of(buildingId)).stream().map(f -> f.floorId).toList());
         bd.useYn = "N";
+    }
+
+    /**
+     * 층 삭제: 그 층의 실을 지우고(실에 있던 자산은 위치 해제), 그 층에 놓인 자산 · 장비를 도면에서 뺀 뒤 층(과 도면)을 지운다.
+     * 장비 · 자산 자체는 남는다. 건물 삭제와 같은 규칙.
+     */
+    public void deleteFloor(CurrentUser me, Long floorId) {
+        Floor f = floors.findById(floorId == null ? -1L : floorId).orElseThrow(() -> ApiException.notFound("층을 찾을 수 없습니다."));
+        Building bd = buildings.findById(f.buildingId).filter(x -> x.orgId.equals(me.orgId()) && x.schoolId != null && "Y".equals(x.useYn))
+                .orElseThrow(() -> ApiException.notFound("층을 찾을 수 없습니다."));
+        school(me, bd.schoolId);
+        for (Room r : rooms.findBySchoolIdAndUseYnOrderByBuildingIdAscFloorIdAscRoomNoAsc(bd.schoolId, "Y")) if (floorId.equals(r.floorId)) deleteRoomInternal(me, r);
+        for (Asset a : assets.findAll((root, q, cb) -> cb.equal(root.get("floorId"), floorId))) {
+            a.floorId = null; a.posX = null; a.posY = null;
+            log(a.assetId, "층 삭제로 도면 위치 해제 (" + bd.buildingName + " " + f.floorName + ")", me.userId());
+        }
+        deviceService.clearFloors(List.of(floorId));
+        floors.delete(f);
     }
 
     // ---------- rooms ----------

@@ -46,6 +46,11 @@ public class BoardService {
         if (!me.can(b.readPerm())) throw ApiException.forbidden("권한이 없습니다.");
     }
 
+    /** 교육지원청 담당자가 지역 게시판을 볼 때는 관할 지역만. */
+    private static boolean regionOnly(CurrentUser me, AsCodes.Board b) {
+        return b.hasRegion() && me.scope().region();
+    }
+
     private boolean canModerate(CurrentUser me) {
         return me.can("BOARD_ADMIN");
     }
@@ -88,6 +93,8 @@ public class BoardService {
             p.add(cb.equal(root.get("boardCode"), b.code()));
             p.add(cb.equal(root.get("useYn"), "Y"));
             if (f.regionId() != null) p.add(cb.equal(root.get("regionId"), f.regionId()));
+            // 지역 게시판(컨설팅 · 불용PC · 유지관리업체): 교육지원청 담당자는 관할 지역 글과 지역 없는(도교육청) 글만.
+            if (regionOnly(me, b)) p.add(cb.or(cb.isNull(root.get("regionId")), cb.equal(root.get("regionId"), me.scope().regionId())));
             if (!Params.blank(f.fieldCode())) p.add(cb.equal(root.get("fieldCode"), f.fieldCode()));
             if (!Params.blank(f.categoryCode())) p.add(cb.equal(root.get("categoryCode"), f.categoryCode()));
             if (!Params.blank(f.status())) p.add(cb.equal(root.get("status"), f.status()));
@@ -118,6 +125,7 @@ public class BoardService {
         AsCodes.Board b = board(code);
         checkRead(me, b);
         return posts.findById(id).filter(p -> p.orgId.equals(me.orgId()) && b.code().equals(p.boardCode) && "Y".equals(p.useYn))
+                .filter(p -> !regionOnly(me, b) || p.regionId == null || p.regionId.equals(me.scope().regionId()))
                 .orElseThrow(() -> ApiException.notFound("게시글을 찾을 수 없습니다."));
     }
 

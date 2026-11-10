@@ -6,6 +6,7 @@ import PlaceField, { type PlaceValue } from "@/components/admin/PlaceField";
 import { Confirm, FilterField, FilterForm, LabelSheet, ListHead, StatusDot, Tiles, usePrintSheet } from "@/components/admin/common";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { badgeClass, DEVICE_STATUSES, DEVICE_TYPES, downloadCsv, fetchAll, loadSchools, SCHOOLNET_DEVICE_TYPES, type Device, type DeviceHistoryRow, type Label, type SchoolFull } from "@/lib/admin";
 import { loadRegions } from "@/lib/boards";
 import { fmtDate, fmtDateTime } from "@/lib/format";
@@ -26,6 +27,10 @@ interface Filter {
 export default function NetDevices({ ty }: { ty: "M" | "S" }) {
   const k = KIND[ty];
   const toast = useToast();
+  // 메뉴 안의 기능 권한 (역할 권한 관리 · 사용자 메뉴 권한에서 끌 수 있다)
+  const { can } = useAuth();
+  const F = ty === "M" ? "WDEVICE" : "SDEVICE";
+  const canCreate = can(`${F}_CREATE`), canEdit = can(`${F}_EDIT`), canLabel = can(`${F}_LABEL`);
   const [regions, setRegions] = useState<Region[]>([]);
   const empty: Filter = { regionId: "", deviceType: "", keyword: "" };
   const [draft, setDraft] = useState(empty);
@@ -131,14 +136,14 @@ export default function NetDevices({ ty }: { ty: "M" | "S" }) {
             ...(ty === "S" ? [d.carrier, d.circuitId, d.bandwidth] : []), `${fmtDate(d.installedAt)} / ${fmtDate(d.lastCheckedAt)}`, d.statusName]))}>
           엑셀출력 <Icon name="down" />
         </button>
-        <button className="btn sm sec" type="button" onClick={() => printLabels([...sel])}>QR 라벨 출력{sel.size ? ` (${sel.size})` : ""}</button>
-        <button className="btn sm" type="button" onClick={() => setEdit("new")}>장비 등록</button>
+        {canLabel && <button className="btn sm sec" type="button" onClick={() => printLabels([...sel])}>QR 라벨 출력{sel.size ? ` (${sel.size})` : ""}</button>}
+        {canCreate && <button className="btn sm" type="button" onClick={() => setEdit("new")}>장비 등록</button>}
       </ListHead>
       {relabel && (
         <div className="dv-relabel" role="status">
           <span><b>{relabel.code}</b> 설치위치가 바뀌었습니다. 붙어 있는 라벨에는 예전 위치가 적혀 있습니다. (QR은 그대로 쓸 수 있습니다)</span>
           <span className="dv-relabel-b">
-            <button type="button" className="btn sm" onClick={() => printLabels([relabel.id])}>라벨 다시 출력</button>
+            {canLabel && <button type="button" className="btn sm" onClick={() => printLabels([relabel.id])}>라벨 다시 출력</button>}
             <button type="button" className="btn sm sec" onClick={() => setRelabel(null)}>닫기</button>
           </span>
         </div>
@@ -164,7 +169,7 @@ export default function NetDevices({ ty }: { ty: "M" | "S" }) {
                 {ty === "S" && <td data-label="회선">{line(d)}{d.circuitId && <><br /><small className="hint">{d.circuitId}</small></>}</td>}
                 <td data-label="설치일 / 최근 점검">{fmtDate(d.installedAt)}<br /><small className="hint">{d.lastCheckedAt ? fmtDate(d.lastCheckedAt) + " 점검" : "점검 기록 없음"}</small></td>
                 <td data-label="상태"><StatusDot cls={badgeClass(DEVICE_STATUSES, d.status)} name={d.statusName} /></td>
-                <td data-label="관리"><button className="btn sm sec" type="button" onClick={() => setEdit(d)}>수정</button></td>
+                <td data-label="관리"><button className="btn sm sec" type="button" onClick={() => setEdit(d)}>{canEdit ? "수정" : "보기"}</button></td>
               </tr>
             )) : <tr><td colSpan={head.length + 1}>조회된 장비가 없습니다.</td></tr>}
           </tbody>
@@ -187,6 +192,11 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
 }) {
   const k = KIND[ty];
   const router = useRouter();
+  const { can } = useAuth();
+  const F = ty === "M" ? "WDEVICE" : "SDEVICE";
+  // 수정 기능이 꺼져 있으면 보기만 (등록 창은 등록 기능으로 연다)
+  const readOnly = device ? !can(`${F}_EDIT`) : !can(`${F}_CREATE`);
+  const canDelete = !!device && can(`${F}_DELETE`);
   const [place, setPlace] = useState<PlaceValue | null>(null);
   const [hist, setHist] = useState<DeviceHistoryRow[] | null>(null);
   const [schools, setSchools] = useState<SchoolFull[]>([]);
@@ -241,8 +251,9 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
   };
 
   return (
-    <Modal title={device ? `장비 수정 · ${device.deviceCode}` : "장비 등록"} wide onClose={onClose}>
+    <Modal title={device ? `${readOnly ? "장비 정보" : "장비 수정"} · ${device.deviceCode}` : "장비 등록"} wide onClose={onClose}>
       <form className="ft2" noValidate onSubmit={save}>
+        <fieldset className="ft-fs" disabled={readOnly}>
         <table className="ftab"><tbody>
           <FormRow label="학교" required>
             <select aria-label="학교" value={v.schoolId} onChange={set("schoolId")}>
@@ -283,6 +294,7 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
           </FormRow>
           <FormRow label="비고"><textarea className="ta" aria-label="비고" value={v.note} onChange={set("note")} /></FormRow>
         </tbody></table>
+        </fieldset>
         {device && hist && hist.length > 0 && (
           <details className="dv-hist">
             <summary>위치 변경 기록 <span className="fpv-count">{hist.length}</span></summary>
@@ -291,11 +303,11 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
         )}
         <FormMsg kind={msg ? "bad" : undefined} text={msg} />
         <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-          {device && <button type="button" className="btn sm sec" onClick={() => setDel(true)}>삭제</button>}
-          <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
-          <button type="submit" className="btn sm" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
+          {canDelete && <button type="button" className="btn sm sec" onClick={() => setDel(true)}>삭제</button>}
+          <button type="button" className="btn sm sec" onClick={onClose}>{readOnly ? "닫기" : "취소"}</button>
+          {!readOnly && <button type="submit" className="btn sm" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>}
         </div>
-        {del && <Confirm text={`${device!.deviceCode} 장비를 삭제할까요?${ty === "M" ? " 이 장비로 접수된 AS 기록은 그대로 남습니다." : ""}`} onYes={remove} onNo={() => setDel(false)} busy={busy} />}
+        {del && <Confirm text={`${device!.deviceCode} 장비를 삭제할까요? 이 장비로 접수된 AS 기록은 그대로 남습니다. 처리 중인 AS(신청완료 · 접수완료)가 있으면 삭제할 수 없습니다.`} onYes={remove} onNo={() => setDel(false)} busy={busy} />}
       </form>
     </Modal>
   );

@@ -21,7 +21,8 @@ export default function SpacesPage() {
 type Dialog =
   | { kind: "building" }
   | { kind: "floor"; building: Building }
-  | { kind: "delBuilding"; building: Building };
+  | { kind: "delBuilding"; building: Building }
+  | { kind: "delFloor"; building: Building; floor: Building["floors"][number] };
 
 function Spaces() {
   const toast = useToast();
@@ -31,6 +32,8 @@ function Spaces() {
   const [err, setErr] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const plans = can("WDEVICE_MANAGE");
+  // 건물 · 층 추가 · 삭제 기능 (역할 권한 관리에서 끌 수 있다)
+  const canBuild = can("SPACE_BUILDING");
 
   const load = useCallback(() => {
     if (!schoolId) return;
@@ -55,19 +58,23 @@ function Spaces() {
             ["층", `${floors.length}`, "개"],
             ["도면이 있는 층", `${floors.filter((f) => f.planUrl).length}`, `/${floors.length}`],
           ]} />
-          <div className="atool sp-tool">
-            <ToolButton icon={<Icon name="school" />} label="+ 건물 추가" onClick={() => setDialog({ kind: "building" })} />
-          </div>
-          {!blds.length && <p className="empty">등록된 건물이 없습니다. ‘+ 건물 추가’로 시작하세요.</p>}
+          {canBuild && (
+            <div className="atool sp-tool">
+              <ToolButton icon={<Icon name="school" />} label="+ 건물 추가" onClick={() => setDialog({ kind: "building" })} />
+            </div>
+          )}
+          {!blds.length && <p className="empty">등록된 건물이 없습니다.{canBuild ? " ‘+ 건물 추가’로 시작하세요." : ""}</p>}
           {blds.map((b) => (
             <section key={b.buildingId} className="sp-b">
               <div className="sp-bh">
                 <h3>{b.buildingName}</h3>
                 <span className="hint">{b.floors.length ? `${b.floors.length}개 층` : "층 없음"}{b.address ? ` · ${b.address}` : ""}</span>
-                <span className="sp-bt">
-                  <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "floor", building: b })}>층 추가</button>{" "}
-                  <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "delBuilding", building: b })}>건물 삭제</button>
-                </span>
+                {canBuild && (
+                  <span className="sp-bt">
+                    <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "floor", building: b })}>층 추가</button>{" "}
+                    <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "delBuilding", building: b })}>건물 삭제</button>
+                  </span>
+                )}
               </div>
               <ul className="sp-floors">
                 {b.floors.map((f) => (
@@ -75,6 +82,7 @@ function Spaces() {
                     <b>{f.floorName}</b>
                     <span className={f.planUrl ? "ok" : "warn"}>{f.planUrl ? "도면 있음" : "도면 없음"}</span>
                     {plans && <Link className="linkbtn" href={`/admin/floorplan?building=${b.buildingId}&floor=${f.floorId}`}>{f.planUrl ? "도면 보기" : "도면 올리기"}</Link>}
+                    {canBuild && <button type="button" className="linkbtn sp-del" aria-label={`${b.buildingName} ${f.floorName} 삭제`} onClick={() => setDialog({ kind: "delFloor", building: b, floor: f })}>삭제</button>}
                   </li>
                 ))}
               </ul>
@@ -129,15 +137,31 @@ function SpaceDialog({ dialog, schoolId, onClose, onSaved }: {
           await api.del(`/api/as/spaces/buildings/${dialog.building.buildingId}`);
           return "건물을 삭제했습니다.";
         });
+      case "delFloor":
+        return run(async () => {
+          await api.del(`/api/as/spaces/floors/${dialog.floor.floorId}`);
+          return `${dialog.building.buildingName} ${dialog.floor.floorName}을(를) 삭제했습니다.`;
+        });
     }
   };
 
-  const title = { building: "건물 추가", floor: "층 추가", delBuilding: "건물 삭제" }[dialog.kind];
+  const title = { building: "건물 추가", floor: "층 추가", delBuilding: "건물 삭제", delFloor: "층 삭제" }[dialog.kind];
+  const del = dialog.kind === "delBuilding" || dialog.kind === "delFloor";
   return (
     <Modal title={title} onClose={onClose}>
       <form className="ft2" noValidate onSubmit={submit}>
         {dialog.kind === "delBuilding" ? (
           <p>{dialog.building.buildingName}과(와) 그 안의 층·도면을 삭제합니다. 도면에 놓인 무선장비는 도면에서 빠지고 장비는 그대로 남습니다. 계속할까요?</p>
+        ) : dialog.kind === "delFloor" ? (
+          <div className="sp-delq">
+            <p><b>{dialog.building.buildingName} {dialog.floor.floorName}</b>을(를) 삭제할까요?</p>
+            <ul>
+              <li>{dialog.floor.planUrl ? "이 층의 도면도 함께 삭제됩니다." : "이 층에는 도면이 없습니다."}</li>
+              {(dialog.floor.deviceCount ?? 0) > 0 && <li>도면에 놓인 장비 <b>{dialog.floor.deviceCount}대</b>는 도면에서 빠집니다 (장비는 그대로 남습니다).</li>}
+              {dialog.floor.roomCount > 0 && <li>이 층의 실 <b>{dialog.floor.roomCount}개</b>가 삭제되고, 실에 있던 자산은 위치 미지정이 됩니다.</li>}
+            </ul>
+            <small className="hint">되돌릴 수 없습니다. 같은 층은 ‘층 추가’로 다시 만들 수 있습니다.</small>
+          </div>
         ) : (
           <table className="ftab"><tbody>
             {dialog.kind === "building" && (
@@ -161,7 +185,7 @@ function SpaceDialog({ dialog, schoolId, onClose, onSaved }: {
         <FormMsg kind={msg ? "bad" : undefined} text={msg} />
         <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
           <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
-          <button type="submit" className="btn sm" disabled={busy}>{busy ? "처리 중…" : dialog.kind === "delBuilding" ? "삭제" : "저장"}</button>
+          <button type="submit" className={"btn sm" + (del ? " danger" : "")} disabled={busy}>{busy ? "처리 중…" : del ? "삭제" : "저장"}</button>
         </div>
       </form>
     </Modal>

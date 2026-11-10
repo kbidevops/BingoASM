@@ -98,8 +98,10 @@ function Contacts() {
   const query = q.trim();
   const section =
     tab === "edu" ? edu : districts.find((d) => d.regionName === region);
+  // 문의처 편집 권한(CONTACT_EDIT, 사용자 메뉴 권한에서 끌 수 있음) + 구역: 도교육청은 전부, 교육지원청은 자기 구역만.
   const canEdit = (g?: ContactGroup) =>
     !!g &&
+    !!me?.permissions?.includes("CONTACT_EDIT") &&
     (isAdmin(me) ||
       (isRegionAdmin(me) && g.regionId != null && g.regionId === me?.regionId));
 

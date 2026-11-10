@@ -271,7 +271,7 @@ public class AsRequestService {
     /** 동작 → 그 동작을 여는 처리 기능 권한. 여기 없는 동작(방문·보고서·평가·배정·수정)은 기존 조건만 본다. */
     private static final Map<String, String> ACTION_PERM = Map.of(
             "receive", "AS_RECEIVE", "return", "AS_RETURN", "return-cancel", "AS_RETURN", "transfer", "AS_TRANSFER",
-            "cancel", "AS_CANCEL", "delete", "AS_DELETE");
+            "cancel", "AS_CANCEL", "delete", "AS_DELETE", "assign", "AS_ASSIGN", "visit", "AS_VISIT", "report", "AS_REPORT");
 
     /** 현재 상태와 권한으로 지금 할 수 있는 동작. 화면의 버튼 표시용. */
     public List<String> allowedActions(CurrentUser me, AsRequest r) {

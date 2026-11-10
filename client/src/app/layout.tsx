@@ -5,6 +5,7 @@ import ScrollTop from "@/components/ScrollTop";
 import SiteHeader from "@/components/SiteHeader";
 import { ToastProvider } from "@/components/ui";
 import { AuthProvider } from "@/lib/auth";
+import PasswordChangeGate from "@/components/PasswordChangeGate";
 import { ScrapProvider } from "@/lib/scraps";
 import "./globals.css";
 
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ToastProvider>
               <SiteHeader />
               {children}
+              <PasswordChangeGate />
               <footer className="ft">
                 <div className="wrap">
                   <p><b><a href="https://www.cne.go.kr" target="_blank" rel="noopener">개인정보처리방침</a></b></p>

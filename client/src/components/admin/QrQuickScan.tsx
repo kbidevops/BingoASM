@@ -31,6 +31,7 @@ export default function QrQuickScan({ onClose }: { onClose: () => void }) {
     setMsg("");
     try {
       const r = await api.post<Resolve>("/api/qr/resolve", { text });
+      if (r.type === "ASSET" && r.state === "OUT_OF_SCOPE") return setMsg(r.message ?? "담당 범위 밖 학교의 자산입니다.");
       if (r.type === "ASSET" && r.assetNo) {
         // 찍자마자 어디 있는 자산인지 알려 주고, 상세(위치 카드)로 간다.
         if (r.location?.path) toast(`${r.assetNo} · ${r.location.path}`);

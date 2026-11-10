@@ -546,7 +546,7 @@ check("qr resolve asset: location 학교·건물·층·실", loc.get("schoolName
       and loc.get("roomName") == "컴퓨터실" and loc.get("complete") is True and loc.get("path", "").startswith("봉황초등학교 › 본관 › 2층 › 컴퓨터실"), loc)
 st, j, _ = call("GET", f"/api/assets/{a1['assetId']}", token=S); check("asset detail: same location", st == 200 and data((st, j, None)).get("location", {}).get("path") == loc.get("path"), j)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/a/{a1['assetNo']}"}, token=S2); rz2 = data((st, j, None))
-check("qr resolve: other school's asset → no location", st == 200 and rz2["state"] == "REGISTERED" and rz2.get("location") is None, rz2)
+check("qr resolve: other school's asset → OUT_OF_SCOPE, no name or location", st == 200 and rz2["state"] == "OUT_OF_SCOPE" and rz2.get("location") is None and "assetName" not in rz2, rz2)
 # 실을 바꾸면 건물·층도 그 실을 따라간다
 st, j, _ = call("PUT", f"/api/assets/{a1['assetId']}", {"roomId": nr["roomId"]}, token=S)
 st, j, _ = call("GET", f"/api/assets/{a1['assetId']}", token=S); ad = data((st, j, None)) or {}
@@ -664,8 +664,8 @@ st, j, _ = call("GET", f"/api/assets?schoolId={oc['schoolId']}&size=1", token=R)
 st, j, _ = call("GET", "/api/assets?size=500", token=R); ra = data((st, j, None))
 check("region admin: assets only in district", st == 200 and ra["totalElements"] >= 1 and all(x["schoolId"] in {y["schoolId"] for y in rs} for x in ra["content"]), j)
 st, j, _ = call("GET", f"/api/as/wireless-devices?size=200", token=R); check("region admin: devices only in district", st == 200 and all(x["regionName"] == "천안" for x in data((st, j, None))["content"]), j)
-st, j, _ = call("GET", "/api/as/stats/monthly", token=R); ms = data((st, j, None))
-check("region admin: stats count only district", st == 200 and 0 < ms["total"]["count"] <= rl["totalElements"], j)
+st, j, _ = call("GET", "/api/as/stats/monthly", token=R); check("region admin: no AS통계관리 → 403", st == 403, j)
+check("region admin: /me has no AS_STATS", "AS_STATS" not in data(call("GET", "/api/auth/me", token=R))["permissions"])
 st, j, _ = call("GET", "/api/as/vendors", token=R); check("region admin: can read vendors (for school mapping)", st == 200, j)
 st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "x", "serviceTypes": "C"}, token=R); check("region admin: vendor create → 403", st == 403, j)
 own = rl["content"][0]
@@ -778,14 +778,16 @@ st, j, _ = call("GET", f"/api/users/{s2id}/menu-perms", token=S); check("menu-pe
 st, j, _ = call("GET", f"/api/users/{s2id}/menu-perms", token=A); mp = data((st, j, None))
 check("menu-perms: base has BOARD_QNA, no overrides", st == 200 and "BOARD_QNA" in mp["base"] and not mp["granted"] and not mp["denied"], j)
 st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": ["USER_WRITE"]}, token=A); check("menu-perms: non-menu perm → 400", st == 400, j)
-st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": ["AS_STATS", "BOARD_QNA"], "denied": ["BOARD_QNA", "VENDOR_MANAGE"]}, token=A)
+st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": ["AS_MANAGE", "BOARD_QNA"], "denied": ["BOARD_QNA", "VENDOR_MANAGE"]}, token=A)
 check("menu-perms: same perm shown and hidden → 400", st == 400, j)
-st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": ["AS_STATS", "BOARD_NOTICE"], "denied": ["BOARD_QNA", "VENDOR_MANAGE"]}, token=A); mp = data((st, j, None))
-check("menu-perms: no-op overrides dropped", st == 200 and mp["granted"] == ["AS_STATS"] and mp["denied"] == ["BOARD_QNA"], j)
+st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": ["AS_STATS"]}, token=A); check("menu-perms: AS통계관리 to a school user → 400", st == 400 and "AS통계관리" in (msg((st, j, None)) or ""), j)
+check("menu-perms: school user's AS통계관리 listed as blocked", "AS_STATS" in data(call("GET", f"/api/users/{s2id}/menu-perms", token=A)).get("blocked", []))
+st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": ["AS_MANAGE", "BOARD_NOTICE"], "denied": ["BOARD_QNA", "VENDOR_MANAGE"]}, token=A); mp = data((st, j, None))
+check("menu-perms: no-op overrides dropped", st == 200 and mp["granted"] == ["AS_MANAGE"] and mp["denied"] == ["BOARD_QNA"], j)
 st, j, _ = call("GET", "/api/auth/me", token=S2); p2 = data((st, j, None))["permissions"]
-check("menu-perms: /me reflects show/hide", "AS_STATS" in p2 and "BOARD_QNA" not in p2, p2)
+check("menu-perms: /me reflects show/hide", "AS_MANAGE" in p2 and "BOARD_QNA" not in p2, p2)
 st, j, _ = call("GET", "/api/as/boards/QNA", token=S2); check("menu-perms: hidden menu's API → 403", st == 403, j)
-st, j, _ = call("GET", "/api/as/stats/monthly", token=S2); check("menu-perms: shown menu's API → 200", st == 200, j)
+st, j, _ = call("GET", "/api/as/requests/summary", token=S2); check("menu-perms: shown menu's API → 200", st == 200, j)
 st, j, _ = call("PUT", f"/api/users/{s2id}/menu-perms", {"granted": [], "denied": []}, token=A)
 st2, j2, _ = call("GET", "/api/as/boards/QNA", token=S2); check("menu-perms: reset restores role default", st == 200 and st2 == 200, (j, j2))
 
@@ -859,7 +861,7 @@ st2, j2, _ = call("GET", "/api/auth/me", token=S); check("as-services: turning �
 
 # ---------- 통합관리 메뉴를 학교·기사·교육지원청에 줘도 범위가 넓어지지 않는다 ----------
 print("\n== 통합관리 메뉴 범위")
-MGMT = ["AS_MANAGE", "AS_STATS", "WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE"]
+MGMT = ["AS_MANAGE", "WDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE"]
 s2id_, nid_, rid_ = uid("school02"), uid("netengineer"), uid("regionadmin")
 st, j, _ = call("GET", "/api/as/schools", token=A); all_sc = data((st, j, None))
 st, j, _ = call("GET", "/api/as/vendors", token=A); hanbit = next(v for v in data((st, j, None)) if v["vendorName"] == "한빛네트웍스")
@@ -1128,6 +1130,398 @@ st, j, _ = call("DELETE", f"/api/as/regions/{dr['regionId']}", token=E); check("
 st, j, _ = call("PUT", f"/api/as/contacts/sections/{dr['regionId']}", [], token=E); check("regions: removed from 문의처", st == 200 and not any(g.get("regionId") == dr["regionId"] for g in data((st, j, None))), j)
 st, j, _ = call("GET", "/api/as/regions/usage", token=E); check("regions: deleted region gone", not any(x["regionId"] == dr["regionId"] for x in data((st, j, None))), j)
 call("DELETE", f"/api/as/vendors/{dv['vendorId']}", token=A)
+
+# ---------- 역할 권한 관리 (/api/org/role-perms, V8) ----------
+def perms_of(tok):
+    return set(data(call("GET", "/api/auth/me", token=tok))["permissions"])
+for who, tok in (("교육청", E), ("학교", S), ("기사", N)):
+    st, j, _ = call("GET", "/api/org/role-perms", token=tok); check(f"role-perms: {who} → 403", st == 403, j)
+st, j, _ = call("GET", "/api/org/role-perms", token=A); rp = data((st, j, None))
+rp_roles = {r["role"]: r for r in rp["roles"]}
+check("role-perms: six roles in order", st == 200 and [r["role"] for r in rp["roles"]] == ["SCHOOL_USER", "AS_ENGINEER", "VENDOR_ADMIN", "EDU_ADMIN", "REGION_ADMIN", "SYS_ADMIN"], j)
+check("role-perms: starts at defaults", all(not r["granted"] and not r["denied"] for r in rp["roles"]), j)
+check("role-perms: engineer's vendor-typed menus listed", "AS_M_REQUEST" in rp_roles["AS_ENGINEER"]["vendorTyped"] and "AS_C_VIEW" not in rp_roles["AS_ENGINEER"]["vendorTyped"], rp_roles["AS_ENGINEER"])
+check("role-perms: user counts", rp_roles["SCHOOL_USER"]["userCount"] >= 2 and rp_roles["EDU_ADMIN"]["userCount"] >= 1, rp_roles)
+check("role-perms: school limits explained", "SCHOOL_MANAGE" in rp_roles["SCHOOL_USER"]["limits"], rp_roles["SCHOOL_USER"]["limits"])
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SUPER_ADMIN": {"granted": []}}}, token=A); check("role-perms: unmanaged role → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"granted": ["USER_WRITE"]}}}, token=A); check("role-perms: non-adjustable perm → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"granted": ["AS_STATS"], "denied": ["AS_STATS"]}}}, token=A); check("role-perms: on and off together → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {}}, token=A); check("role-perms: empty → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"granted": ["AS_STATS"]}}}, token=E); check("role-perms: 교육청 cannot save → 403", st == 403, j)
+
+sch1 = data(call("GET", "/api/auth/me", token=S))["schoolId"]
+st, j, _ = call("GET", f"/api/as/wireless-devices/places?schoolId={sch1}", token=S); check("role-perms: school has no 무선장비관리 by default → 403", st == 403, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"granted": ["WDEVICE_MANAGE", "BOARD_NOTICE", "AS_DELETE"], "denied": ["BOARD_QNA", "AS_STATS"]}}}, token=A)
+r1 = {r["role"]: r for r in data((st, j, None))["roles"]}["SCHOOL_USER"]
+check("role-perms: saved, no-ops and action grants dropped", st == 200 and r1["granted"] == ["WDEVICE_MANAGE"] and r1["denied"] == ["BOARD_QNA"], r1)
+p = perms_of(S); p2 = perms_of(S2)
+check("role-perms: every school user gets the change", all("WDEVICE_MANAGE" in x and "BOARD_QNA" not in x and "AS_DELETE" not in x for x in (p, p2)), (p, p2))
+st, j, _ = call("GET", f"/api/as/wireless-devices/places?schoolId={sch1}", token=S); check("role-perms: turned-on menu's API → 200", st == 200, j)
+st, j, _ = call("GET", "/api/as/boards/QNA", token=S); check("role-perms: turned-off menu's API → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/boards/QNA", token=R); check("role-perms: other roles untouched", st == 200, j)
+s1id = uid("school01")
+mp = data(call("GET", f"/api/users/{s1id}/menu-perms", token=A))
+check("role-perms: user page base follows the role", "WDEVICE_MANAGE" in mp["base"] and "BOARD_QNA" not in mp["base"], mp["base"])
+call("PUT", f"/api/users/{s1id}/menu-perms", {"granted": ["BOARD_QNA"]}, token=A)
+check("role-perms: per-user override still applies on top", "BOARD_QNA" in perms_of(S) and "BOARD_QNA" not in perms_of(S2))
+call("PUT", f"/api/users/{s1id}/menu-perms", {}, token=A)
+
+pn = perms_of(N)
+check("role-perms: engineer has vendor menus before", "AS_M_REQUEST" in pn and "AS_RECEIVE" in pn, pn)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"AS_ENGINEER": {"granted": ["BOARD_NOTICE"], "denied": ["AS_M_REQUEST", "AS_RECEIVE"]}}}, token=A)
+check("role-perms: engineer saved", st == 200, j)
+pn = perms_of(N); pv = perms_of(V)
+check("role-perms: engineer loses vendor menu and 접수, gets 공지", "AS_M_REQUEST" not in pn and "AS_M_VIEW" in pn and "AS_RECEIVE" not in pn and "BOARD_NOTICE" in pn, pn)
+check("role-perms: 업체 관리자 (own role) unchanged", "AS_M_REQUEST" in pv and "AS_RECEIVE" in pv, pv)
+check("role-perms: saving one role keeps the others", "WDEVICE_MANAGE" in perms_of(S))
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {}, "AS_ENGINEER": {}}}, token=A)
+check("role-perms: back to defaults", st == 200 and all(not r["granted"] and not r["denied"] for r in data((st, j, None))["roles"]), j)
+pn = perms_of(N); p = perms_of(S)
+check("role-perms: defaults restored", "AS_M_REQUEST" in pn and "AS_RECEIVE" in pn and "BOARD_NOTICE" not in pn and "BOARD_QNA" in p and "WDEVICE_MANAGE" not in p, (pn, p))
+
+# ---------- 문의처 편집 권한 (CONTACT_EDIT) ----------
+check("contact-edit: 교육청 · 교육지원청 · 관리자 have it", all("CONTACT_EDIT" in perms_of(x) for x in (E, R, A)))
+check("contact-edit: 학교 · 기사 don't", all("CONTACT_EDIT" not in perms_of(x) for x in (S, N)))
+r_me = data(call("GET", "/api/auth/me", token=R)); rid_c = r_me["regionId"]
+cur = next(g for g in data(call("GET", "/api/as/contacts", token=R)) if g.get("regionId") == rid_c)
+rows_c = [{"groupName": g["groupName"], **{k: it.get(k) for k in ("itemName", "tel", "note", "duties")}} for g in cur["groups"] for it in g["items"]]
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{rid_c}", rows_c, token=R); check("contact-edit: 교육지원청 edits own section", st == 200, j)
+st, j, _ = call("PUT", "/api/as/contacts", [], token=R); check("contact-edit: 교육지원청 cannot replace all → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{rid_c}", rows_c, token=S); check("contact-edit: 학교 → 403", st == 403, j)
+mp = data(call("GET", f"/api/users/{uid('regionadmin')}/menu-perms", token=A))
+check("contact-edit: listed on 사용자 메뉴 권한", mp.get("editPerms") == ["CONTACT_EDIT"] and "CONTACT_EDIT" in mp["base"], mp)
+st, j, _ = call("PUT", f"/api/users/{uid('regionadmin')}/menu-perms", {"denied": ["CONTACT_EDIT"]}, token=A); check("contact-edit: turned off for one user", st == 200 and data((st, j, None))["denied"] == ["CONTACT_EDIT"], j)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{rid_c}", rows_c, token=R); check("contact-edit: off → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/contacts", token=R); check("contact-edit: off still reads 문의처", st == 200, j)
+call("PUT", f"/api/users/{uid('regionadmin')}/menu-perms", {}, token=A)
+st, j, _ = call("PUT", f"/api/as/contacts/sections/{rid_c}", rows_c, token=R); check("contact-edit: back on", st == 200, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["CONTACT_EDIT"]}, "SCHOOL_USER": {"granted": ["CONTACT_EDIT"]}}}, token=A)
+r_e = {r["role"]: r for r in data((st, j, None))["roles"]}
+check("contact-edit: role page turns it off, cannot grant", st == 200 and r_e["EDU_ADMIN"]["denied"] == ["CONTACT_EDIT"] and not r_e["SCHOOL_USER"]["granted"], j)
+st, j, _ = call("PUT", "/api/as/contacts/sections/province", [], token=E); check("contact-edit: 교육청 role off → 403", st == 403, j)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {}, "SCHOOL_USER": {}}}, token=A)
+check("contact-edit: 교육청 role restored", "CONTACT_EDIT" in perms_of(E))
+
+# ---------- 교육지원청 담당자는 관할 지역만 (regionadmin = 천안, 관외 = 솔빛고등학교 6 · 보령 3) ----------
+_sl = data(call("GET", "/api/as/schools?size=500", token=E))
+out_s = next(x for x in (_sl.get("content", _sl) if isinstance(_sl, dict) else _sl) if x["schoolName"] == "솔빛고등학교")
+OS, OR = out_s["schoolId"], out_s["regionId"]
+ob = data(call("POST", "/api/as/spaces/buildings", {"schoolId": OS, "buildingName": "관외본관", "floorCount": 1}, token=E))
+ofl = ob["floors"][0]
+owd = data(call("POST", "/api/as/wireless-devices", {"schoolId": OS, "deviceCode": "AP-OUT-001", "deviceName": "관외 AP"}, token=E))
+osd = data(call("POST", "/api/as/schoolnet-devices", {"schoolId": OS, "deviceName": "관외 라우터", "deviceType": "ROUTER"}, token=E))
+ocat = [c for c in data(call("GET", "/api/assets/categories", token=E)) if not c.get("children")][-1]
+oa = data(call("POST", "/api/assets", {"assetType": "HW", "categoryId": ocat["categoryId"], "assetName": "관외 PC", "schoolId": OS, "acquiredAt": "2020-03-01"}, token=E))
+oa = oa if isinstance(oa, dict) else data(call("GET", f"/api/assets/{oa}", token=E))
+ov = data(call("POST", "/api/as/vendors", {"vendorName": "관외전용업체", "serviceTypes": ["M"], "allRegions": False, "regions": [{"regionId": OR}]}, token=E))
+call("POST", "/api/users", {"loginId": "outschool1", "userName": "관외담당", "password": "Outside!2026xy", "roles": ["SCHOOL_USER"], "schoolId": OS}, token=E)
+OSU = login("outschool1", "Outside!2026xy")
+op = data(call("POST", "/api/as/boards/CONSULT", {"title": "관외 컨설팅 신청", "content": "본문"}, token=OSU))
+J = lambda x: json.dumps(x, ensure_ascii=False, default=str)
+# 이미 막혀 있던 것 (회귀 방지)
+for label, path in (("school", f"/api/as/schools/{OS}"), ("wireless list", f"/api/as/wireless-devices?schoolId={OS}"),
+                    ("wireless history", f"/api/as/wireless-devices/{owd['deviceId']}/history"), ("schoolnet list", f"/api/as/schoolnet-devices?schoolId={OS}"),
+                    ("spaces", f"/api/as/spaces/buildings?schoolId={OS}"), ("floor", f"/api/places/floors/{ofl['floorId']}"),
+                    ("asset", f"/api/assets/{oa['assetId']}"), ("inventory", f"/api/as/inventory?schoolId={OS}"), ("providers", f"/api/as/contacts/providers?schoolId={OS}")):
+    st, j, _ = call("GET", path, token=R); check(f"region scope: {label} of another district → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{owd['deviceId']}", {"deviceName": "x"}, token=R); check("region scope: edit another district's device → 403", st == 403, j)
+st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": OS, "deviceCode": "AP-OUT-009", "deviceName": "x"}, token=R); check("region scope: register device in another district → 403", st == 403, j)
+st, j, _ = call("POST", "/api/as/schools", {"schoolName": "관외신설학교", "regionId": OR, "schoolType": "ELEM"}, token=R); check("region scope: create school in another district → 403", st == 403, j)
+st2, j2, _ = call("GET", f"/api/as/stats/monthly?regionId={OR}", token=R)
+check("region scope: no stats at all for 교육지원청 → 403", st2 == 403, j2)
+# 이번에 막은 것
+st, j, _ = call("GET", "/api/places/buildings", token=R); check("region scope: legacy building list hides other districts", st == 200 and "관외본관" not in J(j), j)
+st, j, _ = call("GET", "/api/places/buildings", token=E); check("region scope: 도교육청 still sees every building", "관외본관" in J(j), j)
+st, j, _ = call("POST", "/api/places/floors", {"buildingId": ob["buildingId"], "floorNo": 9}, token=R); check("region scope: legacy floor in another district → 403", st == 403, j)
+st, j, _ = call("POST", "/api/places/buildings", {"buildingName": "공용건물"}, token=R); check("region scope: legacy org-wide building → 403", st == 403, j)
+st, j, _ = call("GET", f"/api/assets/by-no/{oa['assetNo']}", token=R); d = data((st, j, None))
+check("region scope: asset label of another district → OUT_OF_SCOPE, no name", st == 200 and d["state"] == "OUT_OF_SCOPE" and "assetName" not in d and "assetId" not in d, d)
+st, j, _ = call("POST", "/api/qr/resolve", {"text": oa["assetNo"]}, token=S); check("region scope: school scanning another school's label → OUT_OF_SCOPE", data((st, j, None))["state"] == "OUT_OF_SCOPE", j)
+st, j, _ = call("GET", f"/api/assets/by-no/{oa['assetNo']}", token=E); check("region scope: 도교육청 resolves it", data((st, j, None))["state"] == "REGISTERED", j)
+st, j, _ = call("POST", "/api/qr/labels", {"assetIds": [oa["assetId"]]}, token=R); check("region scope: labels for another district's asset → 400", st == 400, j)
+st, j, _ = call("GET", "/api/as/vendors", token=R); check("region scope: 업체 list hides other districts' 업체", st == 200 and "관외전용업체" not in J(j) and len(data((st, j, None))) >= 1, j)
+st, j, _ = call("GET", f"/api/as/vendors?regionId={OR}", token=R); check("region scope: asking for another district's 업체 → empty", st == 200 and data((st, j, None)) == [], j)
+st, j, _ = call("GET", f"/api/as/vendors/{ov['vendorId']}/engineers", token=R); check("region scope: engineers of another district's 업체 → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/vendors/1/engineers", token=R); check("region scope: engineers of an all-region 업체 → 200", st == 200, j)
+st, j, _ = call("GET", "/api/as/vendors", token=E); check("region scope: 도교육청 sees every 업체", "관외전용업체" in J(j), j)
+st, j, _ = call("GET", "/api/as/boards/CONSULT?size=100", token=R); check("region scope: 컨설팅 신청 hides other districts", st == 200 and "관외 컨설팅 신청" not in J(j), j)
+st, j, _ = call("GET", f"/api/as/boards/CONSULT/{op['postId']}", token=R); check("region scope: another district's 컨설팅 post → 404", st == 404, j)
+st, j, _ = call("GET", "/api/as/boards/CONSULT?size=100", token=E); check("region scope: 도교육청 sees every 컨설팅 post", "관외 컨설팅 신청" in J(j), j)
+st, j, _ = call("GET", f"/api/as/boards/CONSULT/{op['postId']}", token=OSU); check("region scope: the writer still sees own post", st == 200, j)
+call("DELETE", f"/api/as/boards/CONSULT/{op['postId']}", token=E)
+call("DELETE", f"/api/as/vendors/{ov['vendorId']}", token=A)
+call("DELETE", f"/api/as/wireless-devices/{owd['deviceId']}", token=E); call("DELETE", f"/api/as/schoolnet-devices/{osd['deviceId']}", token=E)
+
+# ---------- 학교 담당자에게 통합관리(장애접수관리 · AS통계관리)를 줘도 자기 학교만, 계약 · 예산은 안 보인다 ----------
+s2u = uid("school02")
+st, j, _ = call("PUT", f"/api/users/{s2u}/menu-perms", {"granted": ["AS_MANAGE", "AS_STATS"]}, token=A); check("school+통합관리: AS통계관리 refused → 400", st == 400, j)
+st, j, _ = call("PUT", f"/api/users/{s2u}/menu-perms", {"granted": ["AS_MANAGE"]}, token=A); check("school+통합관리: 장애접수관리 granted", st == 200, j)
+lim = data(call("GET", f"/api/users/{s2u}/menu-perms", token=A))["limits"]
+check("school+통합관리: limits explained", "AS_MANAGE" in lim and "AS_STATS" not in lim, lim)
+s2school = data(call("GET", "/api/auth/me", token=S2))["schoolId"]
+st, rows = all_rows("/api/as/requests?size=500", S2)
+check("school+AS_MANAGE: AS list = own school only", st == 200 and rows and all(x["schoolId"] == s2school for x in rows), st)
+st, rows_all = all_rows("/api/as/requests?size=500", E)
+other_req = next(x for x in rows_all if x["schoolId"] != s2school and x["status"] != "C")
+st, j, _ = call("GET", f"/api/as/requests/{other_req['asvcSn']}", token=S2); check("school+AS_MANAGE: other school's AS → 404", st == 404, j)
+own_req = rows[0]
+acts = data(call("GET", f"/api/as/requests/{own_req['asvcSn']}", token=S2))["allowedActions"]
+check("school+AS_MANAGE: no 배정 · 삭제 · 접수 buttons", not ({"assign", "delete", "receive", "return", "transfer"} & set(acts)), acts)
+st, j, _ = call("DELETE", f"/api/as/requests/{own_req['asvcSn']}", token=S2); check("school+AS_MANAGE: delete → refused", st in (403, 409), j)
+se = data(call("GET", "/api/as/stats/monthly", token=E))
+check("stats: 도교육청 sees contract cost", se["total"]["contractCost"] > 0 and se.get("budget") is not None, se["total"])
+st, j, _ = call("GET", "/api/as/stats/monthly", token=S2); check("stats: school with 장애접수관리 still has no 통계 → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/stats/monthly", token=V); check("stats: 업체 관리자 keeps 통계", st == 200, j)
+
+# AS통계관리는 학교 · 교육지원청에 줄 수 없다 — 역할 권한 관리 · 예전 조정
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"granted": ["AS_STATS"]}}}, token=A); check("stats block: role page refuses 교육지원청 → 400", st == 400 and "AS통계관리" in (msg((st, j, None)) or ""), j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"granted": ["AS_STATS"]}}}, token=A); check("stats block: role page refuses 학교 → 400", st == 400, j)
+rr = {r["role"]: r for r in data(call("GET", "/api/org/role-perms", token=A))["roles"]}
+check("stats block: role page marks it blocked", rr["SCHOOL_USER"]["blocked"] == ["AS_STATS"] and rr["REGION_ADMIN"]["blocked"] == ["AS_STATS"] and not rr["EDU_ADMIN"]["blocked"], rr)
+check("stats block: 교육지원청 default no longer has it", "AS_STATS" not in rr["REGION_ADMIN"]["defaults"], rr["REGION_ADMIN"]["defaults"])
+st, j, _ = call("GET", "/api/as/stats/monthly", token=R); check("stats block: 교육지원청 → 403", st == 403, j)
+call("PUT", f"/api/users/{s2u}/menu-perms", {}, token=A)
+
+# ---------- 사용자 일괄 등록 (/api/users/bulk) ----------
+import zipfile
+from xml.sax.saxutils import escape as _x
+def make_xlsx(rows):
+    """Smallest valid .xlsx (inline strings) — no openpyxl needed."""
+    def col(i):
+        s = ""
+        i += 1
+        while i:
+            i, r = divmod(i - 1, 26); s = chr(65 + r) + s
+        return s
+    sheet = "".join(f'<row r="{ri+1}">' + "".join(f'<c r="{col(ci)}{ri+1}" t="inlineStr"><is><t xml:space="preserve">{_x(str(v))}</t></is></c>' for ci, v in enumerate(r) if v != "") + "</row>" for ri, r in enumerate(rows))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
+        z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+        z.writestr("xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="users" sheetId="1" r:id="rId1"/></sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+        z.writestr("xl/worksheets/sheet1.xml", f'<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{sheet}</sheetData></worksheet>')
+    return buf.getvalue()
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+def up(path, rows, tok, extra=""):
+    return call("POST", path + extra, files=[("file", ("users.xlsx", make_xlsx(rows), XLSX))], token=tok)
+UH = ["아이디", "이름", "회원유형", "소속", "직위", "휴대폰", "이메일", "초기 비밀번호"]
+for who, tok in (("교육지원청", R), ("학교", S)):
+    st, j, _ = call("GET", "/api/users/bulk/template", token=tok, raw=True); check(f"user bulk: {who} cannot get template → 403", st == 403, j)
+st, tpl, h = call("GET", "/api/users/bulk/template", token=E, raw=True)
+check("user bulk: template xlsx", st == 200 and tpl[:2] == b"PK" and "filename*=UTF-8''" in h.get("Content-Disposition", ""), st)
+st, j, _ = call("POST", "/api/users/bulk/validate", files=[("file", ("양식.xlsx", tpl, XLSX))], token=E); tv = data((st, j, None))
+check("user bulk: template sample rows validate", st == 200 and tv["total"] == 2 and tv["ok"] == 2, j)
+st, j, _ = up("/api/users/bulk/validate", [["아이디", "이름"], ["x"]], E); check("user bulk: wrong header → 400", st == 400 and "양식" in msg((st, j, None)), j)
+st, j, _ = up("/api/users/bulk/validate", [UH, ["bk_s1", "일괄학교", "학교 담당자", "봉황초등학교", "", "", "", ""]], R); check("user bulk: 교육지원청 cannot validate → 403", st == 403, j)
+rows = [UH,
+        ["bk_s1", "일괄학교", "학교 담당자", "봉황 초등학교", "정보부장", "1012345678", "bk1@example.go.kr", ""],
+        ["bk_e1", "일괄기사", "기사", "한빛네트웍스", "", "", "", "Bulk!Pass2026"],
+        ["bk_r1", "일괄지원청", "교육지원청 담당자", "천안교육지원청", "", "", "", ""],
+        ["bk_d1", "일괄교육청", "교육청 관리자", "아무곳", "", "", "", ""],
+        ["school01", "중복", "학교 담당자", "봉황초등학교", "", "", "", ""],
+        ["bk_s1", "파일중복", "학교 담당자", "봉황초등학교", "", "", "", ""],
+        ["bk_x1", "", "시스템 관리자", "", "", "02-12", "nope", "short"],
+        ["bk_x2", "학교없음", "학교 담당자", "없는학교", "", "", "", ""],
+        ["bk_x3", "약한비번", "AS 기사", "한빛네트웍스", "", "", "", "bk_x3Pass!!"],
+        ["=cmd", "수식", "학교 담당자", "봉황초등학교", "", "", "", ""]]
+st, j, _ = up("/api/users/bulk/validate", rows, E); uv = data((st, j, None)); byrow = {r["rowNo"]: r for r in uv["rows"]} if st == 200 else {}
+check("user bulk: 4 ok, 6 errors", st == 200 and uv["ok"] == 4 and uv["error"] == 6, uv)
+check("user bulk: passwords never echoed", st == 200 and all(r["cells"][7] in ("(자동 생성)", "●●●●●●") for r in uv["rows"]) and "Bulk!Pass2026" not in json.dumps(j, ensure_ascii=False), j)
+check("user bulk: 교육청 관리자 소속 ignored with warning", byrow.get(5, {}).get("ok") and byrow[5]["warning"], byrow.get(5))
+check("user bulk: existing id rejected", byrow.get(6) and not byrow[6]["ok"] and any("사용 중" in e for e in byrow[6]["errors"]), byrow.get(6))
+check("user bulk: duplicate in file rejected", byrow.get(7) and not byrow[7]["ok"] and any("2행" in e for e in byrow[7]["errors"]), byrow.get(7))
+check("user bulk: name/type/phone/email errors", byrow.get(8) and not byrow[8]["ok"] and len(byrow[8]["errors"]) >= 4, byrow.get(8))
+check("user bulk: unknown school", byrow.get(9) and not byrow[9]["ok"] and any("없는학교" in e for e in byrow[9]["errors"]), byrow.get(9))
+check("user bulk: password policy from the user form", byrow.get(10) and not byrow[10]["ok"] and any("아이디" in e for e in byrow[10]["errors"]), byrow.get(10))
+check("user bulk: formula rejected", byrow.get(11) and not byrow[11]["ok"], byrow.get(11))
+st, j, _ = up("/api/users/bulk/commit", rows, E); check("user bulk: commit with errors, no skip → 400", st == 400, j)
+st, j, _ = call("GET", "/api/users?keyword=bk_", token=E); check("user bulk: nothing created by refused commit", not data((st, j, None))["content"], j)
+st, j, _ = up("/api/users/bulk/commit", rows, E, "?skipErrors=true"); uc = data((st, j, None)); cu = {u["loginId"]: u for u in uc["users"]} if st == 200 else {}
+check("user bulk: 4 created, 6 skipped", st == 200 and uc["created"] == 4 and uc["skipped"] == 6, j)
+if st == 200:
+    check("user bulk: temp passwords only for blank rows", cu["bk_s1"]["tempPassword"] and cu["bk_e1"].get("tempPassword") is None and cu["bk_r1"]["tempPassword"], cu)
+    tp = cu["bk_s1"]["tempPassword"]
+    check("user bulk: temp password follows policy", 9 <= len(tp) <= 20 and tp[0].isalpha() and any(c.isdigit() for c in tp) and any(not c.isalnum() for c in tp), tp)
+    BK = login("bk_s1", tp); me_bk = data(call("GET", "/api/auth/me", token=BK))
+    check("user bulk: school user logs in with temp password, right school", me_bk["roles"] == ["SCHOOL_USER"] and me_bk["schoolName"] == "봉황초등학교", me_bk)
+    BE = login("bk_e1", "Bulk!Pass2026"); me_be = data(call("GET", "/api/auth/me", token=BE)); check("user bulk: engineer logs in with given password", me_be["roles"] == ["AS_ENGINEER"], me_be)
+    ul = {u["loginId"]: u for u in data(call("GET", "/api/users?keyword=bk_", token=E))["content"]}
+    check("user bulk: mobile normalised, region set, 교육청 has no 소속", ul["bk_s1"]["mobile"] == "010-1234-5678" and ul["bk_r1"].get("regionId") and ul["bk_d1"].get("schoolId") is None and ul["bk_d1"]["roles"] == ["EDU_ADMIN"], ul)
+    for u in ul.values(): call("DELETE", f"/api/users/{u['userId']}", token=E)
+
+# ---------- 학교 담당자에게 장비관리: 자기 학교 장비만 · 처리 중인 AS가 있는 장비는 삭제 불가 ----------
+s1u = uid("school01")
+st, j, _ = call("PUT", f"/api/users/{s1u}/menu-perms", {"granted": ["WDEVICE_MANAGE", "SDEVICE_MANAGE"]}, token=A); check("school+장비관리: granted", st == 200, j)
+lim = data(call("GET", f"/api/users/{s1u}/menu-perms", token=A))["limits"]
+check("school+장비관리: limits explained", "WDEVICE_MANAGE" in lim and "SDEVICE_MANAGE" in lim, lim)
+rl = {r["role"]: r for r in data(call("GET", "/api/org/role-perms", token=A))["roles"]}
+check("role page: 학교 column explains 장비관리 limit", "WDEVICE_MANAGE" in rl["SCHOOL_USER"]["limits"], rl["SCHOOL_USER"]["limits"])
+s1school = data(call("GET", "/api/auth/me", token=S))["schoolId"]
+other_school = next(x for x in (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=E))) if x["schoolId"] != s1school)
+st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": s1school, "deviceCode": "AP-SCH-901", "deviceName": "학교 등록 AP"}, token=S); sd = data((st, j, None))
+check("school+WDEVICE_MANAGE: register in own school", st == 200 and sd["schoolId"] == s1school, j)
+st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": other_school["schoolId"], "deviceCode": "AP-SCH-902", "deviceName": "x"}, token=S); check("school+WDEVICE_MANAGE: other school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{sd['deviceId']}", {"schoolId": other_school["schoolId"]}, token=S); check("school+WDEVICE_MANAGE: move to other school → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{sd['deviceId']}", {"deviceName": "학교 등록 AP(수정)"}, token=S); check("school+WDEVICE_MANAGE: edit own", st == 200, j)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "삭제 막기 시험", "installPlace": "본관",
+                                              "deviceId": sd["deviceId"], "visitRequestAt": "2026-12-01T10:00", "contactTel": "010-2000-0001"}, token=S); dr_ = data((st, j, None)) or {}
+check("device delete guard: AS on the device", st == 200, j)
+st, j, _ = call("DELETE", f"/api/as/wireless-devices/{sd['deviceId']}", token=S); check("device delete guard: school blocked while AS open → 409", st == 409 and f"#{dr_.get('asvcSn')}" in (msg((st, j, None)) or ""), j)
+st, j, _ = call("DELETE", f"/api/as/wireless-devices/{sd['deviceId']}", token=E); check("device delete guard: 교육청 blocked too → 409", st == 409, j)
+call("POST", f"/api/as/requests/{dr_.get('asvcSn')}/cancel", {}, token=S)
+st, j, _ = call("DELETE", f"/api/as/wireless-devices/{sd['deviceId']}", token=S); check("device delete guard: after cancel, school deletes own", st == 200, j)
+st, j, _ = call("POST", "/api/as/schoolnet-devices", {"schoolId": s1school, "deviceName": "학교 라우터", "deviceType": "ROUTER"}, token=S); sn_ = data((st, j, None))
+check("school+SDEVICE_MANAGE: register schoolnet device", st == 200, j)
+st, j, _ = call("DELETE", f"/api/as/schoolnet-devices/{sn_['deviceId']}", token=S); check("school+SDEVICE_MANAGE: delete (no open AS)", st == 200, j)
+call("PUT", f"/api/users/{s1u}/menu-perms", {}, token=A)
+st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": s1school, "deviceCode": "AP-SCH-903", "deviceName": "x"}, token=S); check("school: without 장비관리 → 403 again", st == 403, j)
+
+# ---------- 메뉴 안의 기능 권한 (Roles.FEATURES) · 업체 배정 (AS_ASSIGN) ----------
+rpd = data(call("GET", "/api/org/role-perms", token=A))
+fcodes = {f["code"]: f["parent"] for f in rpd.get("features", [])}
+check("features: listed with parent menu", fcodes.get("WDEVICE_CREATE") == "WDEVICE_MANAGE" and fcodes.get("USER_BULK") == "USER_WRITE" and len(fcodes) >= 20, rpd.get("features"))
+check("features: 업체 배정 is an AS 처리 기능", "AS_ASSIGN" in rpd["actionPerms"], rpd["actionPerms"])
+rrd = {r["role"]: r for r in rpd["roles"]}
+check("features: 교육청 · 교육지원청 · 관리자 have 업체 배정, 학교 doesn't", all("AS_ASSIGN" in rrd[x]["defaults"] for x in ("EDU_ADMIN", "REGION_ADMIN", "SYS_ADMIN")) and "AS_ASSIGN" not in rrd["SCHOOL_USER"]["defaults"], rrd)
+pe = perms_of(E); pr = perms_of(R); ps = perms_of(S)
+check("features: follow the menu (교육청 has device · user features)", {"WDEVICE_CREATE", "WDEVICE_DELETE", "SDEVICE_LABEL", "USER_BULK", "SCHOOL_VENDOR"} <= pe, pe)
+check("features: no menu → no feature (학교 has no device features)", not ({"WDEVICE_CREATE", "WDEVICE_EDIT"} & ps) and "SPACE_BUILDING" in ps, ps)
+
+# 역할에서 기능 끄기: 교육지원청의 무선장비 등록 · 삭제 · 담당업체 지정
+rsch = (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=R)))
+rsid = rsch[0]["schoolId"]
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"denied": ["WDEVICE_CREATE", "WDEVICE_DELETE", "SCHOOL_VENDOR"]}, "SCHOOL_USER": {"granted": ["WDEVICE_CREATE"]}}}, token=A)
+rr2 = {r["role"]: r for r in data((st, j, None))["roles"]} if st == 200 else {}
+check("features: role page saves feature off, ignores feature on", st == 200 and set(rr2["REGION_ADMIN"]["denied"]) == {"WDEVICE_CREATE", "WDEVICE_DELETE", "SCHOOL_VENDOR"} and not rr2["SCHOOL_USER"]["granted"], j)
+pr2 = perms_of(R)
+check("features: 교육지원청 loses only those", "WDEVICE_MANAGE" in pr2 and "WDEVICE_EDIT" in pr2 and not ({"WDEVICE_CREATE", "WDEVICE_DELETE", "SCHOOL_VENDOR"} & pr2), pr2)
+check("features: school still has none (grant ignored)", "WDEVICE_CREATE" not in perms_of(S))
+st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": rsid, "deviceCode": "AP-FT-001", "deviceName": "기능시험 AP"}, token=R); check("features: 등록 off → 403", st == 403, j)
+rdev = data(call("POST", "/api/as/wireless-devices", {"schoolId": rsid, "deviceCode": "AP-FT-002", "deviceName": "기능시험 AP"}, token=E))
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{rdev['deviceId']}", {"deviceName": "기능시험 AP(수정)"}, token=R); check("features: 수정 still on → 200", st == 200, j)
+st, j, _ = call("DELETE", f"/api/as/wireless-devices/{rdev['deviceId']}", token=R); check("features: 삭제 off → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/schools/{rsid}/vendors", [], token=R); check("features: 담당업체 지정 off → 403", st == 403, j)
+st, j, _ = call("GET", "/api/org/role-perms", token=A)
+check("features: role page shows the adjustment count", len({r["role"]: r for r in data((st, j, None))["roles"]}["REGION_ADMIN"]["denied"]) == 3, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"denied": ["WDEVICE_MANAGE"]}}}, token=A)
+check("features: menu off → its features go too", not ({"WDEVICE_MANAGE", "WDEVICE_EDIT", "WDEVICE_PLACE"} & perms_of(R)))
+call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {}, "SCHOOL_USER": {}}}, token=A)
+check("features: 교육지원청 restored", {"WDEVICE_CREATE", "WDEVICE_DELETE", "SCHOOL_VENDOR"} <= perms_of(R))
+st, j, _ = call("DELETE", f"/api/as/wireless-devices/{rdev['deviceId']}", token=R); check("features: 삭제 back on → 200", st == 200, j)
+
+# 사용자별로 기능 끄기: 교육청 관리자의 일괄 등록 · 잠금 해제
+eu = uid("eduadmin")
+st, j, _ = call("PUT", f"/api/users/{eu}/menu-perms", {"denied": ["USER_BULK", "USER_UNLOCK"], "granted": ["USER_CREATE"]}, token=A); em = data((st, j, None))
+check("features: user page saves feature off, ignores feature on", st == 200 and set(em["denied"]) == {"USER_BULK", "USER_UNLOCK"} and not em["granted"] and "USER_BULK" in em["base"], j)
+st, j, _ = call("GET", "/api/users/bulk/template", token=E, raw=True); check("features: 일괄 등록 off → 403", st == 403, j)
+st, j, _ = call("POST", f"/api/users/{uid('school02')}/unlock", {}, token=E); check("features: 잠금 해제 off → 403", st == 403, j)
+st, j, _ = call("GET", "/api/users?size=5", token=E); check("features: user list still works", st == 200, j)
+call("PUT", f"/api/users/{eu}/menu-perms", {}, token=A)
+st, j, _ = call("GET", "/api/users/bulk/template", token=E, raw=True); check("features: 일괄 등록 back → 200", st == 200, j)
+
+# 사용자에게 메뉴를 켜 준 경우에도 그 메뉴의 기능은 따로 끌 수 있다
+s1u_ = uid("school01")
+st, j, _ = call("PUT", f"/api/users/{s1u_}/menu-perms", {"granted": ["WDEVICE_MANAGE"], "denied": ["WDEVICE_DELETE"]}, token=A); sm_ = data((st, j, None))
+psx = perms_of(S)
+check("features: granted menu brings features, minus the one turned off", st == 200 and "WDEVICE_CREATE" in psx and "WDEVICE_DELETE" not in psx and sm_["denied"] == ["WDEVICE_DELETE"], (psx, j))
+call("PUT", f"/api/users/{s1u_}/menu-perms", {}, token=A)
+
+# 업체 배정 끄기 (교육청 역할)
+st, rows_e = all_rows("/api/as/requests?size=500", E)
+open_req = next(x for x in rows_e if x["status"] in ("A", "R"))
+acts_e = data(call("GET", f"/api/as/requests/{open_req['asvcSn']}", token=E))["allowedActions"]
+check("features: 교육청 sees 배정 button", "assign" in acts_e, acts_e)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["AS_ASSIGN"]}}}, token=A)
+acts_e2 = data(call("GET", f"/api/as/requests/{open_req['asvcSn']}", token=E))["allowedActions"]
+st, j, _ = call("POST", f"/api/as/requests/{open_req['asvcSn']}/assign", {"vendorId": 1}, token=E)
+check("features: 업체 배정 off → no button, action refused", "assign" not in acts_e2 and st in (403, 409), (acts_e2, j))
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {}}}, token=A)
+check("features: 업체 배정 restored", "assign" in data(call("GET", f"/api/as/requests/{open_req['asvcSn']}", token=E))["allowedActions"])
+
+# ---------- 장애접수관리 기능: 엑셀 다운로드 · 방문일 변경 · 처리 보고서 · 업체 배정 ----------
+pe = perms_of(E); pn = perms_of(N); pr = perms_of(R); ps = perms_of(S)
+check("as-manage: 교육청 has excel · visit · report · assign", {"AS_EXCEL", "AS_VISIT", "AS_REPORT", "AS_ASSIGN"} <= pe, pe)
+check("as-manage: 기사 has visit · report, no excel", {"AS_VISIT", "AS_REPORT"} <= pn and "AS_EXCEL" not in pn, pn)
+check("as-manage: 교육지원청 has excel · assign, no visit · report", {"AS_EXCEL", "AS_ASSIGN"} <= pr and not ({"AS_VISIT", "AS_REPORT"} & pr), pr)
+check("as-manage: 학교 has none of them", not ({"AS_EXCEL", "AS_VISIT", "AS_REPORT", "AS_ASSIGN"} & ps), ps)
+st, j, _ = call("GET", "/api/as/requests/excel", token=E, raw=True); check("as-manage: 교육청 excel → 200", st == 200, st)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["AS_EXCEL"]}}}, token=A)
+st, j, _ = call("GET", "/api/as/requests/excel", token=E, raw=True); check("as-manage: 엑셀 다운로드 off → 403", st == 403, st)
+st, j, _ = call("GET", "/api/as/requests?size=5", token=E); check("as-manage: list still works", st == 200, j)
+st, j, _ = call("GET", "/api/as/requests/excel", token=S, raw=True); check("as-manage: school (결과조회) excel unaffected → 200", st == 200, st)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {}}}, token=A)
+
+# 처리 보고서 끄기 (기사 역할)
+st, rows_n = all_rows("/api/as/requests?size=500", N)
+recv = next((x for x in rows_n if x["status"] == "R"), None)
+if recv is None:
+    a_ = next(x for x in rows_n if x["status"] == "A")
+    call("POST", f"/api/as/requests/{a_['asvcSn']}/receive", {"visitPlannedAt": "2026-12-02T10:00"}, token=N)
+    recv = a_
+acts_n = data(call("GET", f"/api/as/requests/{recv['asvcSn']}", token=N))["allowedActions"]
+check("as-manage: 기사 sees 방문일 변경 · 처리 보고서", {"visit", "report"} <= set(acts_n), acts_n)
+call("PUT", "/api/org/role-perms", {"roles": {"AS_ENGINEER": {"denied": ["AS_REPORT"]}}}, token=A)
+acts_n2 = data(call("GET", f"/api/as/requests/{recv['asvcSn']}", token=N))["allowedActions"]
+st, j, _ = call("POST", f"/api/as/requests/{recv['asvcSn']}/report", {"processContent": "보고서 끔 시험"}, token=N)
+check("as-manage: 처리 보고서 off → no button, refused", "report" not in acts_n2 and "visit" in acts_n2 and st == 409, (acts_n2, j))
+check("as-manage: 업체 관리자 (own role) keeps 처리 보고서", "AS_REPORT" in perms_of(V))
+call("PUT", "/api/org/role-perms", {"roles": {"AS_ENGINEER": {}}}, token=A)
+
+# 업체 배정
+st, rows_e = all_rows("/api/as/requests?size=500", E)
+tgt = next(x for x in rows_e if x["status"] in ("A", "R") and x["rceptTy"] in ("M", "S"))
+vlist = data(call("GET", f"/api/as/vendors?rceptTy={tgt['rceptTy']}", token=E))
+v0 = vlist[0]; engs = data(call("GET", f"/api/as/vendors/{v0['vendorId']}/engineers", token=E))
+body = {"vendorId": v0["vendorId"], "engineerUserId": engs[0]["userId"] if engs else None}
+st, j, _ = call("POST", f"/api/as/requests/{tgt['asvcSn']}/assign", body, token=E); check("as-manage: 업체 배정 → 200", st == 200, j)
+dd = data(call("GET", f"/api/as/requests/{tgt['asvcSn']}", token=E))
+check("as-manage: 배정 saved with history", dd["vendorId"] == v0["vendorId"] and any(h["action"] == "ASSIGN" for h in dd["histories"]), dd.get("histories"))
+st, j, _ = call("POST", f"/api/as/requests/{tgt['asvcSn']}/assign", {"vendorId": v0["vendorId"]}, token=S); check("as-manage: school cannot assign", st in (403, 404, 409), j)
+
+# ---------- 임시 비밀번호 (V9 must_change_password) ----------
+check("temp-pw: seeded accounts are not temporary", data(call("GET", "/api/auth/me", token=S)).get("mustChangePassword") is False)
+st, j, _ = call("POST", "/api/users", {"loginId": "tmppw01", "userName": "임시비번", "password": "Temp!Pass2026", "roles": ["SCHOOL_USER"], "schoolId": 1}, token=E)
+tu = data((st, j, None)); check("temp-pw: admin-created user flagged", st == 200 and tu.get("mustChangePassword") is True, j)
+TP = login("tmppw01", "Temp!Pass2026")
+check("temp-pw: /me tells the client to ask", data(call("GET", "/api/auth/me", token=TP))["mustChangePassword"] is True)
+st, j, _ = call("PUT", "/api/auth/password", {"currentPassword": "Temp!Pass2026", "newPassword": "Mine!Pass2026x"}, token=TP)
+check("temp-pw: own change clears it", st == 200 and data(call("GET", "/api/auth/me", token=TP))["mustChangePassword"] is False, j)
+ul2 = {u["loginId"]: u for u in data(call("GET", "/api/users?keyword=tmppw01", token=E))["content"]}
+check("temp-pw: user list shows it cleared", ul2["tmppw01"].get("mustChangePassword") is False, ul2)
+st, j, _ = call("PUT", f"/api/users/{tu['userId']}", {"password": "Reset!Pass2026"}, token=E)
+check("temp-pw: admin reset flags again", st == 200 and data((st, j, None)).get("mustChangePassword") is True, j)
+st, j, _ = call("PUT", f"/api/users/{tu['userId']}", {"positionName": "교사"}, token=E)
+check("temp-pw: edit without password keeps flag", data((st, j, None)).get("mustChangePassword") is True, j)
+eid_ = uid("eduadmin")
+st, j, _ = call("PUT", f"/api/users/{eid_}", {"password": "user1234!"}, token=E)
+check("temp-pw: admin changing own password is not temporary", st == 200 and data((st, j, None)).get("mustChangePassword") is False, j)
+call("DELETE", f"/api/users/{tu['userId']}", token=E)
+
+# ---------- 층 삭제 (DELETE /api/as/spaces/floors/{id}) ----------
+fb = data(call("POST", "/api/as/spaces/buildings", {"schoolId": 1, "buildingName": "층삭제시험동", "floorCount": 2}, token=E))
+f1, f2 = fb["floors"][0], fb["floors"][1]
+st, j, _ = call("POST", f"/api/places/floors/{f1['floorId']}/plan", files=[("file", ("f1.png", PNG1, "image/png"))], token=E); check("floor delete: plan uploaded", st == 200, j)
+fd = data(call("POST", "/api/as/wireless-devices", {"schoolId": 1, "deviceCode": "AP-FD-001", "deviceName": "층삭제 AP"}, token=E))
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{fd['deviceId']}/position", {"floorId": f1["floorId"], "x": 0.5, "y": 0.5}, token=E); check("floor delete: device placed", st == 200, j)
+bl = {x["buildingId"]: x for x in data(call("GET", "/api/as/spaces/buildings?schoolId=1", token=E))}
+fv = next(x for x in bl[fb["buildingId"]]["floors"] if x["floorId"] == f1["floorId"])
+check("floor delete: floor shows placed device count", fv.get("deviceCount") == 1, fv)
+st, j, _ = call("DELETE", f"/api/as/spaces/floors/{f1['floorId']}", token=S); check("floor delete: 학교 deletes a floor of own school", st == 200, j)
+bl = {x["buildingId"]: x for x in data(call("GET", "/api/as/spaces/buildings?schoolId=1", token=E))}
+check("floor delete: floor gone, other floor kept", [x["floorId"] for x in bl[fb["buildingId"]]["floors"]] == [f2["floorId"]], bl[fb["buildingId"]])
+dv = next(x for x in data(call("GET", "/api/as/wireless-devices?schoolId=1&size=500", token=E))["content"] if x["deviceId"] == fd["deviceId"])
+check("floor delete: device kept, off the plan", dv.get("floorId") is None, dv)
+st, j, _ = call("DELETE", f"/api/as/spaces/floors/{f2['floorId']}", token=R); check("floor delete: 교육지원청 deletes in district", st == 200, j)
+OSID = next(x["schoolId"] for x in (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=E))) if x["schoolName"] == "솔빛고등학교")
+ob2 = data(call("POST", "/api/as/spaces/buildings", {"schoolId": OSID, "buildingName": "관외층시험", "floorCount": 1}, token=E))
+st, j, _ = call("DELETE", f"/api/as/spaces/floors/{ob2['floors'][0]['floorId']}", token=R); check("floor delete: other district → 403", st == 403, j)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["SPACE_BUILDING"]}}}, token=A)
+st, j, _ = call("DELETE", f"/api/as/spaces/floors/{ob2['floors'][0]['floorId']}", token=E); check("floor delete: 건물·층 추가·삭제 off → 403", st == 403, j)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {}}}, token=A)
+st, j, _ = call("DELETE", "/api/as/spaces/floors/999999", token=E); check("floor delete: unknown floor → 404", st == 404, j)
+call("DELETE", f"/api/as/spaces/buildings/{fb['buildingId']}", token=E); call("DELETE", f"/api/as/spaces/buildings/{ob2['buildingId']}", token=E)
+call("DELETE", f"/api/as/wireless-devices/{fd['deviceId']}", token=E)
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")

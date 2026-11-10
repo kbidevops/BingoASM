@@ -52,7 +52,10 @@ public class PlaceService {
 
     @Transactional(readOnly = true)
     public List<Json> buildings(CurrentUser me) {
-        List<Building> bs = buildings.findByOrgIdAndUseYn(me.orgId(), "Y");
+        // 학교 · 교육지원청 · 업체 계정은 다룰 수 있는 학교의 건물만 (기관 공용 건물도 빠진다).
+        java.util.Set<Long> scope = schoolService.scopeSchoolIds(me);
+        List<Building> bs = buildings.findByOrgIdAndUseYn(me.orgId(), "Y").stream()
+                .filter(b -> scope == null || (b.schoolId != null && scope.contains(b.schoolId))).toList();
         Map<Long, Long> counts = placedCounts(me.orgId());
         Map<Long, List<Floor>> byBuilding = floors.findByBuildingIdInOrderBySortOrderAsc(bs.stream().map(b -> b.buildingId).toList())
                 .stream().collect(Collectors.groupingBy(f -> f.buildingId, LinkedHashMap::new, Collectors.toList()));
@@ -76,6 +79,8 @@ public class PlaceService {
     }
 
     public Json createBuilding(CurrentUser me, Map<String, Object> body) {
+        // 여기서 만드는 건물은 학교가 없는 기관 공용 건물이라 기관 전체를 다루는 계정만. 학교 건물은 건물·층 관리(/api/as/spaces)에서.
+        if (schoolService.scopeSchoolIds(me) != null) throw ApiException.forbidden("학교 건물은 건물·층 관리에서 등록해 주세요.");
         String name = Params.str(body, "buildingName");
         if (name == null) throw ApiException.badRequest("건물명을 입력해 주세요.");
         Building b = new Building();
@@ -101,6 +106,8 @@ public class PlaceService {
 
     public Json createFloor(CurrentUser me, Map<String, Object> body) {
         Building b = building(me, Params.lng(body, "buildingId"));
+        if (b.schoolId != null) schoolService.checkSchoolScope(me, b.schoolId);
+        else if (schoolService.scopeSchoolIds(me) != null) throw ApiException.forbidden("기관 공용 건물은 도교육청 관리자만 바꿀 수 있습니다.");
         Integer no = Params.integer(body, "floorNo");
         if (no == null) throw ApiException.badRequest("층 번호를 입력해 주세요.");
         if (floors.existsByBuildingIdAndFloorNo(b.buildingId, no)) throw ApiException.conflict("이미 등록된 층입니다.");

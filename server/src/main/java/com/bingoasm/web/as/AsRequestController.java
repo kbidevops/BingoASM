@@ -87,6 +87,8 @@ public class AsRequestController {
                       HttpServletResponse res) throws IOException {
         CurrentUser me = AuthContext.get();
         requireAnyView(me);
+        // 장애접수관리를 가진 계정은 엑셀 다운로드 기능(AS_EXCEL)이 켜져 있어야 한다. 결과조회만 하는 계정(학교 등)은 그대로.
+        if (me.can("AS_MANAGE") && !me.can("AS_EXCEL")) throw ApiException.forbidden("엑셀 다운로드 기능이 꺼져 있습니다.");
         var rows = requests.listAll(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, unassigned, sort));
         try (ExcelWriter x = new ExcelWriter()) {
             x.sheet("AS신청", List.of(Col.of("번호", "asvcSn", 8), Col.of("유형", "rceptTyName", 10), Col.of("학교명", "schoolName", 18), Col.of("지역", "regionName", 12),

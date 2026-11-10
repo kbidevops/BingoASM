@@ -140,7 +140,7 @@ function Floorplan() {
             </div>
           ) : devices === null ? <Loading /> : (
             <PlanView key={f.floorId} planUrl={`${API_BASE}${f.planUrl}${bust ? `?v=${bust}` : ""}`} title={`${b!.buildingName} ${f.floorName}`}
-              floorId={f.floorId} devices={devices} floorTexts={blds.flatMap((x) => x.floors.map((y) => `${x.buildingName} ${y.floorName}`))} canEdit={can("WDEVICE_MANAGE")} onChanged={changed} initialSel={Number(params.get("device")) || null}
+              floorId={f.floorId} devices={devices} floorTexts={blds.flatMap((x) => x.floors.map((y) => `${x.buildingName} ${y.floorName}`))} canEdit={can("WDEVICE_PLACE")} onChanged={changed} initialSel={Number(params.get("device")) || null}
               initialPlace={params.get("place") === "1" && f.floorId === Number(params.get("floor"))}
               onReplace={can("FLOOR_WRITE") ? () => setUploading(true) : undefined} />
           )}

@@ -25,7 +25,11 @@ export default function VendorsPage() {
 function Vendors() {
   const TYPES = useAsTypes();
   // 업체 등록·수정·삭제는 도교육청 관리자만 (서버도 막는다). 다른 계정은 조회만.
-  const canEdit = isAdmin(useAuth().me);
+  const { me, can } = useAuth();
+  // 도교육청만 업체를 바꾸고, 등록 · 수정 · 삭제는 기능 권한으로 따로 끌 수 있다.
+  const admin = isAdmin(me);
+  const canEdit = admin && can("VENDOR_EDIT");
+  const canCreate = admin && can("VENDOR_CREATE"), canDelete = admin && can("VENDOR_DELETE");
   const toast = useToast();
   const [regions, setRegions] = useState<Region[]>([]);
   const [all, setAll] = useState<Vendor[] | null>(null);
@@ -90,7 +94,7 @@ function Vendors() {
           onClick={() => downloadCsv("업체관리", head.slice(0, -1), shown.map((v) => [v.regionName, v.vendorName, v.tel, TYPES.filter((t) => v.serviceTypes.includes(t)).map((t) => AS_NAME[t]).join(", "), v.engineerCount, fmtDate(v.updatedAt)]))}>
           엑셀출력 <Icon name="down" />
         </button>
-        {canEdit && <button className="btn sm" type="button" onClick={() => setEdit("new")}>업체 등록</button>}
+        {canCreate && <button className="btn sm" type="button" onClick={() => setEdit("new")}>업체 등록</button>}
       </ListHead>
       <div className="tw">
         <table className="cards" style={{ minWidth: 780 }}>
@@ -105,10 +109,10 @@ function Vendors() {
                 <td data-label="기사 수">{v.engineerCount}</td>
                 <td data-label="최근 수정">{fmtDate(v.updatedAt)}</td>
                 <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
-                  {canEdit ? (
+                  {canEdit || canDelete ? (
                     <>
-                      <button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button>{" "}
-                      <button className="btn sm sec" type="button" onClick={() => setDel(v)}>삭제</button>
+                      {canEdit && <button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button>}{" "}
+                      {canDelete && <button className="btn sm sec" type="button" onClick={() => setDel(v)}>삭제</button>}
                     </>
                   ) : <span className="hint">조회만</span>}
                 </td>

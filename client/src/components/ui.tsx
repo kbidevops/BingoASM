@@ -90,12 +90,13 @@ export const useToast = () => useContext(ToastContext);
 
 /* ---------- modal ---------- */
 
-export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
+/** closable=false: 닫기 버튼 · 바깥 클릭 · Esc로 닫지 않는다 (임시 비밀번호 변경처럼 꼭 마쳐야 하는 창). */
+export function Modal({ title, wide, onClose, children, closable = true }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode; closable?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   // Callers usually pass an inline arrow, so onClose changes on every parent render. Keep it in a ref and run the
   // open/close effect once: re-running it would move focus back to the first control and close an open <select>.
   const close = useRef(onClose);
-  close.current = onClose;
+  close.current = closable ? onClose : () => {};
   useEffect(() => {
     const last = document.activeElement as HTMLElement | null;
     document.body.style.overflow = "hidden";
@@ -123,7 +124,7 @@ export function Modal({ title, wide, onClose, children }: { title: string; wide?
       <div ref={box} className={"md-box" + (wide ? " wide" : "")} role="dialog" aria-modal="true" aria-labelledby="md-t">
         <div className="md-h">
           <h4 id="md-t">{title}</h4>
-          <button type="button" className="md-x" onClick={onClose} aria-label="닫기">✕</button>
+          {closable && <button type="button" className="md-x" onClick={onClose} aria-label="닫기">✕</button>}
         </div>
         <div className="md-c">{children}</div>
       </div>

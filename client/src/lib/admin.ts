@@ -156,6 +156,8 @@ export interface Floor {
   floorName: string;
   planUrl?: string;
   roomCount: number;
+  /** 이 층 도면에 놓인 장비 수 (층 삭제 안내) */
+  deviceCount?: number;
 }
 
 export interface Building {

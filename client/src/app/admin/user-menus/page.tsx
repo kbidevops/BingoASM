@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import SubPage from "@/components/SubPage";
 import { ErrorBox, FormMsg, Loading, useToast } from "@/components/ui";
 import { api, rows, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { MENU, type MenuItem } from "@/lib/menu";
+import { EDITS, MENU, type MenuItem } from "@/lib/menu";
 import type { Me } from "@/lib/types";
 
 /**
@@ -36,6 +36,10 @@ interface MenuPerms {
   roles: string[];
   menuPerms: string[];
   actionPerms: string[];
+  /** 편집 기능 (Roles.EDIT_PERMS): 화면은 보이고 고치기만 끈다 */
+  editPerms?: string[];
+  /** 메뉴 안의 기능 권한 [{code, parent, label}] — 메뉴가 켜져 있으면 따라 켜지고 끄기만 한다 */
+  features?: { code: string; parent: string; label: string }[];
   base: string[];
   granted: string[];
   denied: string[];
@@ -44,6 +48,8 @@ interface MenuPerms {
   disabled?: string[];
   /** perm → what still works for this user's 소속 (학교·업체 계정이 받은 관리 메뉴). */
   limits?: Record<string, string>;
+  /** 이 계정 유형(학교 · 교육지원청)에는 줄 수 없는 메뉴 — 예: AS통계관리 */
+  blocked?: string[];
 }
 
 const ROLE_NAME: Record<string, string> = {
@@ -69,6 +75,9 @@ const ACTIONS: [string, string, string][] = [
   ["AS_TRANSFER", "이관", "다른 AS 유형(업체)으로 넘깁니다."],
   ["AS_CANCEL", "신청 취소", "신청완료·반려 상태의 신청을 취소합니다."],
   ["AS_DELETE", "삭제", "AS 기록을 영구 삭제합니다."],
+  ["AS_ASSIGN", "업체 배정", "신청 건의 담당 업체 · 기사를 지정하거나 바꿉니다."],
+  ["AS_VISIT", "방문일 변경", "접수한 건의 방문 예정일을 바꿉니다."],
+  ["AS_REPORT", "처리 보고서 작성 · 수정", "처리 결과를 적어 완료하거나, 완료한 보고서를 고칩니다."],
 ];
 
 /** perm → menu titles that open with it (several items can share one permission). */
@@ -186,8 +195,9 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
   const base = new Set(data.base);
   const menuPerms = new Set(data.menuPerms);
   const disabled = new Set(data.disabled ?? []);
-  const isOn = (p: string) => !disabled.has(p) && (base.has(p) || granted.has(p)) && !denied.has(p);
-  const editable = (i: MenuItem) => !!i.perm && menuPerms.has(i.perm) && !disabled.has(i.perm);
+  const blocked = new Set(data.blocked ?? []);
+  const isOn = (p: string) => !disabled.has(p) && !blocked.has(p) && (base.has(p) || granted.has(p)) && !denied.has(p);
+  const editable = (i: MenuItem) => !!i.perm && menuPerms.has(i.perm) && !disabled.has(i.perm) && !blocked.has(i.perm);
 
   const toggle = (perms: string[], on: boolean) => {
     const g = new Set(granted), d = new Set(denied);
@@ -263,19 +273,42 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
                   mixed={onCount > 0 && onCount < perms.length} onChange={(on) => toggle(perms, on)} />
               </div>
               <ul className="um-items">
-                {items.map((i) => {
+                {items.map((i, idx) => {
                   const shared = i.perm ? PERM_TITLES[i.perm].filter((t) => t !== i.title) : [];
+                  // 같은 권한을 쓰는 메뉴가 여럿이면 기능은 첫 메뉴 밑에 한 번만
+                  const feats = i.perm && items.findIndex((x) => x.perm === i.perm) === idx ? (data.features ?? []).filter((f) => f.parent === i.perm) : [];
+                  const parentOn = !!i.perm && (editable(i) ? isOn(i.perm) : base.has(i.perm) && !blocked.has(i.perm));
                   return (
-                    <li key={i.href} className={editable(i) ? "" : "fixed"}>
+                    <Fragment key={i.href}>
+                    <li className={editable(i) ? "" : "fixed"}>
                       <div className="um-item-t">
                         <span>{i.title}</span>
                         {shared.length > 0 && <small>함께 바뀜: {shared.join(", ")}</small>}
                         {i.perm && data.limits?.[i.perm] && isOn(i.perm) && <small className="um-limit">제한된 기능 · {data.limits[i.perm]}</small>}
                       </div>
                       {!i.perm ? <span className="um-pill none">공개</span>
-                        : editable(i) ? status(i.perm) : <span className="um-pill none">관리자 전용</span>}
+                        : editable(i) ? status(i.perm) : blocked.has(i.perm) ? <span className="um-pill none">학교 · 교육지원청 불가</span> : <span className="um-pill none">관리자 전용</span>}
                       <Switch label={i.title} disabled={!editable(i)} checked={!i.perm || isOn(i.perm)} onChange={(on) => toggle([i.perm!], on)} />
                     </li>
+                    {feats.length > 0 && parentOn && (
+                      <li className="um-feats">
+                        <ul aria-label={`${i.title} 안의 기능`}>
+                          {feats.map((f) => (
+                            <li key={f.code}>
+                              <span>{f.label}</span>
+                              {denied.has(f.code) && <span className="um-pill off">꺼짐</span>}
+                              <Switch label={f.label} checked={!denied.has(f.code)} onChange={(on) => {
+                                const d = new Set(denied);
+                                if (on) d.delete(f.code); else d.add(f.code);
+                                setDenied(d);
+                                setMsg("");
+                              }} />
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    )}
+                    </Fragment>
                   );
                 })}
               </ul>
@@ -311,6 +344,37 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
               ))}
             </ul>
             <p className="um-card-f">끄면 해당 버튼이 사라지고 서버에서도 막힙니다. 역할에 없는 기능은 켤 수 없습니다.</p>
+          </section>
+        );
+      })()}
+
+      <h4 className="um-sec">편집 기능</h4>
+      {(() => {
+        const perms = EDITS.map(([p]) => p).filter((p) => (data.editPerms ?? []).includes(p) && base.has(p));
+        const onCount = perms.filter(isOn).length;
+        return (
+          <section className="um-card" aria-label="편집 기능">
+            <div className="um-card-h">
+              <div>
+                <b>화면은 보이고 고치기만</b>
+                <small>{perms.length ? `${onCount}/${perms.length} 켜짐` : "이 역할에는 편집 기능이 없습니다"}</small>
+              </div>
+              <Switch label="편집 기능 전체" disabled={!perms.length} checked={perms.length > 0 && onCount === perms.length}
+                mixed={onCount > 0 && onCount < perms.length} onChange={(on) => toggle(perms, on)} />
+            </div>
+            <ul className="um-items">
+              {EDITS.map(([p, label, desc]) => (
+                <li key={p} className={base.has(p) ? "" : "fixed"}>
+                  <div className="um-item-t">
+                    <span>{label}</span>
+                    <small>{desc}</small>
+                  </div>
+                  {base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>) : <span className="um-pill none">역할에 없음</span>}
+                  <Switch label={label} disabled={!base.has(p)} checked={isOn(p)} onChange={(on) => toggle([p], on)} />
+                </li>
+              ))}
+            </ul>
+            <p className="um-card-f">끄면 편집 버튼이 사라지고 서버에서도 막힙니다. 메뉴(문의처 안내)는 그대로 보입니다.</p>
           </section>
         );
       })()}

@@ -72,7 +72,7 @@ public class AuthController {
                 .with("schoolId", u.schoolId).with("schoolName", school).with("vendorId", u.vendorId).with("vendorName", vendor)
                 .with("regionId", regionId).with("regionName", region)
                 .with("memberType", PermissionService.memberType(u)).with("otpEnabled", Boolean.TRUE.equals(u.otpEnabled)).with("otpRegistered", u.totpSecret != null)
-                .with("passwordChangedAt", u.passwordChangedAt).with("createdAt", u.createdAt).with("lastLoginAt", u.lastLoginAt)
+                .with("passwordChangedAt", u.passwordChangedAt).with("mustChangePassword", Boolean.TRUE.equals(u.mustChangePassword)).with("createdAt", u.createdAt).with("lastLoginAt", u.lastLoginAt)
                 .with("roles", u.roles).with("permissions", new ArrayList<>(permissions.effectivePerms(u))).with("asTypes", permissions.asTypes(u.orgId));
     }
 
@@ -390,6 +390,7 @@ public class AuthController {
         if (encoder.matches(next, u.password)) throw ApiException.badRequest("이전 비밀번호와 다른 비밀번호를 사용해 주세요.");
         u.password = encoder.encode(next);
         u.passwordChangedAt = Times.now();
+        u.mustChangePassword = false;
         users.save(u);
         return ApiResponse.ok(Json.obj().with("passwordChangedAt", u.passwordChangedAt));
     }

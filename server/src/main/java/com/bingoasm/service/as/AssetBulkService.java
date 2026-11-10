@@ -280,16 +280,21 @@ public class AssetBulkService {
     // ---------- helpers ----------
 
     static List<List<String>> readRows(InputStream in) throws IOException {
+        return readRows(in, HEAD.size(), MAX_ROWS);
+    }
+
+    /** 첫 시트의 행을 문자열로 (열 cols개, 최대 maxRows+50행). 날짜는 YYYY-MM-DD, 수식은 "="로 시작하는 글자로. 사용자 일괄 등록도 쓴다. */
+    public static List<List<String>> readRows(InputStream in, int cols, int maxRows) throws IOException {
         try (Workbook wb = WorkbookFactory.create(in)) {
             Sheet sh = wb.getNumberOfSheets() > 0 ? wb.getSheetAt(0) : null;
             if (sh == null) return List.of();
             DataFormatter fmt = new DataFormatter();
             List<List<String>> out = new ArrayList<>();
-            int last = Math.min(sh.getLastRowNum(), MAX_ROWS + 50);
+            int last = Math.min(sh.getLastRowNum(), maxRows + 50);
             for (int i = 0; i <= last; i++) {
                 Row row = sh.getRow(i);
                 List<String> cells = new ArrayList<>();
-                if (row != null) for (int c = 0; c < HEAD.size(); c++) {
+                if (row != null) for (int c = 0; c < cols; c++) {
                     Cell cell = row.getCell(c);
                     if (cell == null) { cells.add(""); continue; }
                     if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) cells.add(cell.getLocalDateTimeCellValue().toLocalDate().toString());
@@ -303,13 +308,13 @@ public class AssetBulkService {
         catch (Exception e) { throw ApiException.badRequest("엑셀 파일을 읽을 수 없습니다. 양식(.xlsx)을 확인해 주세요."); }
     }
 
-    static boolean looksLikeFormula(String s) {
+    public static boolean looksLikeFormula(String s) {
         if (s == null || s.isEmpty()) return false;
         char c = s.charAt(0);
         return c == '=' || c == '+' || c == '@' || (c == '-' && s.length() > 1 && !Character.isDigit(s.charAt(1)));
     }
 
-    static String norm(String s) { return s == null ? "" : s.replaceAll("\\s+", "").toLowerCase(); }
+    public static String norm(String s) { return s == null ? "" : s.replaceAll("\\s+", "").toLowerCase(); }
 
     static LocalDate parseDate(String s) {
         String t = s.trim().replace('.', '-').replace('/', '-');

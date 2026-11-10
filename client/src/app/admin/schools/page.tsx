@@ -24,7 +24,7 @@ export default function SchoolsPage() {
 function Schools() {
   const asTypes = useAsTypes();
   const toast = useToast();
-  const { me } = useAuth();
+  const { me, can } = useAuth();
   const district = isRegionAdmin(me);
   // 등록·삭제·지역·담당업체는 도교육청·교육지원청만. 학교는 자기 학교 기본정보만, 업체는 조회만 (서버도 막는다).
   const manage = isSchoolAdmin(me);
@@ -84,7 +84,7 @@ function Schools() {
           onClick={() => downloadCsv("학교관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, vendorsOf(s), s.assetCount]))}>
           엑셀출력 <Icon name="down" />
         </button>
-        {manage && <button className="btn sm" type="button" onClick={() => setEdit("new")}>기관 등록</button>}
+        {manage && can("SCHOOL_CREATE") && <button className="btn sm" type="button" onClick={() => setEdit("new")}>기관 등록</button>}
       </ListHead>
       <div className="tw">
         <table className="cards" style={{ minWidth: 780 }}>
@@ -98,7 +98,7 @@ function Schools() {
                 <td data-label="학급 수">{s.classCount ?? "-"}</td>
                 <td data-label="담당업체" className="tl"><small>{vendorsOf(s)}</small></td>
                 <td data-label="자산">{(s.assetCount ?? 0).toLocaleString()}</td>
-                <td data-label="관리">{readOnly ? <span className="hint">조회만</span> : <button className="btn sm sec" type="button" onClick={() => setEdit(s)}>수정</button>}</td>
+                <td data-label="관리">{readOnly || !(can("SCHOOL_EDIT") || (manage && can("SCHOOL_VENDOR"))) ? <span className="hint">조회만</span> : <button className="btn sm sec" type="button" onClick={() => setEdit(s)}>수정</button>}</td>
               </tr>
             )) : <tr><td colSpan={head.length}>조회된 기관이 없습니다.</td></tr>}
           </tbody>
@@ -116,6 +116,11 @@ const TYPES: RceptTy[] = ["C", "M", "S", "T"];
 /** manage = 도교육청·교육지원청. 아니면(학교 담당자) 기본정보만 고칠 수 있고 지역·담당업체는 보기만. */
 function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: SchoolFull | null; regions: Region[]; manage: boolean; onClose: () => void; onSaved: (m: string) => void }) {
   const asTypes = useAsTypes();
+  // 기능 권한: 기본정보(등록 · 수정) · 담당업체 지정 · 삭제를 따로 끌 수 있다.
+  const { can } = useAuth();
+  const infoEdit = school ? can("SCHOOL_EDIT") : can("SCHOOL_CREATE");
+  const vendorEdit = manage && can("SCHOOL_VENDOR");
+  const canDel = !!school && manage && can("SCHOOL_DELETE");
   const [v, setV] = useState({
     schoolName: school?.schoolName ?? "", schoolCode: school?.schoolCode ?? "", schoolType: school?.schoolType ?? "ELEM",
     regionId: school?.regionId ? String(school.regionId) : regions.length === 1 ? String(regions[0].regionId) : "", address: school?.address ?? "", tel: school?.tel ?? "",
@@ -177,8 +182,8 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
     setMsg("");
     try {
       const body = { ...v, schoolName: v.schoolName.trim(), regionId: v.regionId ? Number(v.regionId) : null, classCount: v.classCount ? Number(v.classCount) : null };
-      const saved = school ? await api.put<SchoolFull>(`/api/as/schools/${school.schoolId}`, body) : await api.post<SchoolFull>("/api/as/schools", body);
-      if (manage) await api.put(`/api/as/schools/${saved.schoolId}/vendors`, TYPES.map((t) => ({
+      const saved = !infoEdit ? school! : school ? await api.put<SchoolFull>(`/api/as/schools/${school.schoolId}`, body) : await api.post<SchoolFull>("/api/as/schools", body);
+      if (vendorEdit) await api.put(`/api/as/schools/${saved.schoolId}/vendors`, TYPES.map((t) => ({
         rceptTy: t, vendorId: map[t].vendorId ? Number(map[t].vendorId) : null, engineerUserId: map[t].engineerUserId ? Number(map[t].engineerUserId) : null,
       })));
       onSaved(school ? "기관 정보를 저장했습니다." : "기관을 등록했습니다.");
@@ -203,20 +208,20 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
     <Modal title={school ? `기관 수정 · ${school.schoolName}` : "기관 등록"} wide onClose={onClose}>
       <form className="ft2" noValidate onSubmit={save}>
         <table className="ftab"><tbody>
-          <FormRow label="기관명" required><input aria-label="기관명" value={v.schoolName} onChange={set("schoolName")} /></FormRow>
-          <FormRow label="기관코드"><input aria-label="기관코드" value={v.schoolCode} onChange={set("schoolCode")} /></FormRow>
+          <FormRow label="기관명" required><input aria-label="기관명" disabled={!infoEdit} value={v.schoolName} onChange={set("schoolName")} /></FormRow>
+          <FormRow label="기관코드"><input aria-label="기관코드" disabled={!infoEdit} value={v.schoolCode} onChange={set("schoolCode")} /></FormRow>
           <FormRow label="학교급 / 지역" required>
-            <select aria-label="학교급" value={v.schoolType} onChange={set("schoolType")}>{SCHOOL_TYPES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select>{" "}
-            <select aria-label="지역" value={v.regionId} onChange={changeRegion} disabled={!manage}>
+            <select aria-label="학교급" disabled={!infoEdit} value={v.schoolType} onChange={set("schoolType")}>{SCHOOL_TYPES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select>{" "}
+            <select aria-label="지역" value={v.regionId} onChange={changeRegion} disabled={!manage || !infoEdit}>
               <option value="">-- 지역 --</option>
               {regions.map((r) => <option key={r.regionId} value={r.regionId}>{r.regionName}</option>)}
             </select>
             {!manage && <small className="hint"> 지역·담당업체는 교육청·교육지원청에서 지정합니다.</small>}
           </FormRow>
-          <FormRow label="주소"><input aria-label="주소" style={{ width: "100%" }} value={v.address} onChange={set("address")} /></FormRow>
+          <FormRow label="주소"><input aria-label="주소" style={{ width: "100%" }} disabled={!infoEdit} value={v.address} onChange={set("address")} /></FormRow>
           <FormRow label="전화 / 학급 수">
-            <input aria-label="전화" value={v.tel} onChange={set("tel")} />{" "}
-            <input aria-label="학급 수" type="number" min={0} style={{ width: 90 }} value={v.classCount} onChange={set("classCount")} /> 학급
+            <input aria-label="전화" disabled={!infoEdit} value={v.tel} onChange={set("tel")} />{" "}
+            <input aria-label="학급 수" type="number" min={0} style={{ width: 90 }} disabled={!infoEdit} value={v.classCount} onChange={set("classCount")} /> 학급
           </FormRow>
           {asTypes.map((t) => {
             const options = candidates(vendors, t, v.regionId);
@@ -225,18 +230,18 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
             const engs = map[t].vendorId ? engineers[map[t].vendorId] ?? [] : [];
             return (
               <FormRow key={t} label={`${AS_NAME[t]} 담당`}>
-                <select aria-label={`${AS_NAME[t]} 담당 업체`} value={map[t].vendorId} disabled={!manage}
+                <select aria-label={`${AS_NAME[t]} 담당 업체`} value={map[t].vendorId} disabled={!vendorEdit}
                   onChange={(e) => setMap({ ...map, [t]: { vendorId: e.target.value, engineerUserId: "" } })}>
                   <option value="">-- 업체 없음 --</option>
                   {outside && <option value={outside.vendorId}>{outside.vendorName} (다른 지역)</option>}
                   {options.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName}</option>)}
                 </select>{" "}
-                <select aria-label={`${AS_NAME[t]} 담당 기사`} value={map[t].engineerUserId} disabled={!manage || !map[t].vendorId}
+                <select aria-label={`${AS_NAME[t]} 담당 기사`} value={map[t].engineerUserId} disabled={!vendorEdit || !map[t].vendorId}
                   onChange={(e) => setMap({ ...map, [t]: { ...map[t], engineerUserId: e.target.value } })}>
                   <option value="">-- 기사 자동 --</option>
                   {engs.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.mobile ? ` (${x.mobile})` : ""}</option>)}
                 </select>
-                {manage && !map[t].vendorId && (
+                {vendorEdit && !map[t].vendorId && (
                   <small className="hint sv-hint">
                     {!v.regionId ? "지역을 고르면 담당 업체가 정해집니다." : options.length ? "이 지역의 담당 업체가 여러 곳입니다. 선택해 주세요." : "이 지역에 담당 업체가 없습니다. 업체 관리에서 지정해 주세요."}
                   </small>
@@ -244,13 +249,13 @@ function SchoolForm({ school, regions, manage, onClose, onSaved }: { school: Sch
               </FormRow>
             );
           })}
-          <FormRow label="메모"><textarea className="ta" aria-label="메모" value={v.memo} onChange={set("memo")} /></FormRow>
+          <FormRow label="메모"><textarea className="ta" aria-label="메모" disabled={!infoEdit} value={v.memo} onChange={set("memo")} /></FormRow>
         </tbody></table>
         <FormMsg kind={msg ? "bad" : undefined} text={msg} />
         <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-          {school && manage && <button type="button" className="btn sm sec" onClick={() => setDel(true)}>삭제</button>}
+          {canDel && <button type="button" className="btn sm sec" onClick={() => setDel(true)}>삭제</button>}
           <button type="button" className="btn sm sec" onClick={onClose}>취소</button>
-          <button type="submit" className="btn sm" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
+          {(infoEdit || vendorEdit) && <button type="submit" className="btn sm" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>}
         </div>
         {del && <Confirm text={`${school!.schoolName}을(를) 삭제할까요? 연결된 자산·AS 기록이 있으면 삭제되지 않습니다.`} onYes={remove} onNo={() => setDel(false)} busy={busy} />}
       </form>

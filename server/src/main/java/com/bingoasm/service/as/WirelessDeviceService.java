@@ -33,10 +33,12 @@ public class WirelessDeviceService {
     private final BuildingRepository buildings;
     private final FloorRepository floors;
     private final DeviceHistoryRepository histories;
+    private final com.bingoasm.repo.as.AsRequestRepository requests;
 
     public WirelessDeviceService(WirelessDeviceRepository devices, SchoolService schoolService, BuildingRepository buildings, FloorRepository floors,
-                                 DeviceHistoryRepository histories) {
+                                 DeviceHistoryRepository histories, com.bingoasm.repo.as.AsRequestRepository requests) {
         this.histories = histories;
+        this.requests = requests;
         this.devices = devices;
         this.schoolService = schoolService;
         this.buildings = buildings;
@@ -334,6 +336,13 @@ public class WirelessDeviceService {
         return fl + " (" + loc + ")";
     }
 
+    /** 층별 도면에 놓인 장비 수 (무선 · 스쿨넷, 지운 장비 제외) — 건물·층 관리에서 층을 지울 때 알린다. */
+    public Map<Long, Long> placedCounts(java.util.Collection<Long> floorIds) {
+        if (floorIds.isEmpty()) return Map.of();
+        return devices.findByFloorIdIn(floorIds).stream().filter(d -> "Y".equals(d.useYn))
+                .collect(java.util.stream.Collectors.groupingBy(d -> d.floorId, java.util.stream.Collectors.counting()));
+    }
+
     public void clearFloors(java.util.Collection<Long> floorIds) {
         if (floorIds.isEmpty()) return;
         for (WirelessDevice d : devices.findByFloorIdIn(floorIds)) { d.floorId = null; d.posX = null; d.posY = null; }
@@ -343,6 +352,9 @@ public class WirelessDeviceService {
 
     /** 접수 유형별: 장비를 관리하는 권한, 그 장비로 AS를 신청하는 권한, 볼 수 있는 권한. */
     private static final Map<String, String> MANAGE_PERM = Map.of("M", "WDEVICE_MANAGE", "S", "SDEVICE_MANAGE");
+    /** 기능 권한 (Roles.FEATURES): 수정 · 라벨 출력 */
+    private static final Map<String, String> EDIT_PERM = Map.of("M", "WDEVICE_EDIT", "S", "SDEVICE_EDIT");
+    private static final Map<String, String> LABEL_PERM = Map.of("M", "WDEVICE_LABEL", "S", "SDEVICE_LABEL");
     private static final Map<String, String> REQUEST_PERM = Map.of("M", "AS_M_REQUEST", "S", "AS_S_REQUEST");
     private static final Map<String, List<String>> SEE_PERMS = Map.of(
             "M", List.of("WDEVICE_MANAGE", "AS_M_REQUEST", "AS_M_VIEW", "AS_PROCESS"),
@@ -373,7 +385,7 @@ public class WirelessDeviceService {
         j.put("where", Json.obj().with("schoolName", school).with("buildingId", b == null ? null : b.buildingId).with("buildingName", b == null ? null : b.buildingName)
                 .with("floorId", f == null ? null : f.floorId).with("floorName", f == null ? null : f.floorName)
                 .with("onPlan", f != null && f.planFileId != null && d.posX != null).with("path", String.join(" › ", path)));
-        j.put("canManage", me.can(MANAGE_PERM.get(d.rceptTy)));
+        j.put("canManage", me.can(EDIT_PERM.get(d.rceptTy)));
         j.put("canRequest", me.can(REQUEST_PERM.get(d.rceptTy)));
         // 관리자에게만: 최근 위치 변경 (장비를 못 찾을 때 언제 어디로 옮겼는지)
         if (me.can(MANAGE_PERM.get(d.rceptTy))) j.put("history", historyOf(d.deviceId, 5));
@@ -386,7 +398,7 @@ public class WirelessDeviceService {
         List<WirelessDevice> list = new java.util.ArrayList<>();
         java.util.Set<Long> scope = schoolService.scopeSchoolIds(me);
         if (ids instanceof List<?> l) for (Object o : l) devices.findById(Params.toLong(o))
-                .filter(x -> x.orgId.equals(me.orgId()) && "Y".equals(x.useYn) && me.can(MANAGE_PERM.get(x.rceptTy)) && (scope == null || scope.contains(x.schoolId)))
+                .filter(x -> x.orgId.equals(me.orgId()) && "Y".equals(x.useYn) && me.can(LABEL_PERM.get(x.rceptTy)) && (scope == null || scope.contains(x.schoolId)))
                 .ifPresent(list::add);
         if (list.isEmpty()) throw ApiException.badRequest("출력할 장비를 선택해 주세요.");
         if (list.size() > 60) list = list.subList(0, 60);
@@ -405,7 +417,18 @@ public class WirelessDeviceService {
         return Json.obj().with("type", "DEVICE").with("deviceId", id).with("found", d != null).with("rceptTy", d == null ? null : d.rceptTy);
     }
 
+    /**
+     * 삭제(숨김). 이 장비로 신청해 아직 처리 중(신청완료 · 접수완료)인 AS가 있으면 막는다 — 모든 계정 공통.
+     * 처리를 끝내거나 취소한 뒤 지운다. 지난 AS 기록은 그대로 남는다.
+     */
     public void delete(CurrentUser me, String ty, Long id) {
-        load(me, ty, id).useYn = "N";
+        WirelessDevice d = load(me, ty, id);
+        List<com.bingoasm.domain.as.AsRequest> open = requests.findByDeviceIdAndUseYnAndStatusIn(d.deviceId, "Y", List.of("A", "R"));
+        if (!open.isEmpty()) {
+            String nos = open.stream().limit(5).map(r -> "#" + r.asvcSn).collect(java.util.stream.Collectors.joining(", "));
+            throw ApiException.conflict("이 장비로 처리 중인 AS가 " + open.size() + "건 있어 삭제할 수 없습니다 (" + nos + (open.size() > 5 ? " 외" : "")
+                    + "). 처리를 끝내거나 신청을 취소한 뒤 삭제하세요.");
+        }
+        d.useYn = "N";
     }
 }

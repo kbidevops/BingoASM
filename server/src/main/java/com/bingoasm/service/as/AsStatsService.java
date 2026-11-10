@@ -55,6 +55,11 @@ public class AsStatsService {
                 .toList();
     }
 
+    /** 계약 · 예산 금액을 보는가: 학교 계정은 아니다 (업체는 자기 계약만 — visibleContracts). */
+    private static boolean seesMoney(CurrentUser me) {
+        return !me.scope().school();
+    }
+
     private static boolean done(AsRequest r) { return "C".equals(r.status) && r.completedAt != null; }
     private static long cost(List<AsRequest> l) { return l.stream().filter(r -> r.processAmount != null).mapToLong(r -> r.processAmount).sum(); }
     /** 유상(별도 청구) 비용만. */
@@ -90,7 +95,8 @@ public class AsStatsService {
         AsRequestService.Ref ref = requestService.ref(me.orgId());
         // 계약은 지역으로 나눠 배분한다. 교육지원청 담당자는 지역을 고르지 않아도 관내 몫만.
         Long effRegion = regionId != null ? regionId : me.scope().region() ? me.scope().regionId() : null;
-        List<AsContract> cs = costService.visibleContracts(me);
+        // 학교 계정(통합관리 메뉴를 받은 학교 담당자)은 계약 · 예산을 보지 않는다 — 계약은 교육청 · 지역 단위라 자기 학교 몫이 없다.
+        List<AsContract> cs = seesMoney(me) ? costService.visibleContracts(me) : List.of();
         Set<Long> active = ref.regions().keySet();
         LocalDate y0 = LocalDate.of(year, 1, 1), y1 = y0.plusYears(1);
         List<Json> rows = new ArrayList<>();
@@ -196,7 +202,7 @@ public class AsStatsService {
      */
     private Json budget(CurrentUser me, int year, String rceptTy, Long regionId, Long effRegion, List<AsContract> cs, Set<Long> active,
                         AsRequestService.Ref ref, long spendNow, List<Json> months) {
-        if (me.scope().vendor()) return null;
+        if (me.scope().vendor() || !seesMoney(me)) return null;
         List<AsBudget> bs = costService.budgetsOf(me.orgId(), year).stream()
                 .filter(b -> !me.scope().region() || Objects.equals(b.regionId, me.scope().regionId())).toList();
         LocalDate y0 = LocalDate.of(year, 1, 1), y1 = y0.plusYears(1);

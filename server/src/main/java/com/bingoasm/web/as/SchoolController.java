@@ -54,20 +54,20 @@ public class SchoolController {
     public ApiResponse school(@PathVariable Long id) { return ApiResponse.ok(schools.school(AuthContext.get(), id)); }
 
     @PostMapping("/schools")
-    @RequirePerm("SCHOOL_MANAGE")
+    @RequirePerm("SCHOOL_CREATE")
     public ApiResponse createSchool(@RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.createSchool(AuthContext.get(), body)); }
 
     @PutMapping("/schools/{id}")
-    @RequirePerm("SCHOOL_MANAGE")
+    @RequirePerm("SCHOOL_EDIT")
     public ApiResponse updateSchool(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.updateSchool(AuthContext.get(), id, body)); }
 
     @DeleteMapping("/schools/{id}")
-    @RequirePerm("SCHOOL_MANAGE")
+    @RequirePerm("SCHOOL_DELETE")
     public ApiResponse deleteSchool(@PathVariable Long id) { schools.deleteSchool(AuthContext.get(), id); return ApiResponse.ok(null); }
 
     /** 학교별 유형(C/M/S/T) 담당 업체·기사 매핑 교체. body: [{rceptTy, vendorId, engineerUserId}] */
     @PutMapping("/schools/{id}/vendors")
-    @RequirePerm({"SCHOOL_MANAGE", "VENDOR_MANAGE"})
+    @RequirePerm("SCHOOL_VENDOR")
     public ApiResponse setVendors(@PathVariable Long id, @RequestBody List<Map<String, Object>> rows) {
         return ApiResponse.ok(schools.setSchoolVendors(AuthContext.get(), id, rows));
     }
@@ -79,11 +79,11 @@ public class SchoolController {
     }
 
     @PostMapping("/vendors")
-    @RequirePerm("VENDOR_MANAGE")
+    @RequirePerm("VENDOR_CREATE")
     public ApiResponse createVendor(@RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.createVendor(AuthContext.get(), body)); }
 
     @PutMapping("/vendors/{id}")
-    @RequirePerm("VENDOR_MANAGE")
+    @RequirePerm("VENDOR_EDIT")
     public ApiResponse updateVendor(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(schools.updateVendor(AuthContext.get(), id, body)); }
 
     @GetMapping("/vendors/{id}/usage")
@@ -91,7 +91,7 @@ public class SchoolController {
     public ApiResponse vendorUsage(@PathVariable Long id) { return ApiResponse.ok(schools.vendorUsage(AuthContext.get(), id)); }
 
     @DeleteMapping("/vendors/{id}")
-    @RequirePerm("VENDOR_MANAGE")
+    @RequirePerm("VENDOR_DELETE")
     public ApiResponse deleteVendor(@PathVariable Long id) { schools.deleteVendor(AuthContext.get(), id); return ApiResponse.ok(null); }
 
     @GetMapping("/vendors/{id}/engineers")

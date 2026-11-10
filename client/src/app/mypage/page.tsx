@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { AS_LIST_HREF } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { browserOf, fmtDate, fmtDateTime, LOGIN_METHOD } from "@/lib/format";
+import { pwLevel, pwRules } from "@/lib/password";
 import { useScraps } from "@/lib/scraps";
 import type { AsRow, AsSummary, LoginLog, Me, OtpSetup, Page } from "@/lib/types";
 
@@ -200,25 +201,13 @@ function OtpDisableDialog({ onClose, onDone }: { onClose: () => void; onDone: (m
   );
 }
 
-/** Mirrors the server's PasswordPolicy: 9~20 chars, letters+digits+symbols, no id/phone, no 4× repeat, no spaces. */
-function pwRules(v: string, me: Me) {
-  const tel = (me.mobile ?? "").replace(/\D/g, "");
-  return {
-    len: v.length >= 9 && v.length <= 20 && !/\s/.test(v),
-    kinds: /[A-Za-z]/.test(v) && /\d/.test(v) && /[^A-Za-z\d]/.test(v),
-    id: !!v && !(me.loginId.length >= 3 && v.toLowerCase().includes(me.loginId.toLowerCase())) && !(tel.length >= 4 && v.includes(tel.slice(-4))),
-    rep: !!v && !/(.)\1{3,}/.test(v),
-  };
-}
-
 function PasswordTab({ me }: { me: Me }) {
   const { setMe } = useAuth();
   const [v, setV] = useState({ cur: "", next: "", again: "" });
   const [msg, setMsg] = useState<{ kind?: "ok" | "bad"; text: string }>({ text: "" });
   const [busy, setBusy] = useState(false);
   const r = pwRules(v.next, me);
-  const score = Object.values(r).filter(Boolean).length + (v.next.length >= 14 ? 1 : 0);
-  const level = !v.next ? ["-", 0, ""] : score <= 2 ? ["약함", 25, "w"] : score <= 3 ? ["보통", 55, "m"] : score <= 4 ? ["강함", 80, "s"] : ["매우 강함", 100, "s"];
+  const level = pwLevel(v.next, r);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,7 +217,7 @@ function PasswordTab({ me }: { me: Me }) {
     setBusy(true);
     try {
       const res = await api.put<{ passwordChangedAt: string }>("/api/auth/password", { currentPassword: v.cur, newPassword: v.next });
-      setMe({ ...me, passwordChangedAt: res.passwordChangedAt });
+      setMe({ ...me, passwordChangedAt: res.passwordChangedAt, mustChangePassword: false });
       setV({ cur: "", next: "", again: "" });
       setMsg({ kind: "ok", text: "비밀번호를 변경했습니다." });
     } catch (err) {

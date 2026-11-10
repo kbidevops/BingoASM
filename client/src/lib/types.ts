@@ -23,6 +23,8 @@ export interface Me {
   /** 인증 앱이 등록돼 있는지 (켜져 있는데 미등록이면 다음 로그인 때 등록) */
   otpRegistered?: boolean;
   passwordChangedAt?: string;
+  /** 관리자가 정한 임시 비밀번호로 로그인함 — 바꿀 때까지 변경 창을 띄운다 */
+  mustChangePassword?: boolean;
   createdAt?: string;
   lastLoginAt?: string;
   roles: string[];
@@ -102,6 +104,10 @@ export interface FileInfo {
 
 export interface AsRow {
   asvcSn: number;
+  /** 학교의 지역 · 배정된 업체 · 기사 (업체 배정 화면) */
+  regionId?: number;
+  vendorId?: number;
+  engineerUserId?: number;
   rceptTy: RceptTy;
   rceptTyName: string;
   schoolId?: number;

@@ -57,7 +57,7 @@ public class QrController {
 
     /** 장비 라벨 인쇄 항목. body: { deviceIds:[...] } — 관리하는 유형(무선·스쿨넷)의 장비만. */
     @PostMapping("/api/qr/device-labels")
-    @RequirePerm({"WDEVICE_MANAGE", "SDEVICE_MANAGE"})
+    @RequirePerm({"WDEVICE_LABEL", "SDEVICE_LABEL"})
     public ApiResponse deviceLabels(@RequestBody Map<String, Object> body) { return ApiResponse.ok(qr.deviceLabels(AuthContext.get(), body)); }
 
     /** 장비 라벨 QR을 찍었을 때의 장비 정보 (학교 담당자는 자기 학교 장비만, 업체는 배정 학교만). */

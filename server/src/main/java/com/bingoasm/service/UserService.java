@@ -43,6 +43,7 @@ public class UserService {
                 .with("deptId", u.deptId).with("deptName", u.deptId == null ? null : deptNames.get(u.deptId))
                 .with("loginId", u.loginId).with("userName", u.userName).with("positionName", u.positionName)
                 .with("email", u.email).with("mobile", u.mobile).with("status", u.status).with("loginFailCnt", u.loginFailCnt)
+                .with("mustChangePassword", Boolean.TRUE.equals(u.mustChangePassword))
                 .with("lastLoginAt", u.lastLoginAt).with("createdAt", u.createdAt).with("roles", u.roles)
                 .with("schoolId", u.schoolId).with("vendorId", u.vendorId).with("regionId", u.regionId)
                 .with("memberType", PermissionService.memberType(u)).with("affiliation", affiliation(u))
@@ -168,13 +169,27 @@ public class UserService {
         return roles;
     }
 
+    /** 관리자가 정하는 비밀번호: 임시 비밀번호로 표시해 다음 로그인 때 바꾸게 한다. */
     private void setPassword(AppUser u, String pw) {
         PasswordPolicy.check(pw, u.loginId, u.mobile);
         u.passwordChangedAt = Times.now();
         u.password = encoder.encode(pw);
+        u.mustChangePassword = true;
     }
 
     public Json create(CurrentUser me, Map<String, Object> b) {
+        AppUser u = prepareNew(me, b, true);
+        users.save(u);
+        return view(u, deptNames(me.orgId()), orgName(me.orgId()));
+    }
+
+    /**
+     * 새 계정의 모든 검사(권한 · 아이디 중복 · 역할 · 소속 · 비밀번호 규칙)를 하고 저장하지 않은 계정을 돌려준다.
+     * 사용자 일괄 등록의 검증 단계는 hashPassword=false로 불러 (bcrypt 없이) 같은 규칙으로 행을 검사한다.
+     */
+    // 검사 실패(ApiException)는 행 오류로 모아 보여 주므로 일괄 등록의 바깥 트랜잭션을 rollback-only로 만들지 않는다.
+    @Transactional(noRollbackFor = ApiException.class)
+    public AppUser prepareNew(CurrentUser me, Map<String, Object> b, boolean hashPassword) {
         requireUserAdmin(me);
         String loginId = Params.str(b, "loginId");
         String pw = Params.rawStr(b, "password");
@@ -189,9 +204,13 @@ public class UserService {
         applyProfile(u, b);
         checkAffiliation(u);
         u.status = "ACTIVE";
-        setPassword(u, pw);
-        users.save(u);
-        return view(u, deptNames(me.orgId()), orgName(me.orgId()));
+        if (hashPassword) setPassword(u, pw);
+        else PasswordPolicy.check(pw, u.loginId, u.mobile);
+        return u;
+    }
+
+    public AppUser saveNew(AppUser u) {
+        return users.save(u);
     }
 
     private AppUser load(CurrentUser me, Long id) {
@@ -216,7 +235,11 @@ public class UserService {
         if (Params.blank(u.userName)) throw ApiException.badRequest("이름을 입력해 주세요.");
         checkAffiliation(u);
         String pw = Params.rawStr(b, "password");
-        if (!Params.blank(pw)) setPassword(u, pw);
+        if (!Params.blank(pw)) {
+            setPassword(u, pw);
+            // 관리자가 자기 계정의 비밀번호를 바꾼 것은 임시 비밀번호가 아니다.
+            if (u.userId.equals(me.userId())) u.mustChangePassword = false;
+        }
         if ("ACTIVE".equals(Params.str(b, "status"))) { u.loginFailCnt = 0; u.lockedUntil = null; }
         return view(u, deptNames(me.orgId()), orgName(me.orgId()));
     }
@@ -257,6 +280,7 @@ public class UserService {
 
     public Json roles(CurrentUser me, Long id, Map<String, Object> b) {
         requireUserAdmin(me);
+        if (!me.can("USER_EDIT")) throw ApiException.forbidden("사용자 수정 기능이 꺼져 있습니다.");
         AppUser u = load(me, id);
         guardTarget(me, u);
         List<String> roles = requestedRoles(me, u, b);
@@ -279,11 +303,13 @@ public class UserService {
     private Json menuPermsView(AppUser u) {
         Set<String> base = permissions.basePerms(u), effective = permissions.effectivePerms(u);
         return Json.obj().with("userId", u.userId).with("loginId", u.loginId).with("userName", u.userName).with("roles", u.roles)
-                .with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS)
+                .with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS).with("editPerms", Roles.EDIT_PERMS)
+                .with("features", featureList())
                 .with("base", Roles.ADJUSTABLE_PERMS.stream().filter(base::contains).toList())
                 .with("granted", new ArrayList<>(u.grantedPerms)).with("denied", new ArrayList<>(u.deniedPerms))
                 .with("effective", Roles.ADJUSTABLE_PERMS.stream().filter(effective::contains).toList())
                 .with("disabled", new ArrayList<>(permissions.disabledPerms(u.orgId)))
+                .with("blocked", new ArrayList<>(PermissionService.blockedPerms(u)))
                 .with("limits", menuLimits(Scope.of(u)));
     }
 
@@ -291,10 +317,14 @@ public class UserService {
      * 메뉴를 켜도 이 사용자의 소속 범위 때문에 일부만 되는 것 (사용자 메뉴 권한 화면의 안내).
      * 실제 제한은 SchoolService(학교·업체 관리)와 scopeSchoolIds(학교 단위 데이터)가 한다.
      */
-    static Map<String, String> menuLimits(Scope sc) {
+    public static Map<String, String> menuLimits(Scope sc) {
         Map<String, String> m = new LinkedHashMap<>();
         switch (sc.kind()) {
             case SCHOOL -> {
+                m.put("AS_MANAGE", "자기 학교 AS만 (배정 · 삭제 · 접수 · 반려 · 이관 불가)");
+                m.put("WDEVICE_MANAGE", "자기 학교 장비만 (다른 학교로 옮길 수 없음)");
+                m.put("SDEVICE_MANAGE", "자기 학교 장비만 (다른 학교로 옮길 수 없음)");
+                m.put("SPACE_MANAGE", "자기 학교 건물 · 층만");
                 m.put("SCHOOL_MANAGE", "자기 학교 기본정보만 수정 (지역·담당업체·등록·삭제 불가)");
                 m.put("VENDOR_MANAGE", "조회만 가능");
             }
@@ -317,12 +347,22 @@ public class UserService {
         guardTarget(me, u);
         List<String> granted = permList(b.get("granted")), denied = permList(b.get("denied"));
         if (granted.stream().anyMatch(denied::contains)) throw ApiException.badRequest("같은 메뉴를 열고 숨길 수 없습니다.");
+        Set<String> blocked = PermissionService.blockedPerms(u);
+        for (String p : granted)
+            if (blocked.contains(p)) throw ApiException.badRequest("학교 · 교육지원청 계정에는 '" + Roles.PERM_LABEL.getOrDefault(p, p) + "'을(를) 줄 수 없습니다.");
         Set<String> base = permissions.basePerms(u);
         u.grantedPerms.clear();
-        granted.stream().filter(p -> !base.contains(p)).forEach(u.grantedPerms::add);
+        // 기능 권한은 메뉴를 따라 켜지므로 켜기 조정은 두지 않는다 (끄기만).
+        granted.stream().filter(p -> !base.contains(p) && !Roles.isFeature(p)).forEach(u.grantedPerms::add);
         u.deniedPerms.clear();
-        denied.stream().filter(base::contains).forEach(u.deniedPerms::add);
+        // 기능 권한 끄기는 메뉴를 사용자별로 켠 경우에도 남긴다 (메뉴가 없으면 어차피 꺼져 있다).
+        denied.stream().filter(p -> base.contains(p) || Roles.isFeature(p)).forEach(u.deniedPerms::add);
         return menuPermsView(u);
+    }
+
+    /** 화면용 기능 권한 목록: [{code, parent, label}] (Roles.FEATURES 순서). */
+    public static List<Json> featureList() {
+        return Roles.FEATURES.stream().map(f -> Json.obj().with("code", f.code()).with("parent", f.parent()).with("label", f.label())).toList();
     }
 
     private static List<String> permList(Object v) {

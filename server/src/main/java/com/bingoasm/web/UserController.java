@@ -31,20 +31,20 @@ public class UserController {
     }
 
     @PostMapping("/api/users")
-    @RequirePerm("USER_WRITE")
+    @RequirePerm("USER_CREATE")
     public ApiResponse create(@RequestBody Map<String, Object> body) {
         return ApiResponse.ok(users.create(AuthContext.get(), body));
     }
 
     @PutMapping("/api/users/{id}")
-    @RequirePerm("USER_WRITE")
+    @RequirePerm("USER_EDIT")
     public ApiResponse update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return ApiResponse.ok(users.update(AuthContext.get(), id, body));
     }
 
     /** 삭제: 기록이 계정을 가리키므로 지우지 않고 사용 중지한다. */
     @DeleteMapping("/api/users/{id}")
-    @RequirePerm("USER_WRITE")
+    @RequirePerm("USER_DELETE")
     public ApiResponse delete(@PathVariable Long id) {
         users.delete(AuthContext.get(), id);
         return ApiResponse.ok(null);
@@ -52,14 +52,14 @@ public class UserController {
 
     /** 인증 앱(OTP) 등록 초기화: 휴대폰 분실·교체 때. 다음 로그인 때 새로 등록한다. */
     @PostMapping("/api/users/{id}/otp-reset")
-    @RequirePerm("USER_WRITE")
+    @RequirePerm("USER_UNLOCK")
     public ApiResponse resetOtp(@PathVariable Long id) {
         return ApiResponse.ok(users.resetOtp(AuthContext.get(), id));
     }
 
     /** 로그인 실패 잠금 해제. */
     @PostMapping("/api/users/{id}/unlock")
-    @RequirePerm("USER_WRITE")
+    @RequirePerm("USER_UNLOCK")
     public ApiResponse unlock(@PathVariable Long id) {
         return ApiResponse.ok(users.unlock(AuthContext.get(), id));
     }

@@ -102,9 +102,14 @@ public class QrService {
     public Json byNo(CurrentUser me, String assetNo) {
         String no = assetNo.trim().toUpperCase();
         Asset a = assets.findAll((root, q, cb) -> cb.and(cb.equal(root.get("orgId"), me.orgId()), cb.equal(root.get("assetNo"), no), cb.equal(root.get("useYn"), "Y"))).stream().findFirst().orElse(null);
+        // 다룰 수 없는 학교(관할 밖 · 다른 학교)의 자산이면 있다는 것만 알리고 이름 · 위치 · id는 주지 않는다.
+        if (a != null && !inScope(me, a.schoolId)) return Json.obj().with("type", "ASSET").with("state", "OUT_OF_SCOPE").with("assetNo", no)
+                .with("message", no + " — 담당 범위 밖 학교의 자산입니다.");
         if (a != null) return Json.obj().with("type", "ASSET").with("state", "REGISTERED").with("assetNo", no).with("assetId", a.assetId).with("assetName", a.assetName)
-                .with("schoolId", a.schoolId).with("roomId", a.roomId).with("location", inScope(me, a.schoolId) ? assetService.location(a) : null);
+                .with("schoolId", a.schoolId).with("roomId", a.roomId).with("location", assetService.location(a));
         AssetNoReservation res = reservations.findByAssetNo(no).filter(x -> x.orgId.equals(me.orgId())).orElse(null);
+        if (res != null && res.schoolId != null && !inScope(me, res.schoolId)) return Json.obj().with("type", "ASSET").with("state", "OUT_OF_SCOPE").with("assetNo", no)
+                .with("message", no + " — 담당 범위 밖 학교의 라벨입니다.");
         if (res != null) return Json.obj().with("type", "ASSET").with("state", "RESERVED").with("assetNo", no).with("schoolId", res.schoolId)
                 .with("message", "미등록 라벨입니다. 이 번호로 자산을 등록하세요.");
         return Json.obj().with("type", "ASSET").with("state", "NOT_FOUND").with("assetNo", no).with("message", no + " — 등록되지 않은 번호입니다.");
@@ -142,6 +147,8 @@ public class QrService {
         if (ids instanceof List<?> l) for (Object o : l) assets.findById(Params.toLong(o)).filter(a -> a.orgId.equals(me.orgId())).ifPresent(list::add);
         Object nos = b.get("assetNos");
         if (nos instanceof List<?> l) for (Object o : l) list.addAll(assets.findAll((root, q, cb) -> cb.and(cb.equal(root.get("orgId"), me.orgId()), cb.equal(root.get("assetNo"), String.valueOf(o).trim().toUpperCase()))));
+        // 다룰 수 있는 학교의 자산만 (학교 · 교육지원청 · 업체 계정)
+        list = new ArrayList<>(list.stream().filter(a -> inScope(me, a.schoolId)).toList());
         if (list.isEmpty()) throw ApiException.badRequest("출력할 자산이 없습니다.");
         if (list.size() > 60) list = list.subList(0, 60);
         Map<Long, School> sm = schoolService.schoolMap(me.orgId());

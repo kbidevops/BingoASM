@@ -29,6 +29,8 @@ export const ACTION_LABEL: Record<string, string> = {
   report: "처리 보고서",
   evaluate: "만족도 평가",
   delete: "삭제",
+  assign: "업체 배정",
+  ASSIGN: "업체 배정",
 };
 
 let codesCache: Promise<AsCodes> | null = null;

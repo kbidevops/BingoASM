@@ -326,7 +326,10 @@ public class SchoolService {
     }
 
     @Transactional(readOnly = true)
-    public List<Json> vendors(CurrentUser me, Long regionId, String rceptTy) {
+    public List<Json> vendors(CurrentUser me, Long askedRegionId, String rceptTy) {
+        // 교육지원청 담당자: 관할 교육지원청을 맡는 업체만 (다른 지역을 물으면 빈 목록).
+        if (me.scope().region() && askedRegionId != null && !askedRegionId.equals(me.scope().regionId())) return List.of();
+        Long regionId = me.scope().region() ? me.scope().regionId() : askedRegionId;
         Map<Long, Region> rm = regionMap(me.orgId());
         Map<Long, Long> eng = users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream().filter(u -> u.vendorId != null && "ACTIVE".equals(u.status))
                 .collect(Collectors.groupingBy(u -> u.vendorId, Collectors.counting()));
@@ -493,9 +496,19 @@ public class SchoolService {
 
     @Transactional(readOnly = true)
     public List<Json> engineers(CurrentUser me, Long vendorId) {
+        if (me.scope().region() && !servesRegion(me.orgId(), vendorId, me.scope().regionId()))
+            throw ApiException.forbidden("관할 교육지원청을 맡은 업체의 기사만 볼 수 있습니다.");
         return users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream()
                 .filter(u -> vendorId.equals(u.vendorId) && "ACTIVE".equals(u.status) && (u.roles.contains("AS_ENGINEER") || u.roles.contains("VENDOR_ADMIN")))
                 .map(u -> Json.obj().with("userId", u.userId).with("userName", u.userName).with("positionName", u.positionName).with("mobile", u.mobile)
                         .with("roles", u.roles)).toList();
+    }
+
+    /** 업체가 이 교육지원청을 맡는가 (전체 지역 업체이거나 지역 연결이 있거나). */
+    private boolean servesRegion(Long orgId, Long vendorId, Long regionId) {
+        com.bingoasm.domain.as.Vendor v = vendors.findById(vendorId == null ? -1L : vendorId).filter(x -> x.orgId.equals(orgId)).orElse(null);
+        if (v == null || regionId == null) return false;
+        return Boolean.TRUE.equals(v.allRegions) || vendorRegions.findByOrgIdOrderBySortOrderAsc(orgId).stream()
+                .anyMatch(l -> vendorId.equals(l.vendorId) && regionId.equals(l.regionId));
     }
 }

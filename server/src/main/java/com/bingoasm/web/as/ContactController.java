@@ -25,12 +25,12 @@ public class ContactController {
 
     /** 전체 교체. rows: [{regionId, groupName, itemName, tel, note, duties}] */
     @PutMapping
-    @RequirePerm("BOARD_ADMIN")
+    @RequirePerm("CONTACT_EDIT")
     public ApiResponse replace(@RequestBody List<Map<String, Object>> rows) { return ApiResponse.ok(contacts.replaceAll(AuthContext.get(), rows)); }
 
     /** 한 구역만 교체. section = "province"(도교육청) 또는 교육지원청 id. 교육지원청 담당자는 자기 교육지원청만. */
     @PutMapping("/sections/{section}")
-    @RequirePerm({"BOARD_ADMIN", "SCHOOL_MANAGE"})
+    @RequirePerm("CONTACT_EDIT")
     public ApiResponse replaceSection(@PathVariable String section, @RequestBody List<Map<String, Object>> rows) {
         Long regionId;
         if ("province".equals(section)) regionId = null;
