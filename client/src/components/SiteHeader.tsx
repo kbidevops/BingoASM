@@ -10,6 +10,7 @@ import { useScraps } from "@/lib/scraps";
 import QrQuickScan, { useCanQuickScan } from "./admin/QrQuickScan";
 import NotificationBell from "./NotificationBell";
 import { Icon, Modal, useToast } from "./ui";
+import { GROUP_META, groupIcon } from "./menuMeta";
 
 function toggleTheme() {
   const r = document.documentElement;
@@ -162,6 +163,7 @@ function IdleWarning() {
   );
 }
 
+
 export default function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
@@ -172,6 +174,8 @@ export default function SiteHeader() {
   const [q, setQ] = useState("");
   const [scrapOn, setScrapOn] = useState(false);
   const [noMega, setNoMega] = useState(false);
+  // 위 메뉴에서 가리키는 묶음: 전체 메뉴에서 그 열을 강조한다.
+  const [hot, setHot] = useState<number | null>(null);
   const [scanOn, setScanOn] = useState(false);
   const canScan = useCanQuickScan();
   const searchInput = useRef<HTMLInputElement>(null);
@@ -233,7 +237,7 @@ export default function SiteHeader() {
     <header
       ref={header}
       className={"gw" + (noMega ? " nomega" : "")}
-      onMouseLeave={() => setNoMega(false)}
+      onMouseLeave={() => { setNoMega(false); setHot(null); }}
     >
       <div className="util">
         <div className="wrap">
@@ -298,7 +302,7 @@ export default function SiteHeader() {
             {menu.map((g, i) => {
               const first = g.items.find((it) => !it.sideOnly) ?? g.items[0];
               return (
-                <li key={g.title}>
+                <li key={g.title} onMouseEnter={() => setHot(i)} onFocus={() => setHot(i)}>
                   <Link
                     href={first.href}
                     className={i === curGroup ? "on" : ""}
@@ -345,21 +349,32 @@ export default function SiteHeader() {
       </div>
       {scanOn && <QrQuickScan onClose={() => setScanOn(false)} />}
       <div className="mega">
-        <div className="wrap mgrid">
-          {menu.map((g, i) => (
-            <div key={g.title}>
-              <h3 className={i === curGroup ? "on" : ""}>{g.title}</h3>
-              <ul>
-                {g.items
-                  .filter((it) => !it.sideOnly)
-                  .map((it) => (
-                    <li key={it.href}>
-                      <Link href={it.href}>{it.title}</Link>
+        <div className="wrap mgrid mg2" style={{ "--mcols": menu.length } as React.CSSProperties}>
+          {menu.map((g, i) => {
+            const meta = GROUP_META[g.title];
+            const items = g.items.filter((it) => !it.sideOnly);
+            return (
+              <div key={g.title} className={"mcol" + (i === curGroup ? " cur" : "") + (i === hot ? " hot" : "")} onMouseEnter={() => setHot(i)}>
+                <div className="mcol-h">
+                  <span className="mcol-i" aria-hidden="true">{groupIcon(meta?.icon)}</span>
+                  <div>
+                    <h3>{g.title}</h3>
+                    {meta && <small>{meta.desc}</small>}
+                  </div>
+                </div>
+                <ul>
+                  {items.map((it, k) => (
+                    <li key={it.href} className={it.section && it.section !== items[k - 1]?.section ? "msec-first" : undefined}>
+                      {it.section && it.section !== items[k - 1]?.section && <span className="msec">{it.section}</span>}
+                      <Link href={it.href} className={it.href === pathname ? "on" : undefined} aria-current={it.href === pathname ? "page" : undefined}>
+                        {it.title}
+                      </Link>
                     </li>
                   ))}
-              </ul>
-            </div>
-          ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       </div>
       <div className={"sch" + (searchOn ? " on" : "")}>

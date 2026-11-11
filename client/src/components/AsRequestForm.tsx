@@ -157,14 +157,10 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
 
   return (
     <>
-      {ty === "S" ? (
-        <div className="nbox" style={{ borderColor: "var(--brand2)" }}>📢 접수 시 비용이 발생할 수 있습니다. 관리자에게 문의해 주세요.</div>
-      ) : (
-        <NoticeBox>
-          <p>■ 장애가 발생한 경우 아래 내용을 입력해 접수해 주세요.</p>
-          <p>■ 접수 후 업체 담당자가 확인해 연락드립니다.</p>
-        </NoticeBox>
-      )}
+      <NoticeBox>
+        <p>■ 장애가 발생한 경우 아래 내용을 입력해 접수해 주세요.</p>
+        <p>■ 접수 후 업체 담당자가 확인해 연락드립니다.</p>
+      </NoticeBox>
       <form className="ft2" noValidate onSubmit={submit}>
         <table className="ftab">
           <tbody>

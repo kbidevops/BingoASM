@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { findMenu, visibleMenu, type MenuItem } from "@/lib/menu";
 import { Icon, Loading } from "./ui";
+import { GROUP_META, groupIcon } from "./menuMeta";
 
 /**
  * Sub page frame: banner + breadcrumb + page tools, side menu of the current group, content, survey.
@@ -116,7 +117,13 @@ function SideMenu({ title, items, here }: { title: string; items: MenuItem[]; he
 
   return (
     <aside className="side" ref={box}>
-      <b>{title}</b>
+      <div className="side-h">
+        <span className="side-i" aria-hidden="true">{groupIcon(GROUP_META[title]?.icon)}</span>
+        <div>
+          <b>{title}</b>
+          {GROUP_META[title] && <small>{GROUP_META[title].desc}</small>}
+        </div>
+      </div>
       <button ref={toggle} type="button" className="side-tog" aria-expanded={open} aria-controls="side-list" aria-label={`${title} 메뉴: ${current?.title ?? "선택"}`} onClick={() => setOpen((v) => !v)}>
         {current?.title ?? title}
       </button>

@@ -1523,6 +1523,55 @@ st, j, _ = call("DELETE", "/api/as/spaces/floors/999999", token=E); check("floor
 call("DELETE", f"/api/as/spaces/buildings/{fb['buildingId']}", token=E); call("DELETE", f"/api/as/spaces/buildings/{ob2['buildingId']}", token=E)
 call("DELETE", f"/api/as/wireless-devices/{fd['deviceId']}", token=E)
 
+# ---------- 스쿨넷 SLA (/api/as/sla, V10 sla_targets) ----------
+import datetime as _dt
+st, j, _ = call("GET", "/api/as/sla", token=N); check("sla: 기사 (no SLA board) → 403", st == 403, j)
+st, j, _ = call("GET", "/api/as/sla", token=E); sd = data((st, j, None))
+check("sla: 교육청 sees dashboard with default targets", st == 200 and sd["targets"]["receiveMin"] == 30 and sd["targets"].get("isDefault") is True and sd["canEdit"] is True, j)
+check("sla: 12-month trend", st == 200 and len(sd["trend"]) == 12, sd.get("trend"))
+st, j, _ = call("GET", "/api/as/sla?year=2026&month=13", token=E); check("sla: bad month → 400", st == 400, j)
+for who, tok in (("교육지원청", R), ("학교", S)):
+    st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 60, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=tok)
+    check(f"sla: {who} cannot set targets → 403", st == 403, j)
+st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 0, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=E)
+check("sla: target 0분 → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 80}, token=E)
+check("sla: availability 80% → 400", st == 400, j)
+st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 45, "visitMin": 180, "recoverFullMin": 360, "recoverPartialMin": 1440, "availabilityPct": 99.8}, token=E)
+check("sla: 교육청 saves targets", st == 200 and data((st, j, None))["receiveMin"] == 45 and not data((st, j, None)).get("isDefault"), j)
+check("sla: targets visible to schools", data(call("GET", "/api/as/sla", token=S))["targets"]["visitMin"] == 180)
+
+# 오래 열린 스쿨넷 신청(시드)은 위반으로 잡힌다
+old = [x for x in data(call("GET", "/api/as/requests?rceptTy=S&size=200", token=E))["content"] if x["status"] in ("A", "R")]
+if old:
+    o = min(old, key=lambda x: x["requestAt"]); oy, om = int(o["requestAt"][:4]), int(o["requestAt"][5:7])
+    so = data(call("GET", f"/api/as/sla?year={oy}&month={om}", token=E))
+    check("sla: long-open request counted as a violation", any(v["asvcSn"] == o["asvcSn"] and "접수" in v["missed"] for v in so["violations"]), so["violations"])
+    check("sla: open steps not in averages", so["summary"].get("avgReceiveMin") is None or so["summary"]["avgReceiveMin"] < 20000, so["summary"])
+
+# 장비(회선)를 골라 신청 → 바로 접수 · 처리 → 충족, 회선별에 잡힌다
+snd = next(x for x in data(call("GET", "/api/as/schoolnet-devices?size=200", token=S))["content"])
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "71", "symptom": "SLA 시험 전체 장애", "installPlace": "본관",
+                                              "deviceId": snd["deviceId"], "visitRequestAt": "2026-12-01T10:00", "contactTel": "010-2000-0001"}, token=S)
+sr_ = data((st, j, None)) or {}
+check("sla: schoolnet AS with line", st == 200, j)
+call("POST", f"/api/as/requests/{sr_.get('asvcSn')}/receive", {"visitPlannedAt": "2026-12-01T10:00"}, token=N)
+st, j, _ = call("POST", f"/api/as/requests/{sr_.get('asvcSn')}/report", {"processContent": "회선 복구 (SLA 시험)"}, token=N); check("sla: completed", st == 200, j)
+now_ = _dt.date.today()
+sn_ = data(call("GET", f"/api/as/sla?year={now_.year}&month={now_.month}", token=E))
+check("sla: this month counts it as met", sn_["summary"]["total"] >= 1 and sn_["summary"]["met"] >= 1 and not any(v["asvcSn"] == sr_.get("asvcSn") for v in sn_["violations"]), sn_["summary"])
+ln = next((l for l in sn_["lines"] if l["deviceId"] == snd["deviceId"]), None)
+check("sla: the line shows up with failures and availability", ln is not None and ln["failures"] >= 1 and 0 < ln["availability"] <= 100, sn_["lines"])
+check("sla: by-vendor row", any(v["total"] >= 1 for v in sn_["byVendor"]), sn_["byVendor"])
+ss_ = data(call("GET", f"/api/as/sla?year={now_.year}&month={now_.month}", token=S))
+check("sla: school sees only its own school", all(l["schoolName"] == "봉황초등학교" for l in ss_["lines"]) and ss_["canEdit"] is False, ss_["lines"])
+OR_ = next(x["regionId"] for x in (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=E))) if x["schoolName"] == "솔빛고등학교")
+sr2 = data(call("GET", f"/api/as/sla?year={now_.year}&month={now_.month}&regionId={OR_}", token=R))
+check("sla: 교육지원청 asking another district gets nothing", sr2["summary"]["total"] == 0 and not sr2["lines"], sr2["summary"])
+st, xb, h = call("GET", f"/api/as/sla/excel?year={now_.year}&month={now_.month}", token=E, raw=True)
+check("sla: monthly Excel report", st == 200 and xb[:2] == b"PK" and "filename*=UTF-8''" in h.get("Content-Disposition", ""), st)
+call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=E)
+
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")
 if fails:

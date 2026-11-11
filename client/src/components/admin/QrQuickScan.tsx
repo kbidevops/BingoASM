@@ -51,7 +51,6 @@ export default function QrQuickScan({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="QR 찍기" onClose={onClose}>
       <ul className="qqs-help">
-        <li><b>자산 라벨</b> → 그 자산 정보 (미등록 라벨이면 등록 화면)</li>
         <li><b>장비 라벨</b> (무선·스쿨넷) → 장비 정보 · AS 신청</li>
       </ul>
       <QrScanner onText={handle} />
