@@ -128,7 +128,7 @@ BINGOASM_URL=http://localhost:8090 python3 scripts/as_integration_test.py
 | `DATA_KEY` | 개발용 키 | 이메일·휴대폰 번호 AES-256-GCM 암호화 키. **반드시 변경**, 처음 설치할 때 정하고 이후 바꾸지 않기 |
 | `CORS_ORIGINS` | `*` | 화면이 뜨는 출처만 허용 (쉼표로 여러 개) |
 | `QR_BASE_URL` | `http://localhost:8080` | 자산 라벨·로그인 QR에 들어갈 주소 — 휴대폰이 접속할 수 있는 주소로 |
-| `ASSET_LINK`, `DEVICE_LINK` | `/admin/assets?no={assetNo}`, `/device?id={deviceId}` | 라벨 QR(`/a/번호` 자산, `/d/장비ID` 장비)이 보낼 화면 경로 |
+| `ASSET_LINK`, `DEVICE_LINK` | `/`, `/device?id={deviceId}` | 라벨 QR(`/a/번호` 자산, `/d/장비ID` 장비)이 보낼 화면 경로 |
 | `PORT`, `DATA_DIR` | `8080`, `./data` | 포트, H2·업로드 폴더 |
 | `SPRING_PROFILES_ACTIVE=postgres` + `DB_URL`, `DB_USER`, `DB_PASSWORD` | – | PostgreSQL 사용 |
 

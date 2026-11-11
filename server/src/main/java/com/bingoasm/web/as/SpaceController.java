@@ -26,21 +26,21 @@ public class SpaceController {
 
     /** body: { schoolId, buildingName, address?, floorCount? } — floorCount만큼 1층부터 층을 함께 만든다. */
     @PostMapping("/buildings")
-    @RequirePerm("SPACE_BUILDING")
+    @RequirePerm("SPACE_BUILDING_CREATE")
     public ApiResponse createBuilding(@RequestBody Map<String, Object> body) { return ApiResponse.ok(spaces.createBuilding(AuthContext.get(), body)); }
 
     /** body: { floorNo, floorName? } */
     @PostMapping("/buildings/{id}/floors")
-    @RequirePerm("SPACE_BUILDING")
+    @RequirePerm("SPACE_FLOOR_CREATE")
     public ApiResponse addFloor(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(spaces.addFloor(AuthContext.get(), id, body)); }
 
     @DeleteMapping("/buildings/{id}")
-    @RequirePerm("SPACE_BUILDING")
+    @RequirePerm("SPACE_BUILDING_DELETE")
     public ApiResponse deleteBuilding(@PathVariable Long id) { spaces.deleteBuilding(AuthContext.get(), id); return ApiResponse.ok(null); }
 
     /** 층 삭제: 그 층의 실 · 도면을 지우고, 놓여 있던 자산 · 장비는 도면에서 뺀다 (자산 · 장비는 남는다). */
     @DeleteMapping("/floors/{id}")
-    @RequirePerm("SPACE_BUILDING")
+    @RequirePerm("SPACE_FLOOR_DELETE")
     public ApiResponse deleteFloor(@PathVariable Long id) { spaces.deleteFloor(AuthContext.get(), id); return ApiResponse.ok(null); }
 
     @GetMapping("/rooms")

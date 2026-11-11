@@ -32,8 +32,9 @@ function Spaces() {
   const [err, setErr] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const plans = can("WDEVICE_MANAGE");
-  // 건물 · 층 추가 · 삭제 기능 (역할 권한 관리에서 끌 수 있다)
-  const canBuild = can("SPACE_BUILDING");
+  // 건물 · 층 추가 · 삭제 기능 (역할 권한 관리 · 사용자 메뉴 권한에서 하나씩 끌 수 있다)
+  const canAddBld = can("SPACE_BUILDING_CREATE"), canDelBld = can("SPACE_BUILDING_DELETE");
+  const canAddFloor = can("SPACE_FLOOR_CREATE"), canDelFloor = can("SPACE_FLOOR_DELETE");
 
   const load = useCallback(() => {
     if (!schoolId) return;
@@ -58,21 +59,21 @@ function Spaces() {
             ["층", `${floors.length}`, "개"],
             ["도면이 있는 층", `${floors.filter((f) => f.planUrl).length}`, `/${floors.length}`],
           ]} />
-          {canBuild && (
+          {canAddBld && (
             <div className="atool sp-tool">
               <ToolButton icon={<Icon name="school" />} label="+ 건물 추가" onClick={() => setDialog({ kind: "building" })} />
             </div>
           )}
-          {!blds.length && <p className="empty">등록된 건물이 없습니다.{canBuild ? " ‘+ 건물 추가’로 시작하세요." : ""}</p>}
+          {!blds.length && <p className="empty">등록된 건물이 없습니다.{canAddBld ? " ‘+ 건물 추가’로 시작하세요." : ""}</p>}
           {blds.map((b) => (
             <section key={b.buildingId} className="sp-b">
               <div className="sp-bh">
                 <h3>{b.buildingName}</h3>
                 <span className="hint">{b.floors.length ? `${b.floors.length}개 층` : "층 없음"}{b.address ? ` · ${b.address}` : ""}</span>
-                {canBuild && (
+                {(canAddFloor || canDelBld) && (
                   <span className="sp-bt">
-                    <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "floor", building: b })}>층 추가</button>{" "}
-                    <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "delBuilding", building: b })}>건물 삭제</button>
+                    {canAddFloor && <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "floor", building: b })}>층 추가</button>}{" "}
+                    {canDelBld && <button type="button" className="linkbtn" onClick={() => setDialog({ kind: "delBuilding", building: b })}>건물 삭제</button>}
                   </span>
                 )}
               </div>
@@ -82,7 +83,7 @@ function Spaces() {
                     <b>{f.floorName}</b>
                     <span className={f.planUrl ? "ok" : "warn"}>{f.planUrl ? "도면 있음" : "도면 없음"}</span>
                     {plans && <Link className="linkbtn" href={`/admin/floorplan?building=${b.buildingId}&floor=${f.floorId}`}>{f.planUrl ? "도면 보기" : "도면 올리기"}</Link>}
-                    {canBuild && <button type="button" className="linkbtn sp-del" aria-label={`${b.buildingName} ${f.floorName} 삭제`} onClick={() => setDialog({ kind: "delFloor", building: b, floor: f })}>삭제</button>}
+                    {canDelFloor && <button type="button" className="linkbtn sp-del" aria-label={`${b.buildingName} ${f.floorName} 삭제`} onClick={() => setDialog({ kind: "delFloor", building: b, floor: f })}>삭제</button>}
                   </li>
                 ))}
               </ul>

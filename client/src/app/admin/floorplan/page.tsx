@@ -72,6 +72,7 @@ function Floorplan() {
   const f = b?.floors.find((x) => x.floorId === fid);
   const onFloor = (floorId: number) => (devices ?? []).filter((d) => d.floorId === floorId).length;
   const canSpace = can("SPACE_MANAGE");
+  const canAddBld = can("SPACE_BUILDING_CREATE"), canAddFloor = can("SPACE_FLOOR_CREATE");
 
   const upload = async (file: File) => {
     if (!f) return;
@@ -102,7 +103,7 @@ function Floorplan() {
             <li><b>층 도면 올리기</b><span>층마다 도면 이미지·PDF·사진</span></li>
             <li><b>장비 배치</b><span>무선 AP·스위치를 도면 위에 놓기</span></li>
           </ol>
-          {canSpace ? <button type="button" className="btn sm" onClick={() => setAdding("building")}>건물 등록</button>
+          {canAddBld ? <button type="button" className="btn sm" onClick={() => setAdding("building")}>건물 등록</button>
             : <p className="hint">건물 등록은 학교·교육청 담당자가 할 수 있습니다.</p>}
         </div>
       ) : (
@@ -113,7 +114,7 @@ function Floorplan() {
                 <button key={x.buildingId} type="button" aria-pressed={x.buildingId === bid}
                   onClick={() => { setBid(x.buildingId); setFid((x.floors.find((y) => y.planUrl) ?? x.floors[0])?.floorId ?? null); }}>{x.buildingName}</button>
               ))}
-              {canSpace && <button type="button" className="fpv-add" onClick={() => setAdding("building")} aria-label="건물 추가">＋ 건물</button>}
+              {canAddBld && <button type="button" className="fpv-add" onClick={() => setAdding("building")} aria-label="건물 추가">＋ 건물</button>}
             </div>
             <div className="fpv-floors" role="tablist" aria-label="층">
               {b?.floors.map((x) => (
@@ -122,10 +123,10 @@ function Floorplan() {
                   <small className={x.planUrl ? "" : "warn"}>{x.planUrl ? `장비 ${onFloor(x.floorId)}` : "도면 없음"}</small>
                 </button>
               ))}
-              {canSpace && b && <button type="button" className="fpv-add-floor" onClick={() => setAdding("floor")}><b>＋</b><small>층 추가</small></button>}
+              {canAddFloor && b && <button type="button" className="fpv-add-floor" onClick={() => setAdding("floor")}><b>＋</b><small>층 추가</small></button>}
             </div>
           </nav>
-          {!f ? <p className="empty">이 건물에 층이 없습니다.{canSpace ? " ‘층 추가’로 층을 만드세요." : ""}</p> : !f.planUrl ? (
+          {!f ? <p className="empty">이 건물에 층이 없습니다.{canAddFloor ? " ‘층 추가’로 층을 만드세요." : ""}</p> : !f.planUrl ? (
             <div className="fpv-card fpv-noplan">
               {can("FLOOR_WRITE") ? (
                 <button type="button" className="bk-drop" style={{ width: "100%" }} onClick={() => setUploading(true)}>

@@ -1739,3 +1739,15 @@ th small.opt{font-weight:400;color:var(--muted)}
  .side-list > .side-sec:first-child{margin-top:2px}
 }
 @media (max-width:760px){.side-h{display:none}}
+
+/* ---------- 만족도 평가 대기 (AS 목록 · 마이페이지) ---------- */
+:root{--evw-bg:#fff7e6;--evw-line:#f0a020;--evw-fg:#9a5b00;--evw-btn:#d9820b;--evw-btn-h:#bf7000}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--evw-bg:#2b2213;--evw-line:#d99a3a;--evw-fg:#f3c27a;--evw-btn:#c27a17;--evw-btn-h:#d98c22}}
+:root[data-theme="dark"]{--evw-bg:#2b2213;--evw-line:#d99a3a;--evw-fg:#f3c27a;--evw-btn:#c27a17;--evw-btn-h:#d98c22}
+.evw{display:inline-block;margin-left:2px;padding:1px 7px;border-radius:999px;font-size:.75rem;font-weight:600;color:var(--muted);background:var(--head);white-space:nowrap;vertical-align:middle}
+.evw.on{color:var(--evw-fg);background:var(--evw-bg);box-shadow:inset 0 0 0 1px var(--evw-line)}
+tr.evw-row>td{background:var(--evw-bg)}
+tr.evw-row>td:first-child{box-shadow:inset 3px 0 0 var(--evw-line)}
+.btn.evw-btn{background:var(--evw-btn);border-color:var(--evw-btn);color:#fff}
+.btn.evw-btn:hover{background:var(--evw-btn-h);border-color:var(--evw-btn-h)}
+@media (max-width:640px){.tw table.cards tr.evw-row{background:var(--evw-bg);border-color:var(--evw-line);box-shadow:inset 3px 0 0 var(--evw-line)}.tw table.cards tr.evw-row>td{background:transparent}tr.evw-row>td:first-child{box-shadow:none}}

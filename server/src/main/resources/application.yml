@@ -52,7 +52,7 @@ app:
   # QR label contents: {qr-base-url}/a/{assetNo} (자산) and {qr-base-url}/d/{deviceId} (장비)
   qr-base-url: ${QR_BASE_URL:http://localhost:8080}
   # Where /a/{assetNo} redirects to (the frontend route).
-  asset-link-template: ${ASSET_LINK:/admin/assets?no={assetNo}}
+  asset-link-template: ${ASSET_LINK:/}
   # 장비 라벨 QR(/d/{deviceId}) → 장비 정보 화면 (무선장비·스쿨넷장비)
   device-link-template: ${DEVICE_LINK:/device?id={deviceId}}
   # Built frontend served by this server when present (npm --prefix client run build).

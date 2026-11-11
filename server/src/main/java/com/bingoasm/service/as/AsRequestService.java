@@ -204,7 +204,10 @@ public class AsRequestService {
     public PageResult<Json> list(CurrentUser me, Filter f, Integer page, Integer size) {
         int p = PageResult.page(page), s = PageResult.size(size);
         Page<AsRequest> res = requests.findAll(spec(me, f), PageRequest.of(p - 1, s, sortOf(f.sort())));
-        return new PageResult<>(rows(res.getContent(), me.orgId()), res.getTotalElements(), p, s, res.getTotalPages());
+        List<Json> rs = rows(res.getContent(), me.orgId());
+        // 목록에서 ‘만족도 평가 대기’를 강조하도록: 지금 이 사용자가 평가할 수 있는 건 (상세의 평가 버튼과 같은 조건)
+        for (int i = 0; i < rs.size(); i++) if (canEvaluate(me, res.getContent().get(i))) rs.get(i).put("canEvaluate", true);
+        return new PageResult<>(rs, res.getTotalElements(), p, s, res.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -273,11 +276,20 @@ public class AsRequestService {
             "receive", "AS_RECEIVE", "return", "AS_RETURN", "return-cancel", "AS_RETURN", "transfer", "AS_TRANSFER",
             "cancel", "AS_CANCEL", "delete", "AS_DELETE", "assign", "AS_ASSIGN", "visit", "AS_VISIT", "report", "AS_REPORT");
 
+    /** 신청자(또는 그 학교 담당자)가 처리완료 건을 아직 평가하지 않았고 평가 권한이 있는가. */
+    private boolean canEvaluate(CurrentUser me, AsRequest r) {
+        return "C".equals(r.status) && r.evalScore == null && me.can("AS_EVALUATE") && isOwner(me, r);
+    }
+
+    private boolean isOwner(CurrentUser me, AsRequest r) {
+        return me.userId().equals(r.applicantUserId) || (isSchoolSide(me) && me.scope().schoolId().equals(r.schoolId));
+    }
+
     /** 현재 상태와 권한으로 지금 할 수 있는 동작. 화면의 버튼 표시용. */
     public List<String> allowedActions(CurrentUser me, AsRequest r) {
         List<String> a = new ArrayList<>();
         boolean process = me.can("AS_PROCESS") && (isAdmin(me) || (isVendorSide(me) && me.scope().vendorId().equals(r.vendorId)));
-        boolean owner = me.userId().equals(r.applicantUserId) || (isSchoolSide(me) && me.scope().schoolId().equals(r.schoolId));
+        boolean owner = isOwner(me, r);
         // load()/inScope already limit a 교육지원청 담당자 to their district, so here they act like an admin (minus delete).
         boolean manager = isAdmin(me) || isRegionManager(me);
         switch (r.status) {
@@ -285,7 +297,7 @@ public class AsRequestService {
             case "R" -> { if (process) a.addAll(List.of("visit", "report", "transfer")); }
             case "C" -> {
                 if (process) a.add("report");
-                if (owner && r.evalScore == null && me.can("AS_EVALUATE")) a.add("evaluate");
+                if (canEvaluate(me, r)) a.add("evaluate");
             }
             case "X" -> { if (process) a.add("return-cancel"); if (owner || manager) a.add("cancel"); }
             default -> { }

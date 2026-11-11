@@ -93,9 +93,7 @@ export const MENU: MenuGroup[] = [
 
 /** Pages outside the menu that still need a title and breadcrumb. */
 const EXTRA: Record<string, string> = { "/mypage": "마이페이지", "/login": "통합 로그인", "/sitemap": "누리집 지도", "/notifications": "알림",
-  // 메뉴에는 없지만 자산 라벨 QR(/a/{번호})이 여는 화면.
-  "/admin/assets": "기관자산관리",
-  // 장비 라벨 QR(/d/{id})이 여는 화면.
+  // 장비 라벨 QR(/d/{id})이 여는 화면 (장비 · AS 권한을 따른다).
   "/device": "장비 정보" };
 
 export function findMenu(pathname: string): { group?: MenuGroup; item?: MenuItem; title: string } {

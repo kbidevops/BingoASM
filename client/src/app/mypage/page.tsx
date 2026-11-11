@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import AsDetailModal from "@/components/AsDetailModal";
 import SubPage from "@/components/SubPage";
 import OtpSetupPanel from "@/components/OtpSetupPanel";
-import { AsBadge, ErrorBox, FormMsg, FormRow, Loading, Modal, NoticeBox, SubmitBar, TelInput, telValid, useToast } from "@/components/ui";
+import { AsBadge, ErrorBox, EvalWait, FormMsg, FormRow, Loading, Modal, NoticeBox, SubmitBar, TelInput, telValid, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { AS_LIST_HREF } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
@@ -287,12 +287,16 @@ function AsTab({ org }: { org: string }) {
           <thead><tr><th scope="col">구분</th><th scope="col">학교명</th><th scope="col">신청일자</th><th scope="col">상태</th><th scope="col">보고서</th></tr></thead>
           <tbody>
             {list.length ? list.map((r) => (
-              <tr key={r.asvcSn}>
+              <tr key={r.asvcSn} className={r.canEvaluate ? "evw-row" : undefined}>
                 <td data-label="구분"><Link href={AS_LIST_HREF[r.rceptTy]}>{r.rceptTyName}</Link></td>
                 <td data-label="학교명">{r.schoolName}</td>
                 <td data-label="신청일자">{fmtDate(r.requestAt)}</td>
-                <td data-label="상태"><AsBadge status={r.status} name={r.statusName} /></td>
-                <td data-label="보고서"><button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>보고서 확인</button></td>
+                <td data-label="상태"><AsBadge status={r.status} name={r.statusName} /> <EvalWait row={r} /></td>
+                <td data-label="보고서">
+                  {r.canEvaluate
+                    ? <button className="btn sm evw-btn" type="button" onClick={() => setOpen(r.asvcSn)}>만족도 평가</button>
+                    : <button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>보고서 확인</button>}
+                </td>
               </tr>
             )) : <tr><td colSpan={5}>신청한 내역이 없습니다.</td></tr>}
           </tbody>

@@ -140,6 +140,17 @@ export function AsBadge({ status, name }: { status: AsStatus; name: string }) {
   return <b className={"st " + ST_CLASS[status]}>{name}</b>;
 }
 
+/**
+ * 처리완료인데 신청자가 아직 만족도를 평가하지 않은 건의 표시. mine = 지금 사용자가 평가할 수 있는 건(강조),
+ * 아니면 관리자 등에게 ‘평가 대기’만 조용히 보여 준다. 평가했거나 처리완료가 아니면 아무것도 없다.
+ */
+export function EvalWait({ row }: { row: { status: AsStatus; evalScore?: number; canEvaluate?: boolean } }) {
+  if (row.status !== "C" || row.evalScore != null) return null;
+  return row.canEvaluate
+    ? <span className="evw on"><span aria-hidden="true">★</span> 만족도 평가 대기</span>
+    : <span className="evw">평가 대기</span>;
+}
+
 export function PostBadge({ status, name }: { status?: string; name?: string }) {
   if (!status) return <>-</>;
   return <b className={"st " + (status === "DONE" ? "s1" : status === "RECEIVED" ? "s2" : "s3")}>{name}</b>;

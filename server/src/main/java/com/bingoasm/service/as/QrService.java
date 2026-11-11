@@ -87,8 +87,14 @@ public class QrService {
         if (dv.find()) return deviceService.resolve(me, Long.valueOf(dv.group(1)));
         Matcher l = LOGIN_IN_TEXT.matcher(t);
         if (l.find() && t.contains("/qr")) return Json.obj().with("type", "LOGIN").with("token", l.group(1));
+        // 직접 입력한 장비코드 (라벨에 인쇄된 번호)
+        Json byCode = deviceService.resolveCode(me, t);
+        if (byCode != null) return byCode;
         String no = assetNoFrom(t);
-        if (no == null) return Json.obj().with("type", "UNKNOWN").with("message", "원클릭AS QR이 아닙니다. 자산이나 장비 라벨의 QR을 찍어 주세요.");
+        if (no == null) return Json.obj().with("type", "UNKNOWN").with("message", "원클릭AS QR이 아닙니다. 장비 라벨의 QR을 찍거나 장비코드를 입력해 주세요.");
+        // 자산 라벨은 기관자산관리 권한이 있을 때만 무엇인지 알려 준다.
+        if (!me.can("ASSET_READ") && !me.can("INVENTORY"))
+            return Json.obj().with("type", "ASSET").with("state", "FORBIDDEN").with("message", "자산 라벨입니다. 자산 정보를 볼 권한이 없습니다.");
         return byNo(me, no);
     }
 

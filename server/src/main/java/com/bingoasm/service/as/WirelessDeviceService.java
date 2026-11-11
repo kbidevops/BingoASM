@@ -418,6 +418,25 @@ public class WirelessDeviceService {
     }
 
     /**
+     * 라벨이 손상돼 장비코드(라벨에 인쇄된 번호)를 직접 입력했을 때. 대소문자는 가리지 않는다.
+     * 코드가 같은 장비가 여러 학교에 있으면 내 담당 범위의 것만 보고, 그래도 여럿이면 고를 수 없다고 알린다. 없으면 null.
+     */
+    @Transactional(readOnly = true)
+    public Json resolveCode(CurrentUser me, String text) {
+        String code = text == null ? "" : text.trim();
+        if (code.isEmpty() || code.contains("/")) return null;
+        List<WirelessDevice> hit = devices.findByOrgIdAndUseYnOrderBySchoolIdAscDeviceCodeAsc(me.orgId(), "Y").stream()
+                .filter(d -> d.deviceCode != null && d.deviceCode.equalsIgnoreCase(code)).toList();
+        if (hit.isEmpty()) return null;
+        java.util.Set<Long> scope = schoolService.scopeSchoolIds(me);
+        List<WirelessDevice> mine = scope == null ? hit : hit.stream().filter(d -> scope.contains(d.schoolId)).toList();
+        if (mine.size() > 1) return Json.obj().with("type", "DEVICE").with("found", false)
+                .with("message", code + " — 같은 장비코드가 여러 학교에 있습니다. 라벨의 QR을 찍어 주세요.");
+        WirelessDevice d = mine.isEmpty() ? hit.get(0) : mine.get(0);
+        return resolve(me, d.deviceId);
+    }
+
+    /**
      * 삭제(숨김). 이 장비로 신청해 아직 처리 중(신청완료 · 접수완료)인 AS가 있으면 막는다 — 모든 계정 공통.
      * 처리를 끝내거나 취소한 뒤 지운다. 지난 AS 기록은 그대로 남는다.
      */

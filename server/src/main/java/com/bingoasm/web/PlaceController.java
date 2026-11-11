@@ -37,13 +37,13 @@ public class PlaceController {
     }
 
     @PostMapping("/api/places/buildings")
-    @RequirePerm({"FLOOR_WRITE", "ORG_WRITE"})
+    @RequirePerm("SPACE_BUILDING_CREATE")
     public ApiResponse createBuilding(@RequestBody Map<String, Object> body) {
         return ApiResponse.ok(places.createBuilding(AuthContext.get(), body));
     }
 
     @PostMapping("/api/places/floors")
-    @RequirePerm({"ORG_WRITE", "ROLE_GRANT", "FLOOR_WRITE"})
+    @RequirePerm("SPACE_FLOOR_CREATE")
     public ApiResponse createFloor(@RequestBody Map<String, Object> body) {
         return ApiResponse.ok(places.createFloor(AuthContext.get(), body));
     }

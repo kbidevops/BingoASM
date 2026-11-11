@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import type { AsRow, AsStatus, RceptTy } from "@/lib/types";
 import AsDetailModal from "./AsDetailModal";
-import { AsBadge, ErrorBox, Icon, Loading, NoticeBox, Pager, useToast } from "./ui";
+import { AsBadge, ErrorBox, EvalWait, Icon, Loading, NoticeBox, Pager, useToast } from "./ui";
 
 const STATUSES: [AsStatus | "", string][] = [["", "전체"], ["A", "신청완료"], ["R", "접수완료"], ["C", "처리완료"], ["X", "반려"]];
 const PAGE_SIZE = 10;
@@ -160,12 +160,16 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
                     ? [no, r.schoolName, r.deviceName ?? "-", fmtDate(r.requestAt), r.applicantName, fmtDate(r.visitRequestAt)]
                     : [no, ...(ty ? [] : [r.rceptTyName]), r.schoolName, r.applicantName, fmtDate(r.requestAt), r.status === "C" ? fmtDate(r.completedAt) : "-", r.vendorName ?? "-"];
                   return (
-                    <tr key={r.asvcSn}>
+                    <tr key={r.asvcSn} className={r.canEvaluate ? "evw-row" : undefined}>
                       {cells.map((c, j) => <td key={j} data-label={head[j]}>{c ?? "-"}</td>)}
                       <td data-label="상태">
-                        <AsBadge status={r.status} name={r.statusName} />
+                        <AsBadge status={r.status} name={r.statusName} /> <EvalWait row={r} />
                       </td>
-                      <td data-label="보고서"><button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>{r.hasReport ? "보고서 확인" : "상세 보기"}</button></td>
+                      <td data-label="보고서">
+                        {r.canEvaluate
+                          ? <button className="btn sm evw-btn" type="button" onClick={() => setOpen(r.asvcSn)}>만족도 평가</button>
+                          : <button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>{r.hasReport ? "보고서 확인" : "상세 보기"}</button>}
+                      </td>
                     </tr>
                   );
                 }) : (

@@ -86,6 +86,8 @@ public class PermissionService {
     private Set<String> finish(AppUser u, Set<String> perms, Set<String> userDenied) {
         perms.removeAll(disabledPerms(u.orgId));
         perms.removeAll(blockedPerms(u));
+        // 기관자산관리(ASSET_READ)를 끄면 자산 등록 · 일괄 등록 · 삭제 · 실사도 함께 막는다 (화면 없이 API로만 쓰지 못하게).
+        if (!perms.contains("ASSET_READ")) perms.removeAll(Set.of("ASSET_WRITE", "ASSET_BULK", "ASSET_DELETE", "INVENTORY"));
         Map<String, RoleAdjust> adj = roleAdjusts(u.orgId);
         for (Roles.Feature f : Roles.FEATURES)
             if (perms.contains(f.parent()) && !userDenied.contains(f.code())

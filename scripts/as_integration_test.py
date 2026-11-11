@@ -333,12 +333,18 @@ check("AS report without processContent → 400", st == 400, j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/report", {"visitAt": "2026-10-30T14:00", "visitEndAt": "2026-10-30T15:00", "troubleSymptom": "AP 행업", "inspectContent": "AP 재부팅 및 펌웨어 업데이트", "processTypeCode": "2", "processContent": "장비행업 — 재부팅 후 정상", "processAmount": 0}, token=N)
 r = data((st, j, None))
 check("AS report → C with completedAt and processTypeName", st == 200 and r["status"] == "C" and r["completedAt"] and r["processTypeName"] == "장비행업", j)
+def eval_flag(tok):
+    rows_ = data(call("GET", "/api/as/requests?size=500", token=tok))["content"]
+    return next((x.get("canEvaluate") for x in rows_ if x["asvcSn"] == sn), "missing")
+check("eval wait: school list flags the row (canEvaluate)", eval_flag(S) is True, eval_flag(S))
+check("eval wait: engineer · admin list rows not flagged", eval_flag(N) is None and eval_flag(A) is None, (eval_flag(N), eval_flag(A)))
 st, j, _ = call("POST", f"/api/as/requests/{sn}/evaluate", {"score": 5, "opinion": "빠른 처리 감사합니다."}, token=N)
 check("AS evaluate by engineer → 409", st == 409, j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/evaluate", {"score": 5, "opinion": "빠른 처리 감사합니다."}, token=S); r = data((st, j, None))
 check("AS evaluate by school → evalScore 5, histories ≥ 5", st == 200 and r["evalScore"] == 5 and len(r["histories"]) >= 5, j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/evaluate", {"score": 4}, token=S)
 check("AS evaluate twice → 409", st == 409, j)
+check("eval wait: flag gone after evaluation", eval_flag(S) is None, eval_flag(S))
 st, b, h = call("GET", "/api/as/requests/excel?rceptTy=M", token=N, raw=True)
 check("AS excel download", st == 200 and b[:2] == b"PK" and "spreadsheetml" in h.get("Content-Type", ""), (st, h.get("Content-Type")))
 st, j, _ = call("GET", "/api/as/requests/summary", token=N); sm = data((st, j, None))
@@ -494,6 +500,9 @@ st, j, _ = call("POST", "/api/qr/device-labels", {"deviceIds": [apB2["deviceId"]
 st, _, h = call("GET", f"/d/{apB2['deviceId']}", raw=True, follow=False); check("public /d/{id} → 302 to device page", st == 302 and h.get("Location") == f"/device?id={apB2['deviceId']}", (st, h.get("Location")))
 st, j, _ = call("POST", "/api/qr/resolve", {"text": lb[0]["qrText"]}, token=S); rz = data((st, j, None))
 check("qr resolve device label → DEVICE", st == 200 and rz["type"] == "DEVICE" and rz["deviceId"] == apB2["deviceId"] and rz["found"] and rz["rceptTy"] == "M", rz)
+st, j, _ = call("POST", "/api/qr/resolve", {"text": " ap-bh-002 "}, token=S); rz = data((st, j, None))
+check("qr resolve typed device code (label damaged) → DEVICE", st == 200 and rz["type"] == "DEVICE" and rz["deviceId"] == apB2["deviceId"] and rz["found"], rz)
+st, j, _ = call("POST", "/api/qr/resolve", {"text": "NO-SUCH-CODE"}, token=S); check("qr resolve unknown code → UNKNOWN", st == 200 and data((st, j, None))["type"] == "UNKNOWN", j)
 st, j, _ = call("GET", f"/api/qr/devices/{apB2['deviceId']}", token=S); dv = data((st, j, None)) or {}
 check("device scan (school): where 학교·건물·층, can request, cannot manage",
       st == 200 and dv["where"]["schoolName"] == "봉황초등학교" and dv["where"]["buildingName"] == "본관" and dv["where"]["floorName"] == "2층" and dv["where"]["onPlan"]
@@ -572,7 +581,7 @@ check("asset registered with reserved number → REGISTERED", st == 200 and st2 
 st, j, _ = call("GET", f"/api/assets/{newId}", token=S); ad = data((st, j, None))
 check("asset detail: lifeYears from category, lifeExceeded true for 2020 desktop", st == 200 and ad.get("lifeYears") == 5 and ad.get("lifeExceeded") is True, j)
 st, j, _ = call("POST", "/api/qr/resolve", {"text": f"{BASE}/a/CB-1999-99999"}, token=S); check("qr resolve unknown number → NOT_FOUND", st == 200 and data((st, j, None))["state"] == "NOT_FOUND", j)
-st, _, h = call("GET", f"/a/{a1['assetNo']}", raw=True, follow=False); check("public /a/{assetNo} → 302 to asset route", st == 302 and h.get("Location") == f"/admin/assets?no={a1['assetNo']}", (st, h.get("Location")))
+st, _, h = call("GET", f"/a/{a1['assetNo']}", raw=True, follow=False); check("public /a/{assetNo} → 302 to home (자산 화면 없음)", st == 302 and h.get("Location") == "/", (st, h.get("Location")))
 st, _, h = call("GET", f"/r/{pcroom['roomId']}", raw=True, follow=False); check("public /r/{roomId} no longer redirects", st != 302, (st, h.get("Location")))
 
 # ---------- 10. 재물조사 ----------
@@ -1386,7 +1395,7 @@ rrd = {r["role"]: r for r in rpd["roles"]}
 check("features: 교육청 · 교육지원청 · 관리자 have 업체 배정, 학교 doesn't", all("AS_ASSIGN" in rrd[x]["defaults"] for x in ("EDU_ADMIN", "REGION_ADMIN", "SYS_ADMIN")) and "AS_ASSIGN" not in rrd["SCHOOL_USER"]["defaults"], rrd)
 pe = perms_of(E); pr = perms_of(R); ps = perms_of(S)
 check("features: follow the menu (교육청 has device · user features)", {"WDEVICE_CREATE", "WDEVICE_DELETE", "SDEVICE_LABEL", "USER_BULK", "SCHOOL_VENDOR"} <= pe, pe)
-check("features: no menu → no feature (학교 has no device features)", not ({"WDEVICE_CREATE", "WDEVICE_EDIT"} & ps) and "SPACE_BUILDING" in ps, ps)
+check("features: no menu → no feature (학교 has no device features)", not ({"WDEVICE_CREATE", "WDEVICE_EDIT"} & ps) and {"SPACE_BUILDING_CREATE", "SPACE_BUILDING_DELETE", "SPACE_FLOOR_CREATE", "SPACE_FLOOR_DELETE"} <= ps and "SPACE_BUILDING" not in ps, ps)
 
 # 역할에서 기능 끄기: 교육지원청의 무선장비 등록 · 삭제 · 담당업체 지정
 rsch = (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=R)))
@@ -1516,8 +1525,15 @@ st, j, _ = call("DELETE", f"/api/as/spaces/floors/{f2['floorId']}", token=R); ch
 OSID = next(x["schoolId"] for x in (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=E))) if x["schoolName"] == "솔빛고등학교")
 ob2 = data(call("POST", "/api/as/spaces/buildings", {"schoolId": OSID, "buildingName": "관외층시험", "floorCount": 1}, token=E))
 st, j, _ = call("DELETE", f"/api/as/spaces/floors/{ob2['floors'][0]['floorId']}", token=R); check("floor delete: other district → 403", st == 403, j)
-call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["SPACE_BUILDING"]}}}, token=A)
-st, j, _ = call("DELETE", f"/api/as/spaces/floors/{ob2['floors'][0]['floorId']}", token=E); check("floor delete: 건물·층 추가·삭제 off → 403", st == 403, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["SPACE_BUILDING"]}}}, token=A); check("space features: old combined code rejected", st == 400, j)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["SPACE_FLOOR_DELETE"]}}}, token=A)
+st, j, _ = call("DELETE", f"/api/as/spaces/floors/{ob2['floors'][0]['floorId']}", token=E); check("space features: 층 삭제 off → 403", st == 403, j)
+st, j, _ = call("POST", f"/api/as/spaces/buildings/{ob2['buildingId']}/floors", {"floorNo": 2}, token=E); check("space features: 층 추가 still on", st == 200, j)
+call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["SPACE_BUILDING_CREATE", "SPACE_FLOOR_CREATE"]}}}, token=A)
+st, j, _ = call("POST", "/api/as/spaces/buildings", {"schoolId": OSID, "buildingName": "x", "floorCount": 1}, token=E); check("space features: 건물 추가 off → 403", st == 403, j)
+st, j, _ = call("POST", f"/api/as/spaces/buildings/{ob2['buildingId']}/floors", {"floorNo": 3}, token=E); check("space features: 층 추가 off → 403", st == 403, j)
+st, j, _ = call("POST", "/api/places/floors", {"buildingId": ob2["buildingId"], "floorNo": 4}, token=E); check("space features: legacy 층 추가 also off → 403", st == 403, j)
+pe2 = perms_of(E); check("space features: delete switches untouched", {"SPACE_BUILDING_DELETE", "SPACE_FLOOR_DELETE"} <= pe2, pe2)
 call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {}}}, token=A)
 st, j, _ = call("DELETE", "/api/as/spaces/floors/999999", token=E); check("floor delete: unknown floor → 404", st == 404, j)
 call("DELETE", f"/api/as/spaces/buildings/{fb['buildingId']}", token=E); call("DELETE", f"/api/as/spaces/buildings/{ob2['buildingId']}", token=E)
@@ -1571,6 +1587,18 @@ check("sla: 교육지원청 asking another district gets nothing", sr2["summary"
 st, xb, h = call("GET", f"/api/as/sla/excel?year={now_.year}&month={now_.month}", token=E, raw=True)
 check("sla: monthly Excel report", st == 200 and xb[:2] == b"PK" and "filename*=UTF-8''" in h.get("Content-Disposition", ""), st)
 call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=E)
+
+# ---------- 기관자산관리 (ASSET_READ): 메뉴 밖 화면도 권한으로 끈다 ----------
+check("asset-read: school has it by default", "ASSET_READ" in perms_of(S) and "ASSET_WRITE" in perms_of(S))
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"denied": ["ASSET_READ"]}}}, token=A); check("asset-read: role turns it off", st == 200, j)
+pa_ = perms_of(S)
+check("asset-read: off also drops register · bulk · inventory", not ({"ASSET_READ", "ASSET_WRITE", "ASSET_BULK", "INVENTORY"} & pa_), pa_)
+st, j, _ = call("GET", "/api/assets", token=S); check("asset-read: list → 403", st == 403, j)
+st, j, _ = call("POST", "/api/assets", {"assetType": "HW", "assetName": "x", "schoolId": sch1}, token=S); check("asset-read: create → 403", st == 403, j)
+st, j, _ = call("POST", "/api/qr/resolve", {"text": "HW-2020-00001"}, token=S)
+check("asset-read: QR resolve hides asset", st == 200 and data((st, j, None)).get("state") == "FORBIDDEN" and "assetId" not in data((st, j, None)), j)
+call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {}}}, token=A)
+check("asset-read: back on", {"ASSET_READ", "ASSET_WRITE"} <= perms_of(S))
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")

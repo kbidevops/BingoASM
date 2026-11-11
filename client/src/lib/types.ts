@@ -144,6 +144,8 @@ export interface AsRow {
   processTypeName?: string;
   processAmount?: number;
   evalScore?: number;
+  /** 목록에서만: 지금 이 사용자가 만족도를 평가할 수 있는 건 (신청자 · 그 학교 담당자, 처리완료 · 미평가) */
+  canEvaluate?: boolean;
 }
 
 
