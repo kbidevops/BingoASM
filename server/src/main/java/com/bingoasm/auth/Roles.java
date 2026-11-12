@@ -23,7 +23,25 @@ public final class Roles {
      * 사용자별로 끌 수 있다. 상태·소속 조건(AsRequestService.allowedActions)은 그대로라 켠다고 범위가 넓어지지 않는다.
      */
     public static final List<String> PROCESS_ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER");
-    public static final List<String> ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN");
+    public static final List<String> ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN", "AS_EVALUATE");
+    /**
+     * 처리 기능 중 역할에 없어도 켤 수 있는 것 (역할 권한 관리 · 사용자 메뉴 권한). 나머지 처리 기능은 끄기만 된다.
+     * 만족도 평가는 자기가 신청한 건(학교는 자기 학교 건)만 평가하므로 켜도 범위가 넓어지지 않는다 (AsRequestService.canEvaluate).
+     */
+    public static final List<String> GRANTABLE_ACTION_PERMS = List.of("AS_EVALUATE");
+
+    /**
+     * 사용자 메뉴 권한에서 이 계정에 켜고 끌 수 있는 처리 기능 (소속 종류별로 의미가 있는 것만).
+     * 학교: 신청 취소 · 만족도 평가 / 업체(기사 · 업체 관리자): 접수 · 방문일 · 보고서 · 반려 · 이관 · 신청 취소 · 만족도 평가 /
+     * 교육지원청: 삭제를 뺀 전부 (관내 학교 건만) / 도교육청 · 관리자: 전부. 켜도 데이터 범위는 그대로다 (AsRequestService.allowedActions).
+     */
+    public static List<String> applicableActions(java.util.Collection<String> roles) {
+        String kind = roles.stream().map(AFFILIATION::get).filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        if ("school".equals(kind)) return List.of("AS_CANCEL", "AS_EVALUATE");
+        if ("vendor".equals(kind)) return List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_EVALUATE");
+        if ("region".equals(kind)) return ACTION_PERMS.stream().filter(p -> !"AS_DELETE".equals(p)).toList();
+        return ACTION_PERMS;
+    }
     /**
      * 편집 기능: 화면은 보이지만 고치는 것은 따로 끌 수 있는 권한. CONTACT_EDIT = 문의처 안내 편집.
      * 처리 기능처럼 역할에 있는 것만 끈다 — 범위 조건(도교육청 전체 · 교육지원청은 자기 구역)은 ContactService가 그대로 본다.
@@ -41,11 +59,15 @@ public final class Roles {
     // 업체 배정(AS_ASSIGN)은 ACTION_PERMS에 있어 교육청 관리자는 위에서 받는다. 교육지원청은 아래에서.
     /**
      * 교육지원청 담당자(정보지원팀): 관할 교육지원청(AppUser.regionId) 관내 학교만 — 범위는 Scope / SchoolService.scopeSchoolIds가 정한다.
-     * 업체 관리·공지/문의처 편집·사용자 관리·AS 삭제는 도교육청 몫이라 빠져 있다.
+     * 업체 관리는 관할 지역만 맡는 업체만, 사용자 관리는 그 업체의 기사 · 업체 관리자 계정만 고친다. 공지 편집 · 역할 부여 · AS 삭제는 도교육청 몫이라 빠져 있다.
      */
     public static final List<String> REGION_ADMIN_PERMS = concat(PORTAL_ALL, List.of(
-            "AS_MANAGE", "AS_CANCEL", "AS_ASSIGN", "SCHOOL_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
-            "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE", "CONTACT_EDIT"));
+            "AS_MANAGE", "AS_CANCEL", "AS_ASSIGN", "SCHOOL_MANAGE", "VENDOR_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
+            "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE", "CONTACT_EDIT",
+            // 교육지원청도 AS를 신청하므로 자기 신청 건의 만족도를 평가한다
+            "AS_EVALUATE",
+            // 사용자 관리: 관할 지역만 맡는 업체의 기사 · 업체 관리자 계정만 (UserService.districtManaged)
+            "USER_READ", "USER_WRITE"));
 
     /** 사용자별로 보이기·숨기기를 조정할 수 있는 메뉴 권한 (client/src/lib/menu.ts의 perm과 같다). */
     public static final List<String> MENU_PERMS = concat(PORTAL_ALL, List.of(

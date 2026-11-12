@@ -36,6 +36,10 @@ interface MenuPerms {
   roles: string[];
   menuPerms: string[];
   actionPerms: string[];
+  /** 처리 기능 중 역할에 없어도 켤 수 있는 것 (만족도 평가) */
+  grantableActions?: string[];
+  /** 이 계정 종류(학교 · 업체 · 교육지원청 · 도교육청)에서 켜고 끌 수 있는 처리 기능 */
+  applicableActions?: string[];
   /** 편집 기능 (Roles.EDIT_PERMS): 화면은 보이고 고치기만 끈다 */
   editPerms?: string[];
   /** 메뉴 안의 기능 권한 [{code, parent, label}] — 메뉴가 켜져 있으면 따라 켜지고 끄기만 한다 */
@@ -68,7 +72,7 @@ const FILTERS: [string, string, (u: UserRow) => boolean][] = [
   ["custom", "조정됨", (u) => !!u.permOverrides],
 ];
 
-/** AS 처리 기능 (Roles.ACTION_PERMS). 역할에 있는 것만 끌 수 있다 — 상태·소속 조건은 서버가 그대로 본다. */
+/** AS 처리 기능 (Roles.ACTION_PERMS). 역할에 있는 것을 끄고, 만족도 평가는 켤 수도 있다 — 상태·소속 조건은 서버가 그대로 본다. */
 const ACTIONS: [string, string, string][] = [
   ["AS_RECEIVE", "접수", "신청 건을 접수하고 방문 일정을 잡습니다."],
   ["AS_RETURN", "반려 · 반려 취소", "신청 건을 반려하거나 반려를 되돌립니다."],
@@ -78,7 +82,17 @@ const ACTIONS: [string, string, string][] = [
   ["AS_ASSIGN", "업체 배정", "신청 건의 담당 업체 · 기사를 지정하거나 바꿉니다."],
   ["AS_VISIT", "방문일 변경", "접수한 건의 방문 예정일을 바꿉니다."],
   ["AS_REPORT", "처리 보고서 작성 · 수정", "처리 결과를 적어 완료하거나, 완료한 보고서를 고칩니다."],
+  ["AS_EVALUATE", "만족도 평가", "처리완료된 자기 신청 건(학교 담당자는 자기 학교 건)의 만족도를 평가합니다."],
 ];
+
+/** 계정 종류 (처리 기능을 쓸 수 없는 이유 표시용) */
+const kindOf = (roles: string[]) => roles.includes("SCHOOL_USER") ? "school" : roles.some((r) => r === "AS_ENGINEER" || r === "VENDOR_ADMIN") ? "vendor" : roles.includes("REGION_ADMIN") ? "region" : "";
+const kindName = (roles: string[]) => ({ school: "학교", vendor: "업체", region: "교육지원청" } as Record<string, string>)[kindOf(roles)] ?? "이";
+const NOT_FOR: Record<string, string> = {
+  school: "학교 계정은 신청 취소와 만족도 평가만 합니다.",
+  vendor: "업체 계정은 배정된 건의 처리(접수 · 방문 · 보고서 · 반려 · 이관)만 합니다. 업체 배정 · 삭제는 교육청 몫입니다.",
+  region: "AS 기록 삭제는 도교육청만 합니다.",
+};
 
 /** perm → menu titles that open with it (several items can share one permission). */
 const PERM_TITLES = MENU.flatMap((g) => g.items).reduce<Record<string, string[]>>((m, i) => {
@@ -319,7 +333,10 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
 
       <h4 className="um-sec">AS 처리 기능</h4>
       {(() => {
-        const perms = ACTIONS.map(([p]) => p).filter((p) => data.actionPerms.includes(p) && base.has(p));
+        // 이 계정 종류에 의미가 있는 처리 기능은 모두 켜고 끌 수 있다. 나머지는 이유와 함께 잠가 둔다.
+        const applicable = new Set(data.applicableActions ?? data.grantableActions ?? []);
+        const canSet = (p: string) => base.has(p) || applicable.has(p);
+        const perms = ACTIONS.map(([p]) => p).filter((p) => data.actionPerms.includes(p) && canSet(p));
         const onCount = perms.filter(isOn).length;
         return (
           <section className="um-card" aria-label="AS 처리 기능">
@@ -332,18 +349,21 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
                 mixed={onCount > 0 && onCount < perms.length} onChange={(on) => toggle(perms, on)} />
             </div>
             <ul className="um-items">
-              {ACTIONS.map(([p, label, desc]) => (
-                <li key={p} className={base.has(p) ? "" : "fixed"}>
+              {ACTIONS.filter(([p]) => data.actionPerms.includes(p)).map(([p, label, desc]) => (
+                <li key={p} className={canSet(p) ? "" : "fixed"}>
                   <div className="um-item-t">
                     <span>{label}</span>
                     <small>{desc}</small>
                   </div>
-                  {base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>) : <span className="um-pill none">역할에 없음</span>}
-                  <Switch label={label} disabled={!base.has(p)} checked={isOn(p)} onChange={(on) => toggle([p], on)} />
+                  {base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>)
+                    : granted.has(p) ? <span className="um-pill add">추가</span>
+                      : applicable.has(p) ? <span className="um-pill none">꺼짐</span>
+                        : <span className="um-pill none" title={NOT_FOR[kindOf(data.roles)] ?? ""}>{kindName(data.roles)} 계정에서는 쓸 수 없음</span>}
+                  <Switch label={label} disabled={!canSet(p)} checked={isOn(p)} onChange={(on) => toggle([p], on)} />
                 </li>
               ))}
             </ul>
-            <p className="um-card-f">끄면 해당 버튼이 사라지고 서버에서도 막힙니다. 역할에 없는 기능은 켤 수 없습니다.</p>
+            <p className="um-card-f">켜고 끈 것은 이 사용자에게만 적용되고 서버에서도 그대로 막힙니다. 켜도 다루는 범위(자기 학교 · 배정된 업체 건 · 관내 학교)는 넓어지지 않고, 신청 상태가 맞을 때만 버튼이 보입니다.</p>
           </section>
         );
       })()}

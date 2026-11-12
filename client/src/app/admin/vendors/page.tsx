@@ -24,12 +24,15 @@ export default function VendorsPage() {
 
 function Vendors() {
   const TYPES = useAsTypes();
-  // 업체 등록·수정·삭제는 도교육청 관리자만 (서버도 막는다). 다른 계정은 조회만.
+  // 업체 등록·수정·삭제: 도교육청은 모든 업체, 교육지원청은 관할 지역만 맡는 업체 (행의 editable, 서버도 막는다). 다른 계정은 조회만.
+  // 등록 · 수정 · 삭제는 기능 권한으로 따로 끌 수 있다.
   const { me, can } = useAuth();
-  // 도교육청만 업체를 바꾸고, 등록 · 수정 · 삭제는 기능 권한으로 따로 끌 수 있다.
   const admin = isAdmin(me);
-  const canEdit = admin && can("VENDOR_EDIT");
-  const canCreate = admin && can("VENDOR_CREATE"), canDelete = admin && can("VENDOR_DELETE");
+  /** 교육지원청 담당자: 관할 지역 (등록하는 업체의 담당 지역으로 고정) */
+  const district = !admin && me?.roles.includes("REGION_ADMIN") && me.regionId ? { regionId: me.regionId, regionName: me.regionName ?? "" } : null;
+  const manager = admin || !!district;
+  const canEdit = manager && can("VENDOR_EDIT");
+  const canCreate = manager && can("VENDOR_CREATE"), canDelete = manager && can("VENDOR_DELETE");
   const toast = useToast();
   const [regions, setRegions] = useState<Region[]>([]);
   const [all, setAll] = useState<Vendor[] | null>(null);
@@ -109,12 +112,13 @@ function Vendors() {
                 <td data-label="기사 수">{v.engineerCount}</td>
                 <td data-label="최근 수정">{fmtDate(v.updatedAt)}</td>
                 <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
-                  {canEdit || canDelete ? (
+                  {(canEdit || canDelete) && v.editable ? (
                     <>
                       {canEdit && <button className="btn sm sec" type="button" onClick={() => setEdit(v)}>수정</button>}{" "}
                       {canDelete && <button className="btn sm sec" type="button" onClick={() => setDel(v)}>삭제</button>}
                     </>
-                  ) : <span className="hint">조회만</span>}
+                  ) : <span className="hint" title={district && (canEdit || canDelete) ? "여러 지역을 맡는 업체는 도교육청이 관리합니다" : undefined}>
+                    {district && (canEdit || canDelete) ? "조회만 · 여러 지역 업체" : "조회만"}</span>}
                 </td>
               </tr>
             )) : <tr><td colSpan={head.length}>조회된 업체가 없습니다.</td></tr>}
@@ -122,7 +126,8 @@ function Vendors() {
         </table>
       </div>
       <Pager page={cur} totalPages={pages} onPage={setPage} />
-      {edit && <VendorForm vendor={edit === "new" ? null : edit} regions={regions} onClose={() => setEdit(null)} onSaved={(m) => { setEdit(null); toast(m); load(); }} />}
+      {district && canCreate && <p className="hint">관할 지역({district.regionName.replace(/교육지원청$/, "")})만 맡는 업체를 등록 · 수정 · 삭제할 수 있습니다. 여러 지역을 맡는 업체는 도교육청이 관리합니다.</p>}
+      {edit && <VendorForm vendor={edit === "new" ? null : edit} regions={regions} district={district} onClose={() => setEdit(null)} onSaved={(m) => { setEdit(null); toast(m); load(); }} />}
       {del && <DeleteVendor vendor={del} onClose={() => setDel(null)} onDeleted={(m) => { setDel(null); toast(m); load(); }} />}
     </>
   );
@@ -211,14 +216,19 @@ function DeleteVendor({ vendor, onClose, onDeleted }: { vendor: Vendor; onClose:
 const covers = (v: Vendor, regionId: number) => v.allRegions || v.regions.some((r) => r.regionId === regionId);
 const regionLabel = (v: Vendor) => v.allRegions ? "전체" : v.regions.length ? v.regions.map((r) => r.regionName.replace(/교육지원청$/, "")).join(", ") : "미지정";
 
-function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | null; regions: Region[]; onClose: () => void; onSaved: (m: string) => void }) {
+function VendorForm({ vendor, regions, district, onClose, onSaved }: {
+  vendor: Vendor | null; regions: Region[];
+  /** 교육지원청 담당자: 담당 지역은 관할 지역으로 고정 */
+  district: { regionId: number; regionName: string } | null;
+  onClose: () => void; onSaved: (m: string) => void;
+}) {
   const TYPES = useAsTypes();
   const [v, setV] = useState({
     vendorName: vendor?.vendorName ?? "",
     tel: vendor?.tel ?? "", address: vendor?.address ?? "", serviceTypes: vendor?.serviceTypes ?? [] as string[],
-    allRegions: vendor?.allRegions ?? false,
+    allRegions: district ? false : vendor?.allRegions ?? false,
   });
-  const [picked, setPicked] = useState<number[]>(() => (vendor?.regions ?? []).map((r) => r.regionId));
+  const [picked, setPicked] = useState<number[]>(() => district ? [district.regionId] : (vendor?.regions ?? []).map((r) => r.regionId));
   const [engineers, setEngineers] = useState<Engineer[] | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -255,6 +265,7 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
         <table className="ftab"><tbody>
           <FormRow label="업체명" required><input aria-label="업체명" value={v.vendorName} onChange={set("vendorName")} /></FormRow>
           <FormRow label="담당 지역" required>
+            {district ? <span>{district.regionName} <small className="hint">· 관할 지역으로 정해집니다</small></span> : <>
             <label className="vd-all">
               <input type="checkbox" checked={v.allRegions} onChange={(e) => setV({ ...v, allRegions: e.target.checked })} /> 전체 지역
             </label>
@@ -267,6 +278,7 @@ function VendorForm({ vendor, regions, onClose, onSaved }: { vendor: Vendor | nu
                 ))}
               </div>
             )}
+            </>}
           </FormRow>
           <FormRow label="담당 분야" required>
             {TYPES.map((t) => (

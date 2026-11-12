@@ -337,7 +337,11 @@ public class SchoolService {
         return vendors.findByOrgIdAndUseYnOrderByVendorNameAsc(me.orgId(), "Y").stream()
                 .filter(v -> regionId == null || Boolean.TRUE.equals(v.allRegions) || links.getOrDefault(v.vendorId, List.of()).stream().anyMatch(l -> regionId.equals(l.regionId)))
                 .filter(v -> Params.blank(rceptTy) || v.serviceTypeList().contains(rceptTy))
-                .map(v -> vendorView(v, rm, links.getOrDefault(v.vendorId, List.of()), eng.getOrDefault(v.vendorId, 0L))).toList();
+                .map(v -> vendorView(v, rm, links.getOrDefault(v.vendorId, List.of()), eng.getOrDefault(v.vendorId, 0L))
+                        // 지금 사용자가 고칠 수 있는 업체인가 (도교육청: 모두, 교육지원청: 관할 지역만 맡는 업체)
+                        .with("editable", me.scope().province() || (me.scope().region() && !Boolean.TRUE.equals(v.allRegions)
+                                && !links.getOrDefault(v.vendorId, List.of()).isEmpty()
+                                && links.get(v.vendorId).stream().allMatch(l -> me.scope().regionId().equals(l.regionId))))).toList();
     }
 
     private Vendor loadVendor(CurrentUser me, Long id) {
@@ -418,13 +422,48 @@ public class SchoolService {
         vendorRegions.deleteAll(old.values());
     }
 
-    /** 업체 등록·수정·삭제는 도교육청만 — 담당 분야를 바꾸면 그 업체 기사들의 AS 메뉴가 바뀌기 때문. 다른 계정은 조회만. */
+    /**
+     * 업체 등록·수정·삭제: 도교육청은 모든 업체, 교육지원청은 관할 지역만 맡는 업체만 — 담당 분야를 바꾸면 그 업체 기사들의 AS 메뉴가
+     * 바뀌므로 여러 지역(전체 지역 포함)을 맡는 업체는 도교육청이 관리한다. 다른 계정은 조회만.
+     */
     private static void requireVendorAdmin(CurrentUser me) {
-        if (!me.scope().province()) throw ApiException.forbidden("업체 등록·수정·삭제는 도교육청 관리자만 할 수 있습니다.");
+        if (!me.scope().province() && !me.scope().region())
+            throw ApiException.forbidden("업체 등록·수정·삭제는 도교육청 · 교육지원청 담당자만 할 수 있습니다.");
     }
 
-    public Json createVendor(CurrentUser me, Map<String, Object> b) {
+    /** 이 업체가 이 교육지원청만 맡는가 (교육지원청 담당자가 고칠 수 있는 업체). */
+    private boolean onlyInRegion(Vendor v, Long regionId) {
+        if (Boolean.TRUE.equals(v.allRegions) || regionId == null) return false;
+        List<com.bingoasm.domain.as.VendorRegion> links = vendorRegions.findByVendorId(v.vendorId);
+        return !links.isEmpty() && links.stream().allMatch(l -> regionId.equals(l.regionId));
+    }
+
+    /** 지금 사용자가 이 업체를 고칠 수 있는가 (목록의 editable). */
+    private boolean canChangeVendor(CurrentUser me, Vendor v) {
+        return me.scope().province() || (me.scope().region() && onlyInRegion(v, me.scope().regionId()));
+    }
+
+    private Vendor loadVendorToChange(CurrentUser me, Long id) {
         requireVendorAdmin(me);
+        Vendor v = loadVendor(me, id);
+        if (!canChangeVendor(me, v))
+            throw ApiException.forbidden(v.vendorName + "은(는) 여러 지역을 맡는 업체라 도교육청이 관리합니다. 교육지원청은 관할 지역만 맡는 업체만 고칠 수 있습니다.");
+        return v;
+    }
+
+    /** 교육지원청 담당자가 등록·수정하는 업체는 항상 관할 지역만 맡는다 (보낸 담당 지역은 무시). */
+    private static Map<String, Object> keepVendorInDistrict(CurrentUser me, Map<String, Object> b) {
+        if (!me.scope().region()) return b;
+        Map<String, Object> m = new HashMap<>(b);
+        m.remove("regionId");
+        m.put("allRegions", false);
+        m.put("regions", List.of(Map.of("regionId", me.scope().regionId())));
+        return m;
+    }
+
+    public Json createVendor(CurrentUser me, Map<String, Object> b0) {
+        requireVendorAdmin(me);
+        Map<String, Object> b = keepVendorInDistrict(me, b0);
         Vendor v = new Vendor();
         v.orgId = me.orgId(); v.createdAt = Times.now();
         applyVendor(me, v, b);
@@ -432,12 +471,12 @@ public class SchoolService {
         vendors.save(v);
         applyRegions(me, v, b);
         vendors.save(v);
-        return vendorView(v, regionMap(me.orgId()), vendorRegions.findByVendorId(v.vendorId), 0);
+        return vendorView(v, regionMap(me.orgId()), vendorRegions.findByVendorId(v.vendorId), 0).with("editable", true);
     }
 
-    public Json updateVendor(CurrentUser me, Long id, Map<String, Object> b) {
-        requireVendorAdmin(me);
-        Vendor v = loadVendor(me, id);
+    public Json updateVendor(CurrentUser me, Long id, Map<String, Object> b0) {
+        Vendor v = loadVendorToChange(me, id);
+        Map<String, Object> b = keepVendorInDistrict(me, b0);
         applyVendor(me, v, b);
         applyRegions(me, v, b);
         vendorRegions.flush();
@@ -460,8 +499,7 @@ public class SchoolService {
     /** 삭제 확인 화면용: 이 업체를 지우면 영향받는 것들. */
     @Transactional(readOnly = true)
     public Json vendorUsage(CurrentUser me, Long id) {
-        requireVendorAdmin(me);
-        Vendor v = loadVendor(me, id);
+        Vendor v = loadVendorToChange(me, id);
         Map<Long, School> sm = schoolMap(me.orgId());
         List<AsRequest> open = openRequests(me, id, true);
         return Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName)
@@ -483,8 +521,7 @@ public class SchoolService {
      * 업체 기록은 숨기기만 하므로 지난 AS에는 이름이 남는다. 문의처의 유지보수 사업자는 별개라 건드리지 않는다.
      */
     public void deleteVendor(CurrentUser me, Long id) {
-        requireVendorAdmin(me);
-        Vendor v = loadVendor(me, id);
+        Vendor v = loadVendorToChange(me, id);
         long open = openRequests(me, id, true).size();
         if (open > 0) throw ApiException.conflict("처리 중인 AS가 " + open + "건 있어 삭제할 수 없습니다. 처리를 끝내거나 다른 업체로 옮겨 주세요.");
         schoolVendors.deleteAll(schoolVendors.findByVendorId(id));

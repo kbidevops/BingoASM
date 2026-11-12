@@ -93,6 +93,8 @@ export interface Vendor {
   serviceTypeNames: string[];
   engineerCount: number;
   updatedAt?: string;
+  /** 지금 사용자가 고칠 수 있는 업체 (도교육청: 모두, 교육지원청: 관할 지역만 맡는 업체) */
+  editable?: boolean;
 }
 
 export interface Engineer {

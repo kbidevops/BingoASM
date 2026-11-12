@@ -288,7 +288,10 @@ public class AsRequestService {
     /** 현재 상태와 권한으로 지금 할 수 있는 동작. 화면의 버튼 표시용. */
     public List<String> allowedActions(CurrentUser me, AsRequest r) {
         List<String> a = new ArrayList<>();
-        boolean process = me.can("AS_PROCESS") && (isAdmin(me) || (isVendorSide(me) && me.scope().vendorId().equals(r.vendorId)));
+        // 처리(접수 · 방문 · 보고서 · 반려 · 이관): 도교육청 · 배정된 업체, 그리고 처리 기능을 켜 준 교육지원청 담당자(관내 건만).
+        // 어떤 처리를 할 수 있는지는 아래에서 처리 기능 권한(AS_RECEIVE 등)으로 거른다.
+        boolean process = (me.can("AS_PROCESS") && (isAdmin(me) || (isVendorSide(me) && me.scope().vendorId().equals(r.vendorId))))
+                || isRegionManager(me);
         boolean owner = isOwner(me, r);
         // load()/inScope already limit a 교육지원청 담당자 to their district, so here they act like an admin (minus delete).
         boolean manager = isAdmin(me) || isRegionManager(me);
@@ -594,6 +597,9 @@ public class AsRequestService {
                 Vendor v = vid == null ? null : schoolService.vendorMap(me.orgId()).get(vid);
                 if (v == null) throw ApiException.badRequest("업체를 선택해주세요.");
                 if (!v.serviceTypeList().contains(r.rceptTy)) throw ApiException.badRequest(v.vendorName + "은(는) " + AsCodes.RCEPT_TY_NAME.get(r.rceptTy) + " 유지관리 업체가 아닙니다.");
+                // 교육지원청 담당자는 관할 지역을 맡는 업체에만 배정한다 (다른 지역 업체로 넘기지 못하게).
+                if (me.scope().region() && !schoolService.vendorCovers(v, me.scope().regionId()))
+                    throw ApiException.badRequest(v.vendorName + "은(는) 관할 지역을 담당하지 않는 업체입니다.");
                 Long eid = Params.lng(b, "engineerUserId");
                 AppUser e = eid == null ? null : users.findById(eid).filter(u -> vid.equals(u.vendorId)).orElseThrow(() -> ApiException.badRequest("담당 기사가 해당 업체 소속이 아닙니다."));
                 r.vendorId = vid; r.engineerUserId = e == null ? null : e.userId; r.engineerName = e == null ? null : e.userName;

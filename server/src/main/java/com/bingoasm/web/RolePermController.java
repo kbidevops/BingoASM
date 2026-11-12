@@ -81,9 +81,10 @@ public class RolePermController {
             for (String p : granted)
                 if (Roles.blockedFor(role).contains(p)) throw ApiException.badRequest(ROLE_LABEL.get(role) + " 역할에는 '" + Roles.PERM_LABEL.getOrDefault(p, p) + "'을(를) 줄 수 없습니다.");
             touched.add(role);
-            // 기본값과 같은 조정은 버린다. 처리 기능 · 편집 기능과 업체 유형 메뉴는 켤 수 없다 (끄기만).
+            // 기본값과 같은 조정은 버린다. 처리 기능(만족도 평가 제외) · 편집 기능과 업체 유형 메뉴는 켤 수 없다 (끄기만).
             for (String p : granted)
-                if (!def.contains(p) && !typed.contains(p) && Roles.MENU_PERMS.contains(p)) add.add(row(orgId, role, p, "G", me, now));
+                if (!def.contains(p) && !typed.contains(p) && (Roles.MENU_PERMS.contains(p) || Roles.GRANTABLE_ACTION_PERMS.contains(p)))
+                    add.add(row(orgId, role, p, "G", me, now));
             for (String p : denied)
                 if (def.contains(p) || typed.contains(p) || Roles.isFeature(p)) add.add(row(orgId, role, p, "D", me, now));
         }
@@ -112,7 +113,7 @@ public class RolePermController {
                     .with("limits", UserService.menuLimits(scopeOf(r)))
                     .with("userCount", all.stream().filter(u -> u.roles.contains(r)).count());
         }).toList();
-        return Json.obj().with("roles", roles).with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS).with("editPerms", Roles.EDIT_PERMS)
+        return Json.obj().with("roles", roles).with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS).with("grantableActions", Roles.GRANTABLE_ACTION_PERMS).with("editPerms", Roles.EDIT_PERMS)
                 .with("features", UserService.featureList())
                 .with("disabled", new ArrayList<>(permissions.disabledPerms(orgId)));
     }

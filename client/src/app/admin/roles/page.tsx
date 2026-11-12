@@ -42,6 +42,8 @@ interface RolePermsData {
   roles: RoleRow[];
   menuPerms: string[];
   actionPerms: string[];
+  /** 처리 기능 중 역할에 없어도 켤 수 있는 것 (만족도 평가) */
+  grantableActions?: string[];
   editPerms?: string[];
   features?: Feature[];
   /** 이 교육청이 쓰지 않는 AS 서비스의 메뉴 (모두에게 꺼짐) */
@@ -57,6 +59,7 @@ const ROLE_SCOPE: Record<string, string> = {
 const ACTIONS: [string, string][] = [
   ["AS_RECEIVE", "접수"], ["AS_ASSIGN", "업체 배정"], ["AS_VISIT", "방문일 변경"], ["AS_REPORT", "처리 보고서 작성 · 수정"],
   ["AS_RETURN", "반려 · 반려 취소"], ["AS_TRANSFER", "이관"], ["AS_CANCEL", "신청 취소"], ["AS_DELETE", "삭제"],
+  ["AS_EVALUATE", "만족도 평가"],
 ];
 const FIXED_NOTE: Record<string, string> = { ORG_WRITE: "통합 관리자 계정만" };
 /** "무선장비 등록" → "등록" (메뉴 이름 밑에 붙으니 앞말은 뺀다) */
@@ -173,11 +176,12 @@ function RolePerms() {
   const editableMenus = groups.flatMap((g) => g.rows).filter((x) => !x.fixed && !r.blocked?.includes(x.perm));
   const menusOn = editableMenus.filter((x) => isOn(r, x.perm)).length;
   const featsOff = features.filter((f) => adj[sel].denied.has(f.code) && menuOn(r, f.parent, !data.menuPerms.includes(f.parent))).length;
-  const roleActions = ACTIONS.filter(([p]) => data.actionPerms.includes(p) && baseHas(r, p));
+  const grantable = new Set(data.grantableActions ?? []);
+  const roleActions = ACTIONS.filter(([p]) => data.actionPerms.includes(p) && (baseHas(r, p) || grantable.has(p)));
   const roleEdits = EDITS.filter(([p]) => (data.editPerms ?? []).includes(p) && baseHas(r, p));
 
   // AS 처리 기능 카드: 장애접수관리(통합관리) 바로 밑에 둔다.
-  const showAs = !onlyCustom || roleActions.some(([p]) => adj[sel].denied.has(p));
+  const showAs = !onlyCustom || roleActions.some(([p]) => adj[sel].denied.has(p) || adj[sel].granted.has(p));
   const asCard = showAs ? (
 
               <section className="um-card" aria-label="AS 처리 기능">
@@ -194,7 +198,7 @@ function RolePerms() {
                     })}
                   </div>
                 )}
-                <p className="um-card-f">역할에 있는 기능만 끌 수 있습니다. 켜져 있어도 신청 상태 · 소속 조건이 맞을 때만 버튼이 보입니다.</p>
+                <p className="um-card-f">역할에 있는 기능만 끌 수 있고, 만족도 평가는 역할에 없어도 켤 수 있습니다 (자기 신청 건만 평가). 켜져 있어도 신청 상태 · 소속 조건이 맞을 때만 버튼이 보입니다.</p>
               </section>
   ) : null;
 
