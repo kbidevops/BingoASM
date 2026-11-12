@@ -79,15 +79,24 @@ public class SchoolService {
         Scope sc = me.scope();
         return switch (sc.kind()) {
             case SCHOOL -> sc.schoolId() == null ? Set.of() : Set.of(sc.schoolId());
-            case VENDOR -> sc.vendorId() == null ? Set.of()
-                    : schoolVendors.findByVendorId(sc.vendorId()).stream().map(sv -> sv.schoolId).collect(Collectors.toSet());
+            // 업체 계정: 업체의 담당 지역(전체 지역이면 모든 학교)에 있는 학교 — 지역 기준. AS 목록은 따로 ‘자기 업체에 배정된 건’만 본다.
+            case VENDOR -> vendorRegionSchools(me.orgId(), sc.vendorId());
             case REGION -> schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(me.orgId(), "Y").stream()
                     .filter(s -> sc.regionId() != null && sc.regionId().equals(s.regionId)).map(s -> s.schoolId).collect(Collectors.toSet());
             default -> null;
         };
     }
 
-    /** 학교 담당자는 자기 학교만, 교육지원청 담당자는 관내 학교만 다룰 수 있다 (403). */
+    private Set<Long> vendorRegionSchools(Long orgId, Long vendorId) {
+        Vendor v = vendorId == null ? null : vendors.findById(vendorId).filter(x -> x.orgId.equals(orgId) && "Y".equals(x.useYn)).orElse(null);
+        if (v == null) return Set.of();
+        boolean all = Boolean.TRUE.equals(v.allRegions);
+        Set<Long> regionIds = all ? Set.of() : vendorRegions.findByVendorId(vendorId).stream().map(l -> l.regionId).collect(Collectors.toSet());
+        return schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(orgId, "Y").stream()
+                .filter(s -> all || (s.regionId != null && regionIds.contains(s.regionId))).map(s -> s.schoolId).collect(Collectors.toSet());
+    }
+
+    /** 학교 담당자는 자기 학교만, 교육지원청 담당자는 관내 학교만, 업체는 담당 지역의 학교만 다룰 수 있다 (403). */
     public void checkSchoolScope(CurrentUser me, Long schoolId) {
         Scope sc = me.scope();
         if (sc.school() && (sc.schoolId() == null || !sc.schoolId().equals(schoolId)))
@@ -98,7 +107,7 @@ public class SchoolService {
                 throw ApiException.forbidden("관할 교육지원청 학교의 정보만 다룰 수 있습니다.");
         }
         if (sc.vendor() && (schoolId == null || !scopeSchoolIds(me).contains(schoolId)))
-            throw ApiException.forbidden("담당으로 배정된 학교의 정보만 다룰 수 있습니다.");
+            throw ApiException.forbidden("업체 담당 지역 학교의 정보만 다룰 수 있습니다.");
     }
 
     /** Loads a school of this org that is inside the caller's scope (400 if missing, 403 if out of scope). */

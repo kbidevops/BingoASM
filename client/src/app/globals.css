@@ -1608,6 +1608,7 @@ th small.opt{font-weight:400;color:var(--muted)}
 .um-feats ul{margin:0;padding:6px 0 0 12px;list-style:none;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:6px}
 .um-feats li{display:flex;align-items:center;gap:8px;font-size:.8125rem;color:var(--muted)}
 .um-feats li>span:first-child{flex:1}
+.um-feats.off li:not(.um-feats-note){opacity:.65}.um-feats li.um-feats-note{font-size:.75rem;font-style:italic}.um-feats li.fixed{opacity:.6}
 .um-feats .um-sw{width:34px;height:20px}.um-feats .um-sw::before{width:14px;height:14px}.um-feats .um-sw:checked::before{transform:translateX(14px)}
 .ft-fs{border:0;margin:0;padding:0;min-width:0}
 
@@ -1645,6 +1646,9 @@ th small.opt{font-weight:400;color:var(--muted)}
 .rp2-chip.dirty{box-shadow:0 0 0 2px var(--ring)}
 .rp2-chip:focus-within{outline:2px solid var(--pri);outline-offset:2px}
 .rp2-feats-off{margin:6px 0 0;font-size:.75rem;color:var(--muted)}
+/* 잠긴 권한(이 역할 · 계정 종류에 줄 수 없음): 보이되 고를 수 없다 — 이유는 title */
+.rp2-chip.locked{cursor:not-allowed;border-style:dashed;opacity:.6;text-decoration:none}.rp2-chip.locked input{cursor:not-allowed}
+.rp2-feats.off .rp2-chip:not(.locked){cursor:default;opacity:.7}.rp2-feats.off .rp2-feats-off{margin:0 0 0 4px;align-self:center}
 .rp2-m{display:inline-block;min-width:16px;font-size:.9375rem;line-height:1}
 .rp2-m.yes{color:var(--pri)}.rp2-m.part{color:var(--s2)}.rp2-m.no{color:var(--muted)}
 .rp2-cmp .rp-t{min-width:720px}

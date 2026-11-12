@@ -63,16 +63,23 @@ public class UserService {
     }
 
     /**
-     * 사용자 관리는 `admin` · 도교육청과 교육지원청 담당자만. 역할로 권한을 받은 예전 자산관리 계정도 막는다.
-     * 교육지원청 담당자는 관할 지역만 맡는 업체의 기사 · 업체 관리자 계정만 다룬다 (districtManaged).
+     * 사용자 관리(USER_WRITE)는 역할 권한 관리에서 어느 역할에나 켤 수 있다. 다루는 계정은 계정 종류가 정한다 (managedBy):
+     * 도교육청 = 모든 계정 · 교육지원청 = 관내 학교 담당자 + 관할 지역만 맡는 업체의 기사 · 업체 관리자 ·
+     * 업체 = 자기 업체의 기사 · 학교 = 자기 학교 담당자. 줄 수 있는 역할도 그 아래로만 (자기와 같은 급 이상은 못 준다).
+     * 역할로 권한을 받은 예전 자산관리 계정은 막는다.
      */
     private static void requireUserAdmin(CurrentUser me) {
-        if (!me.scope().province() && !me.scope().region())
-            throw ApiException.forbidden("사용자 관리는 도교육청 · 교육지원청 담당자만 할 수 있습니다.");
+        if (!me.scope().province() && !me.scope().region() && !me.scope().vendor() && !me.scope().school())
+            throw ApiException.forbidden("사용자 관리 권한이 없습니다.");
     }
 
-    /** 교육지원청 담당자가 만들고 고칠 수 있는 역할. */
-    private static final List<String> DISTRICT_ROLES = List.of("AS_ENGINEER", "VENDOR_ADMIN");
+    /** 이 계정 종류가 주고 다룰 수 있는 역할 (도교육청은 null = 제한 없음, 시스템 관리자는 따로 막는다). */
+    private static List<String> manageableRoles(CurrentUser me) {
+        if (me.scope().region()) return List.of("SCHOOL_USER", "AS_ENGINEER", "VENDOR_ADMIN");
+        if (me.scope().vendor()) return List.of("AS_ENGINEER");
+        if (me.scope().school()) return List.of("SCHOOL_USER");
+        return null;
+    }
 
     /** 업체가 이 교육지원청만 맡는가 (전체 지역 · 여러 지역 업체는 도교육청 몫). */
     private boolean vendorOnlyInRegion(Long vendorId, Long regionId) {
@@ -83,17 +90,32 @@ public class UserService {
         return !links.isEmpty() && links.stream().allMatch(l -> regionId.equals(l.regionId));
     }
 
-    /** 교육지원청 담당자가 다룰 수 있는 계정: 관할 지역만 맡는 업체의 기사 · 업체 관리자. */
-    private boolean districtManaged(CurrentUser me, AppUser u) {
-        return !u.roles.isEmpty() && DISTRICT_ROLES.containsAll(u.roles) && vendorOnlyInRegion(u.vendorId, me.scope().regionId());
+    /** 이 사용자가 다룰 수 있는 계정인가 (담당 범위 + 역할). */
+    private boolean managedBy(CurrentUser me, AppUser u) {
+        List<String> roles = manageableRoles(me);
+        if (roles == null) return true;
+        if (u.roles.isEmpty() || !roles.containsAll(u.roles)) return false;
+        var sc = me.scope();
+        if (u.roles.contains("SCHOOL_USER")) {
+            if (sc.school()) return sc.schoolId() != null && sc.schoolId().equals(u.schoolId);
+            return u.schoolId != null && schools.findById(u.schoolId).filter(s -> sc.regionId() != null && sc.regionId().equals(s.regionId)).isPresent();
+        }
+        if (sc.vendor()) return sc.vendorId() != null && sc.vendorId().equals(u.vendorId);
+        return vendorOnlyInRegion(u.vendorId, sc.regionId());
     }
 
-    private static final String DISTRICT_ONLY = "교육지원청 담당자는 관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정만 다룰 수 있습니다.";
+    private static String scopeRule(CurrentUser me) {
+        if (me.scope().region()) return "교육지원청 담당자는 관내 학교 담당자와 관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정만 다룰 수 있습니다.";
+        if (me.scope().vendor()) return "업체 계정은 자기 업체의 AS 기사 계정만 다룰 수 있습니다.";
+        if (me.scope().school()) return "학교 계정은 자기 학교의 학교 담당자 계정만 다룰 수 있습니다.";
+        return "다룰 수 없는 계정입니다.";
+    }
 
-    /** 교육지원청 담당자가 주는 역할은 기사 · 업체 관리자만 (ROLE_GRANT 없이). */
-    private static void checkDistrictRoles(CurrentUser me, List<String> roles) {
-        if (me.scope().region() && (roles == null || roles.isEmpty() || !DISTRICT_ROLES.containsAll(roles)))
-            throw ApiException.forbidden(DISTRICT_ONLY);
+    /** 도교육청이 아닌 계정이 주는 역할은 자기보다 아래 역할만 (ROLE_GRANT 없이). */
+    private static void checkManageableRoles(CurrentUser me, List<String> roles) {
+        List<String> allowed = manageableRoles(me);
+        if (allowed != null && (roles == null || roles.isEmpty() || !allowed.containsAll(roles)))
+            throw ApiException.forbidden(scopeRule(me));
     }
 
     private static final List<String> TOP_ROLES = List.of("SYS_ADMIN", "SUPER_ADMIN");
@@ -124,7 +146,7 @@ public class UserService {
         Map<Long, String> dn = deptNames(me.orgId());
         String on = orgName(me.orgId());
         List<Json> rows = users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream()
-                .filter(u -> !me.scope().region() || districtManaged(me, u))
+                .filter(u -> managedBy(me, u))
                 .filter(u -> Params.blank(keyword) || contains(u.loginId, keyword) || contains(u.userName, keyword) || contains(u.email, keyword) || contains(u.mobile, keyword))
                 .filter(u -> deptId == null || deptId.equals(u.deptId))
                 .filter(u -> Params.blank(role) || u.roles.contains(role))
@@ -231,12 +253,12 @@ public class UserService {
         u.orgId = me.orgId(); u.loginId = loginId; u.createdAt = Times.now();
         // 역할을 함께 보내면 그 역할로 만든다 (원클릭 AS 계정). 없으면 기존 자산관리 기본값인 요청자.
         List<String> requested = requestedRoles(me, null, b);
-        checkDistrictRoles(me, requested);
-        if (requested != null && !me.can("ROLE_GRANT") && !me.scope().region()) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
+        checkManageableRoles(me, requested);
+        if (requested != null && !me.can("ROLE_GRANT") && me.scope().province()) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
         u.roles = new ArrayList<>(requested == null || requested.isEmpty() ? List.of("REQUESTER") : requested);
         applyProfile(u, b);
         checkAffiliation(u);
-        if (me.scope().region() && !districtManaged(me, u)) throw ApiException.forbidden(DISTRICT_ONLY);
+        if (!managedBy(me, u)) throw ApiException.forbidden(scopeRule(me));
         u.status = "ACTIVE";
         if (hashPassword) setPassword(u, pw);
         else PasswordPolicy.check(pw, u.loginId, u.mobile);
@@ -249,7 +271,7 @@ public class UserService {
 
     private AppUser load(CurrentUser me, Long id) {
         // 교육지원청 담당자에게 관할 밖 계정은 없는 것처럼 보인다.
-        return users.findById(id).filter(u -> u.orgId.equals(me.orgId()) && (!me.scope().region() || districtManaged(me, u)))
+        return users.findById(id).filter(u -> u.orgId.equals(me.orgId()) && managedBy(me, u))
                 .orElseThrow(() -> ApiException.notFound("사용자를 찾을 수 없습니다."));
     }
 
@@ -262,8 +284,8 @@ public class UserService {
             throw ApiException.badRequest("본인 계정은 사용 중지할 수 없습니다.");
         List<String> roles = requestedRoles(me, u, b);
         if (roles != null) {
-            checkDistrictRoles(me, roles);
-            if (!me.can("ROLE_GRANT") && !me.scope().region()) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
+            checkManageableRoles(me, roles);
+            if (!me.can("ROLE_GRANT") && me.scope().province()) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
             if (u.userId.equals(me.userId()) && !new HashSet<>(roles).equals(new HashSet<>(u.roles))) throw ApiException.badRequest("본인의 역할은 바꿀 수 없습니다.");
             u.roles.clear();
             u.roles.addAll(roles.isEmpty() ? List.of("REQUESTER") : roles);
@@ -272,7 +294,7 @@ public class UserService {
         if (Params.blank(u.userName)) throw ApiException.badRequest("이름을 입력해 주세요.");
         checkAffiliation(u);
         // 다른 지역 · 여러 지역 업체로 옮기거나 다른 역할로 바꾸지 못하게.
-        if (me.scope().region() && !districtManaged(me, u)) throw ApiException.forbidden(DISTRICT_ONLY);
+        if (!managedBy(me, u)) throw ApiException.forbidden(scopeRule(me));
         String pw = Params.rawStr(b, "password");
         if (!Params.blank(pw)) {
             setPassword(u, pw);
@@ -342,8 +364,9 @@ public class UserService {
     private Json menuPermsView(AppUser u) {
         Set<String> base = permissions.basePerms(u), effective = permissions.effectivePerms(u);
         return Json.obj().with("userId", u.userId).with("loginId", u.loginId).with("userName", u.userName).with("roles", u.roles)
-                .with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS).with("grantableActions", Roles.GRANTABLE_ACTION_PERMS)
+                .with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS)
                 .with("applicableActions", Roles.applicableActions(u.roles)).with("editPerms", Roles.EDIT_PERMS)
+                .with("lockedReasons", Roles.lockedFor(u.roles))
                 .with("features", featureList())
                 .with("base", Roles.ADJUSTABLE_PERMS.stream().filter(base::contains).toList())
                 .with("granted", new ArrayList<>(u.grantedPerms)).with("denied", new ArrayList<>(u.deniedPerms))
@@ -367,16 +390,20 @@ public class UserService {
                 m.put("SPACE_MANAGE", "자기 학교 건물 · 층만");
                 m.put("SCHOOL_MANAGE", "자기 학교 기본정보만 수정 (지역·담당업체·등록·삭제 불가)");
                 m.put("VENDOR_MANAGE", "조회만 가능");
+                m.put("AS_STATS", "자기 학교 AS만 (계약 · 예산 금액은 보이지 않음)");
+                m.put("USER_WRITE", "자기 학교의 학교 담당자 계정만");
             }
             case VENDOR -> {
                 for (String p : List.of("AS_MANAGE", "AS_STATS")) m.put(p, "자기 업체에 배정된 AS만");
-                for (String p : List.of("WDEVICE_MANAGE", "SDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY")) m.put(p, "담당으로 배정된 학교만");
-                m.put("SCHOOL_MANAGE", "배정된 학교 조회만 가능");
+                for (String p : List.of("WDEVICE_MANAGE", "SDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY")) m.put(p, "업체 담당 지역의 학교만");
+                m.put("SCHOOL_MANAGE", "업체 담당 지역의 학교 조회만 가능");
                 m.put("VENDOR_MANAGE", "조회만 가능");
+                m.put("USER_WRITE", "자기 업체의 AS 기사 계정만");
             }
             case REGION -> {
                 m.put("VENDOR_MANAGE", "관할 지역만 맡는 업체만 등록 · 수정 · 삭제 (여러 지역 업체는 조회만)");
-                m.put("USER_WRITE", "관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정만");
+                m.put("AS_STATS", "관내 학교 AS만");
+                m.put("USER_WRITE", "관내 학교 담당자와 관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정만");
             }
             default -> { }
         }
@@ -392,15 +419,11 @@ public class UserService {
         if (granted.stream().anyMatch(denied::contains)) throw ApiException.badRequest("같은 메뉴를 열고 숨길 수 없습니다.");
         Set<String> blocked = PermissionService.blockedPerms(u);
         for (String p : granted)
-            if (blocked.contains(p)) throw ApiException.badRequest("학교 · 교육지원청 계정에는 '" + Roles.PERM_LABEL.getOrDefault(p, p) + "'을(를) 줄 수 없습니다.");
+            if (blocked.contains(p)) throw ApiException.badRequest("이 계정에는 줄 수 없습니다: " + Roles.lockedFor(u.roles).get(p));
         Set<String> base = permissions.basePerms(u);
         u.grantedPerms.clear();
-        // 기능 권한은 메뉴를 따라 켜지므로 켜기 조정은 두지 않는다 (끄기만). 편집 기능도 끄기만.
-        // 처리 기능은 이 계정 종류에 의미가 있는 것만 켤 수 있다 (Roles.applicableActions).
-        List<String> applicable = Roles.applicableActions(u.roles);
-        granted.stream().filter(p -> !base.contains(p) && !Roles.isFeature(p)
-                        && (Roles.MENU_PERMS.contains(p) || applicable.contains(p)))
-                .forEach(u.grantedPerms::add);
+        // 메뉴 · 처리 기능 · 편집 기능은 켜고 끈다 (잠긴 것은 위에서 400). 기능 권한은 메뉴를 따라 켜지므로 끄기만.
+        granted.stream().filter(p -> !base.contains(p) && !Roles.isFeature(p)).forEach(u.grantedPerms::add);
         u.deniedPerms.clear();
         // 기능 권한 끄기는 메뉴를 사용자별로 켠 경우에도 남긴다 (메뉴가 없으면 어차피 꺼져 있다).
         denied.stream().filter(p -> base.contains(p) || Roles.isFeature(p)).forEach(u.deniedPerms::add);

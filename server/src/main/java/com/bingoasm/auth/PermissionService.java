@@ -86,6 +86,8 @@ public class PermissionService {
     private Set<String> finish(AppUser u, Set<String> perms, Set<String> userDenied) {
         perms.removeAll(disabledPerms(u.orgId));
         perms.removeAll(blockedPerms(u));
+        // 사용자 관리(USER_WRITE)를 끄면 계정 목록(USER_READ)도 닫는다 (기존 자산관리 역할은 목록 조회 권한을 따로 가진다).
+        if (!perms.contains("USER_WRITE") && u.roles.stream().noneMatch(Roles.LEGACY::contains)) perms.remove("USER_READ");
         // 기관자산관리(ASSET_READ)를 끄면 자산 등록 · 일괄 등록 · 삭제 · 실사도 함께 막는다 (화면 없이 API로만 쓰지 못하게).
         if (!perms.contains("ASSET_READ")) perms.removeAll(Set.of("ASSET_WRITE", "ASSET_BULK", "ASSET_DELETE", "INVENTORY"));
         Map<String, RoleAdjust> adj = roleAdjusts(u.orgId);
@@ -93,16 +95,14 @@ public class PermissionService {
             if (perms.contains(f.parent()) && !userDenied.contains(f.code())
                     && u.roles.stream().noneMatch(r -> adj.getOrDefault(r, RoleAdjust.NONE).denied().contains(f.code())))
                 perms.add(f.code());
+        // 메뉴를 따라 켜진 기능 중 이 계정 종류에 잠긴 것 (예: 교육지원청의 사용자 일괄 등록)
+        perms.removeAll(blockedPerms(u));
         return perms;
     }
 
-    /** 이 계정의 소속(데이터 범위) 때문에 줄 수 없는 권한: 학교 · 교육지원청 계정의 AS통계관리 등 (Roles.BLOCKED_BY_AFFILIATION). */
+    /** 이 계정 종류(학교 · 업체 · 교육지원청) 때문에 줄 수 없는 권한 (Roles.LOCKED_BY_AFFILIATION). */
     public static Set<String> blockedPerms(AppUser u) {
-        return switch (Scope.of(u).kind()) {
-            case SCHOOL -> new LinkedHashSet<>(Roles.BLOCKED_BY_AFFILIATION.getOrDefault("school", List.of()));
-            case REGION -> new LinkedHashSet<>(Roles.BLOCKED_BY_AFFILIATION.getOrDefault("region", List.of()));
-            default -> Set.of();
-        };
+        return new LinkedHashSet<>(Roles.lockedFor(u.roles).keySet());
     }
 
     /** Permissions from roles and vendor only, before the per-user overrides (기능 권한 포함). */

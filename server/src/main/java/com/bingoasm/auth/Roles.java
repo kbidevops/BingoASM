@@ -24,27 +24,14 @@ public final class Roles {
      */
     public static final List<String> PROCESS_ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER");
     public static final List<String> ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN", "AS_EVALUATE");
-    /**
-     * 처리 기능 중 역할에 없어도 켤 수 있는 것 (역할 권한 관리 · 사용자 메뉴 권한). 나머지 처리 기능은 끄기만 된다.
-     * 만족도 평가는 자기가 신청한 건(학교는 자기 학교 건)만 평가하므로 켜도 범위가 넓어지지 않는다 (AsRequestService.canEvaluate).
-     */
-    public static final List<String> GRANTABLE_ACTION_PERMS = List.of("AS_EVALUATE");
-
-    /**
-     * 사용자 메뉴 권한에서 이 계정에 켜고 끌 수 있는 처리 기능 (소속 종류별로 의미가 있는 것만).
-     * 학교: 신청 취소 · 만족도 평가 / 업체(기사 · 업체 관리자): 접수 · 방문일 · 보고서 · 반려 · 이관 · 신청 취소 · 만족도 평가 /
-     * 교육지원청: 삭제를 뺀 전부 (관내 학교 건만) / 도교육청 · 관리자: 전부. 켜도 데이터 범위는 그대로다 (AsRequestService.allowedActions).
-     */
+    /** 이 계정 종류에서 켜고 끌 수 있는 처리 기능 (잠긴 것 제외 — LOCKED_BY_AFFILIATION). 켜도 데이터 범위는 그대로다. */
     public static List<String> applicableActions(java.util.Collection<String> roles) {
-        String kind = roles.stream().map(AFFILIATION::get).filter(java.util.Objects::nonNull).findFirst().orElse(null);
-        if ("school".equals(kind)) return List.of("AS_CANCEL", "AS_EVALUATE");
-        if ("vendor".equals(kind)) return List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_EVALUATE");
-        if ("region".equals(kind)) return ACTION_PERMS.stream().filter(p -> !"AS_DELETE".equals(p)).toList();
-        return ACTION_PERMS;
+        Map<String, String> locked = lockedFor(roles);
+        return ACTION_PERMS.stream().filter(p -> !locked.containsKey(p)).toList();
     }
     /**
-     * 편집 기능: 화면은 보이지만 고치는 것은 따로 끌 수 있는 권한. CONTACT_EDIT = 문의처 안내 편집.
-     * 처리 기능처럼 역할에 있는 것만 끈다 — 범위 조건(도교육청 전체 · 교육지원청은 자기 구역)은 ContactService가 그대로 본다.
+     * 편집 기능: 화면은 보이지만 고치는 것은 따로 켜고 끌 수 있는 권한. CONTACT_EDIT = 문의처 안내 편집.
+     * 범위 조건(도교육청 전체 · 교육지원청은 자기 구역)은 ContactService가 그대로 본다.
      */
     public static final List<String> EDIT_PERMS = List.of("CONTACT_EDIT");
     /** 학교 사용자: 포털 메뉴 전체 + 자산·공간·재물조사 (자기 학교 범위). */
@@ -69,9 +56,13 @@ public final class Roles {
             // 사용자 관리: 관할 지역만 맡는 업체의 기사 · 업체 관리자 계정만 (UserService.districtManaged)
             "USER_READ", "USER_WRITE"));
 
-    /** 사용자별로 보이기·숨기기를 조정할 수 있는 메뉴 권한 (client/src/lib/menu.ts의 perm과 같다). */
+    /**
+     * 켜고 끌 수 있는 메뉴 권한 (client/src/lib/menu.ts의 perm과 같다) — 관리자 메뉴까지 모든 메뉴.
+     * 데이터 범위는 계정 종류가 정한다: 학교 = 자기 학교, 업체 · 교육지원청 = 지역, 도교육청 = 전체 (Scope).
+     */
     public static final List<String> MENU_PERMS = concat(PORTAL_ALL, List.of(
-            "AS_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS"));
+            "AS_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SPACE_MANAGE", "ASSET_READ", "FLOOR_READ", "INVENTORY", "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS",
+            "REGION_MANAGE", "USER_WRITE", "ORG_WRITE", "ROLE_GRANT"));
     /**
      * AS 서비스(접수 유형)별 메뉴 권한. 교육청이 쓰지 않는 서비스의 권한은 그 교육청 사용자 전원에게서 빠진다
      * (PermissionService) — 메뉴·화면·API가 함께 닫힌다.
@@ -127,19 +118,55 @@ public final class Roles {
     public static final List<String> VENDOR_TYPED_PERMS = List.of(
             "SMART_REQUEST", "AS_C_REQUEST", "AS_C_VIEW", "AS_M_REQUEST", "AS_M_VIEW", "AS_S_REQUEST", "AS_S_VIEW");
 
-    /**
-     * 소속 종류(AFFILIATION 값)별로 절대 줄 수 없는 권한. 역할 권한 관리 · 사용자 메뉴 권한에서 켤 수 없고,
-     * 예전에 켜 둔 조정이 남아 있어도 PermissionService가 뺀다. AS통계관리는 도교육청 · 업체만.
-     */
-    public static final Map<String, List<String>> BLOCKED_BY_AFFILIATION = Map.of(
-            "school", List.of("AS_STATS"), "region", List.of("AS_STATS"));
-    public static final Map<String, String> PERM_LABEL = Map.of("AS_STATS", "AS통계관리");
+    /** 교육청 전체에 걸리는 설정 메뉴 (역할 권한 관리 · AS 서비스 설정, 사용자 메뉴 권한, 지역 관리): 도교육청 · 관리자만. */
+    public static final List<String> ORG_SETTING_PERMS = List.of("ORG_WRITE", "ROLE_GRANT", "REGION_MANAGE");
 
-    /** 이 역할(학교 담당자 · 교육지원청 담당자 등)에게 줄 수 없는 권한. */
-    public static List<String> blockedFor(String role) {
-        String kind = AFFILIATION.get(role);
-        return kind == null ? List.of() : BLOCKED_BY_AFFILIATION.getOrDefault(kind, List.of());
+    /**
+     * 소속 종류(AFFILIATION 값)별로 줄 수 없는 권한과 그 이유. 권한 화면에는 보이되 잠기고, 켜면 400,
+     * 예전에 켜 둔 조정이 남아 있어도 PermissionService가 뺀다. 나머지 메뉴 · 기능 · 처리 기능은 모두 켜고 끌 수 있다.
+     */
+    public static final Map<String, Map<String, String>> LOCKED_BY_AFFILIATION = Map.of(
+            "school", locks(
+                    ORG_SETTING_PERMS, "교육청 전체 설정은 도교육청만 합니다",
+                    List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER"), "AS 처리는 업체 · 교육청이 합니다",
+                    List.of("AS_ASSIGN"), "업체 배정은 교육청 · 교육지원청이 합니다",
+                    List.of("AS_DELETE"), "AS 기록 삭제는 도교육청만 합니다",
+                    List.of("SCHOOL_CREATE", "SCHOOL_DELETE", "SCHOOL_VENDOR"), "학교 등록 · 삭제 · 담당업체 지정은 교육청 · 교육지원청이 합니다",
+                    List.of("VENDOR_CREATE", "VENDOR_EDIT", "VENDOR_DELETE"), "업체 정보는 교육청 · 교육지원청이 관리합니다",
+                    List.of("CONTACT_EDIT"), "문의처 안내는 교육청 · 교육지원청이 고칩니다",
+                    List.of("USER_BULK"), "사용자 일괄 등록은 도교육청만 합니다"),
+            "vendor", locks(
+                    ORG_SETTING_PERMS, "교육청 전체 설정은 도교육청만 합니다",
+                    List.of("AS_ASSIGN"), "업체 배정은 교육청 · 교육지원청이 합니다 (업체가 스스로 배정하지 않도록)",
+                    List.of("AS_DELETE"), "AS 기록 삭제는 도교육청만 합니다",
+                    List.of("SCHOOL_CREATE", "SCHOOL_EDIT", "SCHOOL_DELETE", "SCHOOL_VENDOR"), "학교 정보는 학교 · 교육청이 관리합니다",
+                    List.of("VENDOR_CREATE", "VENDOR_EDIT", "VENDOR_DELETE"), "업체 정보는 교육청 · 교육지원청이 관리합니다",
+                    List.of("CONTACT_EDIT"), "문의처 안내는 교육청 · 교육지원청이 고칩니다",
+                    List.of("USER_BULK"), "사용자 일괄 등록은 도교육청만 합니다"),
+            "region", locks(
+                    ORG_SETTING_PERMS, "교육청 전체 설정은 도교육청만 합니다",
+                    List.of("AS_DELETE"), "AS 기록 삭제는 도교육청만 합니다",
+                    List.of("USER_BULK"), "사용자 일괄 등록은 도교육청만 합니다"));
+
+    private static Map<String, String> locks(Object... pairs) {
+        Map<String, String> m = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) for (Object p : (List<?>) pairs[i]) m.put((String) p, (String) pairs[i + 1]);
+        return java.util.Collections.unmodifiableMap(m);
     }
+
+    /** 계정 종류 (school · vendor · region, 도교육청 · 관리자는 null). */
+    public static String kindOf(Collection<String> roles) {
+        return roles.stream().map(AFFILIATION::get).filter(java.util.Objects::nonNull).findFirst().orElse(null);
+    }
+
+    /** 이 역할들(한 계정)에게 줄 수 없는 권한 → 이유. */
+    public static Map<String, String> lockedFor(Collection<String> roles) {
+        String kind = kindOf(roles);
+        return kind == null ? Map.of() : LOCKED_BY_AFFILIATION.getOrDefault(kind, Map.of());
+    }
+
+    /** 이 역할에게 줄 수 없는 권한 → 이유. */
+    public static Map<String, String> lockedFor(String role) { return lockedFor(List.of(role)); }
 
     public static boolean vendorRole(String role) {
         return "AS_ENGINEER".equals(role) || "VENDOR_ADMIN".equals(role);

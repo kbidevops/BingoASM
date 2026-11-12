@@ -18,7 +18,7 @@ public class UserController {
     }
 
     @GetMapping("/api/users")
-    @RequirePerm("USER_READ")
+    @RequirePerm({"USER_READ", "USER_WRITE"})
     public ApiResponse list(@RequestParam(required = false) String keyword, @RequestParam(required = false) Long deptId,
                             @RequestParam(required = false) String role, @RequestParam(required = false) String status,
                             @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {

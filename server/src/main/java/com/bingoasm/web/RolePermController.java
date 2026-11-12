@@ -78,13 +78,13 @@ public class RolePermController {
             List<String> granted = perms(v.get("granted")), denied = perms(v.get("denied"));
             if (granted.stream().anyMatch(denied::contains)) throw ApiException.badRequest("같은 권한을 켜고 끌 수 없습니다.");
             List<String> def = Roles.ROLE_PERMS.get(role), typed = vendorTyped(role);
+            Map<String, String> locked = Roles.lockedFor(role);
             for (String p : granted)
-                if (Roles.blockedFor(role).contains(p)) throw ApiException.badRequest(ROLE_LABEL.get(role) + " 역할에는 '" + Roles.PERM_LABEL.getOrDefault(p, p) + "'을(를) 줄 수 없습니다.");
+                if (locked.containsKey(p)) throw ApiException.badRequest(ROLE_LABEL.get(role) + " 역할에는 줄 수 없습니다: " + locked.get(p));
             touched.add(role);
-            // 기본값과 같은 조정은 버린다. 처리 기능(만족도 평가 제외) · 편집 기능과 업체 유형 메뉴는 켤 수 없다 (끄기만).
+            // 기본값과 같은 조정은 버린다. 메뉴 · 처리 기능 · 편집 기능은 켜고 끌 수 있고, 기능 권한은 메뉴를 따라 켜지므로 끄기만 한다.
             for (String p : granted)
-                if (!def.contains(p) && !typed.contains(p) && (Roles.MENU_PERMS.contains(p) || Roles.GRANTABLE_ACTION_PERMS.contains(p)))
-                    add.add(row(orgId, role, p, "G", me, now));
+                if (!def.contains(p) && !typed.contains(p) && !Roles.isFeature(p)) add.add(row(orgId, role, p, "G", me, now));
             for (String p : denied)
                 if (def.contains(p) || typed.contains(p) || Roles.isFeature(p)) add.add(row(orgId, role, p, "D", me, now));
         }
@@ -109,11 +109,12 @@ public class RolePermController {
             return Json.obj().with("role", r).with("name", ROLE_LABEL.get(r))
                     .with("defaults", Roles.ROLE_PERMS.get(r))
                     .with("granted", new ArrayList<>(a.granted())).with("denied", new ArrayList<>(a.denied()))
-                    .with("vendorTyped", vendorTyped(r)).with("blocked", Roles.blockedFor(r))
+                    .with("vendorTyped", vendorTyped(r)).with("blocked", new ArrayList<>(Roles.lockedFor(r).keySet()))
+                    .with("lockedReasons", Roles.lockedFor(r))
                     .with("limits", UserService.menuLimits(scopeOf(r)))
                     .with("userCount", all.stream().filter(u -> u.roles.contains(r)).count());
         }).toList();
-        return Json.obj().with("roles", roles).with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS).with("grantableActions", Roles.GRANTABLE_ACTION_PERMS).with("editPerms", Roles.EDIT_PERMS)
+        return Json.obj().with("roles", roles).with("menuPerms", Roles.MENU_PERMS).with("actionPerms", Roles.ACTION_PERMS).with("editPerms", Roles.EDIT_PERMS)
                 .with("features", UserService.featureList())
                 .with("disabled", new ArrayList<>(permissions.disabledPerms(orgId)));
     }

@@ -13,8 +13,9 @@ import { fmtDate } from "@/lib/format";
 import type { Region } from "@/lib/types";
 
 /**
- * 사용자 관리 (/api/users): `admin`과 도교육청이 계정을 등록·조회·수정·삭제한다. 삭제는 사용 중지다.
- * 교육지원청 담당자는 관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정만 (서버가 목록과 모든 동작을 막는다).
+ * 사용자 관리 (/api/users): 계정을 등록·조회·수정·삭제한다. 삭제는 사용 중지다.
+ * 다루는 계정은 계정 종류가 정한다 (서버가 목록과 모든 동작을 막는다): 도교육청 = 전체,
+ * 교육지원청 = 관내 학교 담당자 + 관할 지역만 맡는 업체의 기사 · 업체 관리자, 업체 = 자기 업체 기사, 학교 = 자기 학교 담당자.
  */
 export default function UsersPage() {
   return (
@@ -57,16 +58,26 @@ const KINDS: { role: string; label: string; aff: Affiliation; topOnly?: boolean 
 ];
 const TOP_ROLES = ["SYS_ADMIN", "SUPER_ADMIN"];
 const kindOf = (u: UserRow) => KINDS.find((k) => u.roles.includes(k.role))?.role ?? "";
-/** 교육지원청 담당자가 다루는 구분 */
-const DISTRICT_KINDS = ["AS_ENGINEER", "VENDOR_ADMIN"];
+/** 계정 종류별로 다루는(줄 수 있는) 구분 — 자기보다 아래 역할만. 도교육청은 null = 전부. */
+type Manager = { kinds: string[] | null; note: string; schoolId?: number; vendorId?: number; regionOnlyVendors?: boolean };
+function managerOf(me: { roles: string[]; schoolId?: number; vendorId?: number; regionName?: string } | null): Manager {
+  const r = me?.roles ?? [];
+  if (r.some((x) => x === "EDU_ADMIN" || x === "SYS_ADMIN" || x === "SUPER_ADMIN")) return { kinds: null, note: "" };
+  if (r.includes("REGION_ADMIN"))
+    return { kinds: ["SCHOOL_USER", "AS_ENGINEER", "VENDOR_ADMIN"], regionOnlyVendors: true,
+      note: `관내(${(me?.regionName ?? "").replace(/교육지원청$/, "")}) 학교 담당자와 관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정을 다룹니다.` };
+  if (r.includes("AS_ENGINEER") || r.includes("VENDOR_ADMIN")) return { kinds: ["AS_ENGINEER"], vendorId: me?.vendorId, note: "자기 업체의 AS 기사 계정을 다룹니다." };
+  if (r.includes("SCHOOL_USER")) return { kinds: ["SCHOOL_USER"], schoolId: me?.schoolId, note: "자기 학교의 학교 담당자 계정을 다룹니다." };
+  return { kinds: null, note: "" };
+}
 
 function Users() {
   const toast = useToast();
   const { me, can } = useAuth();
   const isTop = !!me?.roles.includes("SUPER_ADMIN");
-  /** 교육지원청 담당자: 관할 지역 업체의 기사 · 업체 관리자만 */
-  const district = !!me?.roles.includes("REGION_ADMIN") && !me.roles.includes("EDU_ADMIN") && !me.roles.includes("SYS_ADMIN");
-  const kinds = district ? KINDS.filter((k) => DISTRICT_KINDS.includes(k.role)) : KINDS;
+  /** 계정 종류에 따른 범위 (도교육청이 아니면 자기 범위의 아래 역할만) */
+  const mgr = managerOf(me);
+  const kinds = mgr.kinds ? KINDS.filter((k) => mgr.kinds!.includes(k.role)) : KINDS;
   const [all, setAll] = useState<UserRow[] | null>(null);
   const [err, setErr] = useState("");
   const [kind, setKind] = useState("");
@@ -146,7 +157,7 @@ function Users() {
           <input id="us-q" placeholder="검색어 입력" value={draft.keyword} onChange={(e) => setDraft({ keyword: e.target.value })} />
         </FilterField>
       </FilterForm>
-      {district && <p className="hint">관할 지역({me?.regionName?.replace(/교육지원청$/, "")})만 맡는 업체의 AS 기사 · 업체 관리자 계정을 등록 · 수정 · 삭제합니다. 다른 계정은 도교육청이 관리합니다.</p>}
+      {mgr.note && <p className="hint">{mgr.note} 다른 계정은 도교육청이 관리합니다.</p>}
       <FormMsg kind={msg ? "bad" : undefined} text={msg} />
       <ListHead total={shown.length} page={cur} pages={pages}>
         <label className="us-off"><input type="checkbox" checked={showOff} onChange={(e) => { setShowOff(e.target.checked); setPage(1); }} /> 삭제된 계정 표시</label>
@@ -190,7 +201,7 @@ function Users() {
       </div>
       <Pager page={cur} totalPages={pages} onPage={setPage} />
       {edit && (
-        <UserForm user={edit === "new" ? null : edit} isTop={isTop} district={district} self={edit !== "new" && edit.userId === me?.userId} onClose={() => setEdit(null)}
+        <UserForm user={edit === "new" ? null : edit} isTop={isTop} mgr={mgr} self={edit !== "new" && edit.userId === me?.userId} onClose={() => setEdit(null)}
           onSaved={(m) => { setEdit(null); toast(m); load(); }} />
       )}
       {bulk && <UserBulkModal onClose={() => setBulk(false)} onDone={(m) => { toast(m); load(); }} />}
@@ -232,16 +243,17 @@ function DeleteUser({ user, onClose, onDeleted }: { user: UserRow; onClose: () =
   );
 }
 
-function UserForm({ user, isTop, district, self, onClose, onSaved }: {
+function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
   user: UserRow | null; isTop: boolean;
-  /** 교육지원청 담당자: 구분은 기사 · 업체 관리자, 업체는 관할 지역만 맡는 업체(editable)만 */
-  district: boolean;
+  /** 다루는 범위: 줄 수 있는 구분 · 고정된 소속(학교 · 업체) · 관할 지역 업체만 */
+  mgr: Manager;
   self: boolean; onClose: () => void; onSaved: (m: string) => void;
 }) {
-  const initialKind = user ? kindOf(user) : district ? "AS_ENGINEER" : "SCHOOL_USER";
+  const initialKind = user ? kindOf(user) : mgr.kinds ? mgr.kinds[0] : "SCHOOL_USER";
   const [v, setV] = useState({
     loginId: user?.loginId ?? "", userName: user?.userName ?? "", positionName: user?.positionName ?? "", email: user?.email ?? "", mobile: user?.mobile ?? "",
-    kind: initialKind, schoolId: user?.schoolId ? String(user.schoolId) : "", vendorId: user?.vendorId ? String(user.vendorId) : "", regionId: user?.regionId ? String(user.regionId) : "",
+    kind: initialKind, schoolId: user?.schoolId ? String(user.schoolId) : mgr.schoolId ? String(mgr.schoolId) : "",
+    vendorId: user?.vendorId ? String(user.vendorId) : mgr.vendorId ? String(mgr.vendorId) : "", regionId: user?.regionId ? String(user.regionId) : "",
     status: user?.status === "DISABLED" ? "DISABLED" : "ACTIVE", password: "",
   });
   const [schools, setSchools] = useState<SchoolFull[]>([]);
@@ -297,7 +309,8 @@ function UserForm({ user, isTop, district, self, onClose, onSaved }: {
     }
   };
 
-  const activeVendors = district ? vendors.filter((x) => x.editable) : vendors;
+  const activeVendors = mgr.vendorId ? vendors.filter((x) => x.vendorId === mgr.vendorId) : mgr.regionOnlyVendors ? vendors.filter((x) => x.editable) : vendors;
+  const mySchools = mgr.schoolId ? schools.filter((s) => s.schoolId === mgr.schoolId) : schools;
   return (
     <Modal title={user ? `사용자 수정 · ${user.loginId}` : "사용자 등록"} wide onClose={onClose}>
       <form className="ft2" noValidate onSubmit={save}>
@@ -309,7 +322,7 @@ function UserForm({ user, isTop, district, self, onClose, onSaved }: {
           <FormRow label="구분" required>
             <select aria-label="구분" value={v.kind} disabled={self} onChange={set("kind")}>
               {!initialKind && <option value="">기타 ({user?.memberType})</option>}
-              {KINDS.filter((k) => (district ? DISTRICT_KINDS.includes(k.role) : !k.topOnly || isTop || initialKind === k.role)).map((k) => <option key={k.role} value={k.role}>{k.label}</option>)}
+              {KINDS.filter((k) => (mgr.kinds ? mgr.kinds.includes(k.role) : !k.topOnly || isTop || initialKind === k.role)).map((k) => <option key={k.role} value={k.role}>{k.label}</option>)}
             </select>
             {self && <small className="hint"> 본인의 구분은 바꿀 수 없습니다.</small>}
           </FormRow>
@@ -317,7 +330,7 @@ function UserForm({ user, isTop, district, self, onClose, onSaved }: {
             <FormRow label="소속 학교" required>
               <select aria-label="소속 학교" value={v.schoolId} onChange={set("schoolId")}>
                 <option value="">-- 선택 --</option>
-                {schools.map((s) => <option key={s.schoolId} value={s.schoolId}>{s.schoolName}</option>)}
+                {mySchools.map((s) => <option key={s.schoolId} value={s.schoolId}>{s.schoolName}</option>)}
               </select>
             </FormRow>
           )}
@@ -327,7 +340,7 @@ function UserForm({ user, isTop, district, self, onClose, onSaved }: {
                 <option value="">-- 선택 --</option>
                 {activeVendors.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName}</option>)}
               </select>
-              {district && !activeVendors.length && <small className="hint"> 관할 지역만 맡는 업체가 없습니다. 업체 관리에서 먼저 등록하세요.</small>}
+              {mgr.regionOnlyVendors && !activeVendors.length && <small className="hint"> 관할 지역만 맡는 업체가 없습니다. 업체 관리에서 먼저 등록하세요.</small>}
             </FormRow>
           )}
           {aff === "region" && (

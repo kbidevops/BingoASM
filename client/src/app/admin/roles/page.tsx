@@ -31,8 +31,10 @@ interface RoleRow {
   denied: string[];
   /** 업체 역할: 소속 업체의 담당 유형일 때만 열리는 신청·조회 메뉴 */
   vendorTyped: string[];
-  /** 이 역할에는 줄 수 없는 메뉴 (학교 · 교육지원청의 AS통계관리) */
+  /** 이 역할(계정 종류)에는 줄 수 없는 권한 — 보이되 잠긴다 */
   blocked?: string[];
+  /** perm → 잠긴 이유 */
+  lockedReasons?: Record<string, string>;
   /** perm → 켜도 소속 범위 때문에 일부만 되는 것 */
   limits: Record<string, string>;
   userCount: number;
@@ -176,9 +178,10 @@ function RolePerms() {
   const editableMenus = groups.flatMap((g) => g.rows).filter((x) => !x.fixed && !r.blocked?.includes(x.perm));
   const menusOn = editableMenus.filter((x) => isOn(r, x.perm)).length;
   const featsOff = features.filter((f) => adj[sel].denied.has(f.code) && menuOn(r, f.parent, !data.menuPerms.includes(f.parent))).length;
-  const grantable = new Set(data.grantableActions ?? []);
-  const roleActions = ACTIONS.filter(([p]) => data.actionPerms.includes(p) && (baseHas(r, p) || grantable.has(p)));
-  const roleEdits = EDITS.filter(([p]) => (data.editPerms ?? []).includes(p) && baseHas(r, p));
+  // 모든 처리 기능 · 편집 기능을 보여 주고, 이 역할(계정 종류)에 잠긴 것만 이유와 함께 잠근다.
+  const lockedWhy = (p: string) => r.lockedReasons?.[p] ?? (r.blocked?.includes(p) ? "이 역할에는 줄 수 없습니다" : undefined);
+  const roleActions = ACTIONS.filter(([p]) => data.actionPerms.includes(p));
+  const roleEdits = EDITS.filter(([p]) => (data.editPerms ?? []).includes(p));
 
   // AS 처리 기능 카드: 장애접수관리(통합관리) 바로 밑에 둔다.
   const showAs = !onlyCustom || roleActions.some(([p]) => adj[sel].denied.has(p) || adj[sel].granted.has(p));
@@ -190,15 +193,16 @@ function RolePerms() {
                   <div className="rp2-feats wide" role="group" aria-label="AS 처리 기능">
                     {roleActions.map(([p, label]) => {
                       const on = isOn(r, p);
+                      const why = lockedWhy(p);
                       return (
-                        <label key={p} className={"rp2-chip" + (on ? " on" : "") + (on !== isOn(r, p, saved) ? " dirty" : "")}>
-                          <input type="checkbox" checked={on} aria-label={`${r.name} · ${label}`} onChange={(e) => setPerm(sel, p, e.target.checked)} />{label}
+                        <label key={p} title={why} className={"rp2-chip" + (on ? " on" : "") + (why ? " locked" : "") + (on !== isOn(r, p, saved) ? " dirty" : "")}>
+                          <input type="checkbox" checked={on} disabled={!!why} aria-label={`${r.name} · ${label}${why ? " (잠김: " + why + ")" : ""}`} onChange={(e) => setPerm(sel, p, e.target.checked)} />{label}
                         </label>
                       );
                     })}
                   </div>
                 )}
-                <p className="um-card-f">역할에 있는 기능만 끌 수 있고, 만족도 평가는 역할에 없어도 켤 수 있습니다 (자기 신청 건만 평가). 켜져 있어도 신청 상태 · 소속 조건이 맞을 때만 버튼이 보입니다.</p>
+                <p className="um-card-f">모든 처리 기능을 켜고 끌 수 있습니다. 흐린 것은 이 역할에 줄 수 없는 기능입니다(마우스를 올리면 이유). 켜도 다루는 범위는 그대로이고, 신청 상태가 맞을 때만 버튼이 보입니다.</p>
               </section>
   ) : null;
 
@@ -208,7 +212,8 @@ function RolePerms() {
   return (
     <div className="rp2">
       <p className="um-note">
-        역할을 고른 뒤 메뉴를 켜고 끄세요. 켠 메뉴 밑의 <b>기능</b>(등록 · 수정 · 삭제 등)은 필요 없는 것만 끄면 됩니다.
+        역할을 고른 뒤 메뉴 · 기능 · AS 처리 기능을 켜고 끄세요. 다루는 범위는 역할이 정합니다 — 학교는 자기 학교, 업체 · 교육지원청은 지역, 교육청은 전체.
+        흐린 항목은 그 역할에 줄 수 없는 것입니다(이유 표시).
         저장하면 그 역할의 모든 사용자에게 바로 적용됩니다. 한 사람만 다르게 하려면 <Link href="/admin/user-menus">사용자 메뉴 권한</Link>을 쓰세요.
       </p>
 
@@ -286,30 +291,33 @@ function RolePerms() {
                               <span>{label}</span>
                               {typed && on && <small>소속 업체가 담당하는 AS 유형일 때만 보입니다</small>}
                               {limit && <small className="um-limit">범위 제한 · {limit}</small>}
+                              {blocked && <small className="um-limit">{lockedWhy(x.perm)}</small>}
                             </div>
                             {x.fixed ? <span className="um-pill none">{FIXED_NOTE[x.perm] ?? (on ? "역할에 고정 (있음)" : "역할에 고정 (없음)")}</span>
-                              : blocked ? <span className="um-pill none">이 역할에는 줄 수 없음</span>
+                              : blocked ? <span className="um-pill none">잠김</span>
                                 : adj[sel].denied.has(x.perm) ? <span className="um-pill off">끔</span>
                                   : adj[sel].granted.has(x.perm) ? <span className="um-pill add">켬</span> : null}
                             <input type="checkbox" role="switch" className="um-sw" aria-label={`${r.name} · ${label}`} checked={on}
                               disabled={x.fixed || blocked} onChange={(e) => setPerm(sel, x.perm, e.target.checked)} />
                           </div>
-                          {fs.length > 0 && on && (
-                            <div className="rp2-feats" role="group" aria-label={`${label} 기능`}>
+                          {fs.length > 0 && !blocked && (
+                            <div className={"rp2-feats" + (on ? "" : " off")} role="group" aria-label={`${label} 기능`}>
                               <span className="rp2-feats-l">기능</span>
                               {fs.map((f) => {
-                                const fon = featOn(r, f.code);
-                                const fdirty = fon !== featOn(r, f.code, saved);
+                                const why = lockedWhy(f.code);
+                                const fon = on && !why && featOn(r, f.code);
+                                const fdirty = !why && featOn(r, f.code) !== featOn(r, f.code, saved);
                                 return (
-                                  <label key={f.code} className={"rp2-chip" + (fon ? " on" : "") + (fdirty ? " dirty" : "")}>
-                                    <input type="checkbox" checked={fon} aria-label={`${r.name} · ${f.label}`} onChange={(e) => setFeat(sel, f.code, e.target.checked)} />
+                                  <label key={f.code} title={why ?? (on ? undefined : "메뉴를 켜면 고를 수 있습니다")}
+                                    className={"rp2-chip" + (fon ? " on" : "") + (why ? " locked" : "") + (fdirty ? " dirty" : "")}>
+                                    <input type="checkbox" checked={fon} disabled={!on || !!why} aria-label={`${r.name} · ${f.label}${why ? " (잠김: " + why + ")" : ""}`} onChange={(e) => setFeat(sel, f.code, e.target.checked)} />
                                     {shortLabel(f.label)}
                                   </label>
                                 );
                               })}
+                              {!on && <small className="rp2-feats-off">메뉴를 켜면 고를 수 있습니다</small>}
                             </div>
                           )}
-                          {fs.length > 0 && !on && !x.fixed && !blocked && <p className="rp2-feats-off">메뉴를 켜면 기능(등록 · 수정 · 삭제 등)을 고를 수 있습니다.</p>}
                         </li>
                       );
                     })}
@@ -322,15 +330,16 @@ function RolePerms() {
             {!groups.some((g) => g.title === "통합관리") && asCard}
 
 
-            {roleEdits.length > 0 && (!onlyCustom || roleEdits.some(([p]) => adj[sel].denied.has(p))) && (
+            {roleEdits.length > 0 && (!onlyCustom || roleEdits.some(([p]) => adj[sel].denied.has(p) || adj[sel].granted.has(p))) && (
               <section className="um-card" aria-label="편집 기능">
-                <div className="um-card-h"><div><b>편집 기능</b><small>화면은 보이고 고치기만 끕니다</small></div></div>
+                <div className="um-card-h"><div><b>편집 기능</b><small>화면은 보이고 고치기만 켜고 끕니다</small></div></div>
                 <div className="rp2-feats wide" role="group" aria-label="편집 기능">
                   {roleEdits.map(([p, label]) => {
                     const on = isOn(r, p);
+                    const why = lockedWhy(p);
                     return (
-                      <label key={p} className={"rp2-chip" + (on ? " on" : "") + (on !== isOn(r, p, saved) ? " dirty" : "")}>
-                        <input type="checkbox" checked={on} aria-label={`${r.name} · ${label}`} onChange={(e) => setPerm(sel, p, e.target.checked)} />{label}
+                      <label key={p} title={why} className={"rp2-chip" + (on ? " on" : "") + (why ? " locked" : "") + (on !== isOn(r, p, saved) ? " dirty" : "")}>
+                        <input type="checkbox" checked={on} disabled={!!why} aria-label={`${r.name} · ${label}${why ? " (잠김: " + why + ")" : ""}`} onChange={(e) => setPerm(sel, p, e.target.checked)} />{label}
                       </label>
                     );
                   })}

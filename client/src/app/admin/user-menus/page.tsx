@@ -40,6 +40,8 @@ interface MenuPerms {
   grantableActions?: string[];
   /** 이 계정 종류(학교 · 업체 · 교육지원청 · 도교육청)에서 켜고 끌 수 있는 처리 기능 */
   applicableActions?: string[];
+  /** 이 계정에 줄 수 없는 권한 → 이유 (보이되 잠긴다) */
+  lockedReasons?: Record<string, string>;
   /** 편집 기능 (Roles.EDIT_PERMS): 화면은 보이고 고치기만 끈다 */
   editPerms?: string[];
   /** 메뉴 안의 기능 권한 [{code, parent, label}] — 메뉴가 켜져 있으면 따라 켜지고 끄기만 한다 */
@@ -84,15 +86,6 @@ const ACTIONS: [string, string, string][] = [
   ["AS_REPORT", "처리 보고서 작성 · 수정", "처리 결과를 적어 완료하거나, 완료한 보고서를 고칩니다."],
   ["AS_EVALUATE", "만족도 평가", "처리완료된 자기 신청 건(학교 담당자는 자기 학교 건)의 만족도를 평가합니다."],
 ];
-
-/** 계정 종류 (처리 기능을 쓸 수 없는 이유 표시용) */
-const kindOf = (roles: string[]) => roles.includes("SCHOOL_USER") ? "school" : roles.some((r) => r === "AS_ENGINEER" || r === "VENDOR_ADMIN") ? "vendor" : roles.includes("REGION_ADMIN") ? "region" : "";
-const kindName = (roles: string[]) => ({ school: "학교", vendor: "업체", region: "교육지원청" } as Record<string, string>)[kindOf(roles)] ?? "이";
-const NOT_FOR: Record<string, string> = {
-  school: "학교 계정은 신청 취소와 만족도 평가만 합니다.",
-  vendor: "업체 계정은 배정된 건의 처리(접수 · 방문 · 보고서 · 반려 · 이관)만 합니다. 업체 배정 · 삭제는 교육청 몫입니다.",
-  region: "AS 기록 삭제는 도교육청만 합니다.",
-};
 
 /** perm → menu titles that open with it (several items can share one permission). */
 const PERM_TITLES = MENU.flatMap((g) => g.items).reduce<Record<string, string[]>>((m, i) => {
@@ -212,6 +205,8 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
   const blocked = new Set(data.blocked ?? []);
   const isOn = (p: string) => !disabled.has(p) && !blocked.has(p) && (base.has(p) || granted.has(p)) && !denied.has(p);
   const editable = (i: MenuItem) => !!i.perm && menuPerms.has(i.perm) && !disabled.has(i.perm) && !blocked.has(i.perm);
+  /** 이 계정에 잠긴 권한이면 그 이유 */
+  const lockedWhy = (p: string) => data.lockedReasons?.[p] ?? (blocked.has(p) ? "이 계정에는 줄 수 없습니다" : undefined);
 
   const toggle = (perms: string[], on: boolean) => {
     const g = new Set(granted), d = new Set(denied);
@@ -298,20 +293,22 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
                       <div className="um-item-t">
                         <span>{i.title}</span>
                         {shared.length > 0 && <small>함께 바뀜: {shared.join(", ")}</small>}
-                        {i.perm && data.limits?.[i.perm] && isOn(i.perm) && <small className="um-limit">제한된 기능 · {data.limits[i.perm]}</small>}
+                        {i.perm && data.limits?.[i.perm] && isOn(i.perm) && <small className="um-limit">범위 제한 · {data.limits[i.perm]}</small>}
+                        {i.perm && blocked.has(i.perm) && <small className="um-limit">{lockedWhy(i.perm)}</small>}
                       </div>
                       {!i.perm ? <span className="um-pill none">공개</span>
-                        : editable(i) ? status(i.perm) : blocked.has(i.perm) ? <span className="um-pill none">학교 · 교육지원청 불가</span> : <span className="um-pill none">관리자 전용</span>}
+                        : editable(i) ? status(i.perm) : blocked.has(i.perm) ? <span className="um-pill none">잠김</span> : <span className="um-pill none">관리자 전용</span>}
                       <Switch label={i.title} disabled={!editable(i)} checked={!i.perm || isOn(i.perm)} onChange={(on) => toggle([i.perm!], on)} />
                     </li>
-                    {feats.length > 0 && parentOn && (
-                      <li className="um-feats">
+                    {feats.length > 0 && !(i.perm && blocked.has(i.perm)) && (
+                      <li className={"um-feats" + (parentOn ? "" : " off")}>
                         <ul aria-label={`${i.title} 안의 기능`}>
+                          {!parentOn && <li className="um-feats-note">메뉴를 켜면 기능을 고를 수 있습니다.</li>}
                           {feats.map((f) => (
-                            <li key={f.code}>
-                              <span>{f.label}</span>
-                              {denied.has(f.code) && <span className="um-pill off">꺼짐</span>}
-                              <Switch label={f.label} checked={!denied.has(f.code)} onChange={(on) => {
+                            <li key={f.code} className={lockedWhy(f.code) ? "fixed" : ""} title={lockedWhy(f.code)}>
+                              <span>{f.label}{lockedWhy(f.code) && <small className="um-limit"> · {lockedWhy(f.code)}</small>}</span>
+                              {lockedWhy(f.code) ? <span className="um-pill none">잠김</span> : denied.has(f.code) && <span className="um-pill off">꺼짐</span>}
+                              <Switch label={f.label} disabled={!parentOn || !!lockedWhy(f.code)} checked={parentOn && !lockedWhy(f.code) && !denied.has(f.code)} onChange={(on) => {
                                 const d = new Set(denied);
                                 if (on) d.delete(f.code); else d.add(f.code);
                                 setDenied(d);
@@ -333,9 +330,8 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
 
       <h4 className="um-sec">AS 처리 기능</h4>
       {(() => {
-        // 이 계정 종류에 의미가 있는 처리 기능은 모두 켜고 끌 수 있다. 나머지는 이유와 함께 잠가 둔다.
-        const applicable = new Set(data.applicableActions ?? data.grantableActions ?? []);
-        const canSet = (p: string) => base.has(p) || applicable.has(p);
+        // 모든 처리 기능을 보여 주고 켜고 끈다. 이 계정 종류에 줄 수 없는 것만 이유와 함께 잠근다.
+        const canSet = (p: string) => !lockedWhy(p);
         const perms = ACTIONS.map(([p]) => p).filter((p) => data.actionPerms.includes(p) && canSet(p));
         const onCount = perms.filter(isOn).length;
         return (
@@ -354,23 +350,23 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
                   <div className="um-item-t">
                     <span>{label}</span>
                     <small>{desc}</small>
+                    {!canSet(p) && <small className="um-limit">{lockedWhy(p)}</small>}
                   </div>
-                  {base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>)
-                    : granted.has(p) ? <span className="um-pill add">추가</span>
-                      : applicable.has(p) ? <span className="um-pill none">꺼짐</span>
-                        : <span className="um-pill none" title={NOT_FOR[kindOf(data.roles)] ?? ""}>{kindName(data.roles)} 계정에서는 쓸 수 없음</span>}
+                  {!canSet(p) ? <span className="um-pill none">잠김</span>
+                    : base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>)
+                      : granted.has(p) ? <span className="um-pill add">추가</span> : <span className="um-pill none">꺼짐</span>}
                   <Switch label={label} disabled={!canSet(p)} checked={isOn(p)} onChange={(on) => toggle([p], on)} />
                 </li>
               ))}
             </ul>
-            <p className="um-card-f">켜고 끈 것은 이 사용자에게만 적용되고 서버에서도 그대로 막힙니다. 켜도 다루는 범위(자기 학교 · 배정된 업체 건 · 관내 학교)는 넓어지지 않고, 신청 상태가 맞을 때만 버튼이 보입니다.</p>
+            <p className="um-card-f">켜고 끈 것은 이 사용자에게만 적용되고 서버에서도 그대로 막힙니다. 켜도 다루는 범위(학교 = 자기 학교, 업체 · 교육지원청 = 지역, 교육청 = 전체)는 넓어지지 않고, 신청 상태가 맞을 때만 버튼이 보입니다.</p>
           </section>
         );
       })()}
 
       <h4 className="um-sec">편집 기능</h4>
       {(() => {
-        const perms = EDITS.map(([p]) => p).filter((p) => (data.editPerms ?? []).includes(p) && base.has(p));
+        const perms = EDITS.map(([p]) => p).filter((p) => (data.editPerms ?? []).includes(p) && !lockedWhy(p));
         const onCount = perms.filter(isOn).length;
         return (
           <section className="um-card" aria-label="편집 기능">
@@ -384,13 +380,16 @@ function Editor({ userId, onDirty, onSaved }: { userId: number; onDirty: (d: boo
             </div>
             <ul className="um-items">
               {EDITS.map(([p, label, desc]) => (
-                <li key={p} className={base.has(p) ? "" : "fixed"}>
+                <li key={p} className={lockedWhy(p) ? "fixed" : ""}>
                   <div className="um-item-t">
                     <span>{label}</span>
                     <small>{desc}</small>
+                    {lockedWhy(p) && <small className="um-limit">{lockedWhy(p)}</small>}
                   </div>
-                  {base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>) : <span className="um-pill none">역할에 없음</span>}
-                  <Switch label={label} disabled={!base.has(p)} checked={isOn(p)} onChange={(on) => toggle([p], on)} />
+                  {lockedWhy(p) ? <span className="um-pill none">잠김</span>
+                    : base.has(p) ? (denied.has(p) ? <span className="um-pill off">꺼짐</span> : <span className="um-pill">역할 기본</span>)
+                      : granted.has(p) ? <span className="um-pill add">추가</span> : <span className="um-pill none">꺼짐</span>}
+                  <Switch label={label} disabled={!!lockedWhy(p)} checked={isOn(p)} onChange={(on) => toggle([p], on)} />
                 </li>
               ))}
             </ul>
