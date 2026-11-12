@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import QrQuickScan, { useCanQuickScan } from "@/components/admin/QrQuickScan";
+import TodoPanel from "@/components/TodoPanel";
 import { AsBadge, Icon, Loading, QuickIcon, UserIcon } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -230,6 +231,8 @@ function HomeAuthed() {
             </ul>
             {scan && <QrQuickScan onClose={() => setScan(false)} />}
           </section>
+
+          {canViewAs && <TodoPanel />}
 
           <div className="hm-grid">
             {canViewAs && (

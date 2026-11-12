@@ -23,7 +23,12 @@ public final class Roles {
      * 사용자별로 끌 수 있다. 상태·소속 조건(AsRequestService.allowedActions)은 그대로라 켠다고 범위가 넓어지지 않는다.
      */
     public static final List<String> PROCESS_ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER");
-    public static final List<String> ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN", "AS_EVALUATE");
+    /**
+     * AS_DEVICE = 대상 장비 지정 (교육청 · 교육지원청: 학교가 증상만 신고한 건에 장비를 연결),
+     * AS_ENGINEER_ASSIGN = 기사 배정 (업체 관리자가 자기 업체 기사 중 담당자를 정한다. 이 권한이 없는 기사는 자기에게 배정된 건만 본다).
+     */
+    public static final List<String> ACTION_PERMS = List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN",
+            "AS_DEVICE", "AS_ENGINEER_ASSIGN", "AS_EVALUATE");
     /** 이 계정 종류에서 켜고 끌 수 있는 처리 기능 (잠긴 것 제외 — LOCKED_BY_AFFILIATION). 켜도 데이터 범위는 그대로다. */
     public static List<String> applicableActions(java.util.Collection<String> roles) {
         Map<String, String> locked = lockedFor(roles);
@@ -40,7 +45,7 @@ public final class Roles {
     /** AS 기사: 동료 전달 권한표 기준. 신청·조회 메뉴는 소속 업체의 담당 유형에 따라 추가됨. */
     public static final List<String> AS_ENGINEER_PERMS = concat(List.of(
             "PORTAL_INTRO", "BOARD_QNA", "BOARD_CONSULT", "PORTAL_CONTACT", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR", "AS_PROCESS"), PROCESS_ACTION_PERMS);
-    public static final List<String> VENDOR_ADMIN_PERMS = concat(AS_ENGINEER_PERMS, List.of("AS_MANAGE", "AS_STATS"));
+    public static final List<String> VENDOR_ADMIN_PERMS = concat(AS_ENGINEER_PERMS, List.of("AS_MANAGE", "AS_STATS", "AS_ENGINEER_ASSIGN"));
     public static final List<String> EDU_ADMIN_PERMS = concat(PORTAL_ALL, concat(PORTAL_ADMIN, concat(ACTION_PERMS,
             List.of("AS_EVALUATE", "USER_READ", "USER_WRITE", "ROLE_GRANT", "STATS_READ", "STATS_EXPORT", "ORG_READ", "CONTACT_EDIT"))));
     // 업체 배정(AS_ASSIGN)은 ACTION_PERMS에 있어 교육청 관리자는 위에서 받는다. 교육지원청은 아래에서.
@@ -49,7 +54,10 @@ public final class Roles {
      * 업체 관리는 관할 지역만 맡는 업체만, 사용자 관리는 그 업체의 기사 · 업체 관리자 계정만 고친다. 공지 편집 · 역할 부여 · AS 삭제는 도교육청 몫이라 빠져 있다.
      */
     public static final List<String> REGION_ADMIN_PERMS = concat(PORTAL_ALL, List.of(
-            "AS_MANAGE", "AS_CANCEL", "AS_ASSIGN", "SCHOOL_MANAGE", "VENDOR_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
+            "AS_MANAGE", "AS_CANCEL", "AS_ASSIGN", "AS_DEVICE", "AS_ENGINEER_ASSIGN",
+            // 스쿨넷 직접 처리 (처리 담당 = 교육지원청인 건에만 쓰인다 — AsRequestService.allowedActions)
+            "AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN",
+            "SCHOOL_MANAGE", "VENDOR_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
             "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "ASSET_READ", "ASSET_WRITE", "FLOOR_READ", "FLOOR_WRITE", "CONTACT_EDIT",
             // 교육지원청도 AS를 신청하므로 자기 신청 건의 만족도를 평가한다
             "AS_EVALUATE",
@@ -130,6 +138,8 @@ public final class Roles {
                     ORG_SETTING_PERMS, "교육청 전체 설정은 도교육청만 합니다",
                     List.of("AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER"), "AS 처리는 업체 · 교육청이 합니다",
                     List.of("AS_ASSIGN"), "업체 배정은 교육청 · 교육지원청이 합니다",
+                    List.of("AS_DEVICE"), "학교는 증상만 신고하고, 대상 장비는 교육청 · 교육지원청이 지정합니다",
+                    List.of("AS_ENGINEER_ASSIGN"), "기사 배정은 업체 관리자 · 교육청이 합니다",
                     List.of("AS_DELETE"), "AS 기록 삭제는 도교육청만 합니다",
                     List.of("SCHOOL_CREATE", "SCHOOL_DELETE", "SCHOOL_VENDOR"), "학교 등록 · 삭제 · 담당업체 지정은 교육청 · 교육지원청이 합니다",
                     List.of("VENDOR_CREATE", "VENDOR_EDIT", "VENDOR_DELETE"), "업체 정보는 교육청 · 교육지원청이 관리합니다",
@@ -138,6 +148,7 @@ public final class Roles {
             "vendor", locks(
                     ORG_SETTING_PERMS, "교육청 전체 설정은 도교육청만 합니다",
                     List.of("AS_ASSIGN"), "업체 배정은 교육청 · 교육지원청이 합니다 (업체가 스스로 배정하지 않도록)",
+                    List.of("AS_DEVICE"), "대상 장비 지정은 교육청 · 교육지원청이 합니다",
                     List.of("AS_DELETE"), "AS 기록 삭제는 도교육청만 합니다",
                     List.of("SCHOOL_CREATE", "SCHOOL_EDIT", "SCHOOL_DELETE", "SCHOOL_VENDOR"), "학교 정보는 학교 · 교육청이 관리합니다",
                     List.of("VENDOR_CREATE", "VENDOR_EDIT", "VENDOR_DELETE"), "업체 정보는 교육청 · 교육지원청이 관리합니다",
@@ -189,7 +200,7 @@ public final class Roles {
                     "AS_C_REQUEST", "AS_C_VIEW", "BOARD_DISPOSAL", "BOARD_VENDOR", "AS_M_REQUEST", "AS_M_VIEW",
                     "AS_S_REQUEST", "AS_S_VIEW", "BOARD_SLA", "AS_MANAGE", "WDEVICE_MANAGE", "SDEVICE_MANAGE", "SCHOOL_ASSET_MANAGE",
                     "SCHOOL_MANAGE", "VENDOR_MANAGE", "AS_STATS", "BOARD_ADMIN", "AS_PROCESS", "AS_EVALUATE",
-                    "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN", "REGION_MANAGE", "COST_MANAGE", "CONTACT_EDIT")),
+                    "SPACE_MANAGE", "INVENTORY", "ASSET_BULK", "AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN", "AS_TRANSFER", "AS_CANCEL", "AS_DELETE", "AS_ASSIGN", "AS_DEVICE", "AS_ENGINEER_ASSIGN", "REGION_MANAGE", "COST_MANAGE", "CONTACT_EDIT")),
             Map.entry("SUPER_ADMIN", List.of("ORG_READ", "ORG_WRITE")),
             Map.entry("SCHOOL_USER", SCHOOL_USER_PERMS),
             Map.entry("AS_ENGINEER", AS_ENGINEER_PERMS),

@@ -39,8 +39,13 @@ public class AsRequestController {
 
     private static AsRequestService.Filter filter(String rceptTy, String keyword, String searchType, LocalDate fromDate, LocalDate toDate, String status,
                                                   Long schoolId, Long regionId, Long vendorId, Long engineerUserId, Boolean mine, Boolean unassigned, String sort) {
+        // myTypes=true: 교육지원청 담당자의 담당 AS 유형만 (요청 파라미터에서 바로 읽는다)
+        boolean myTypes = false;
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra)
+            myTypes = "true".equalsIgnoreCase(sra.getRequest().getParameter("myTypes"));
         return new AsRequestService.Filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId,
-                Boolean.TRUE.equals(mine), Boolean.TRUE.equals(unassigned), sort);
+                Boolean.TRUE.equals(mine), Boolean.TRUE.equals(unassigned), sort, myTypes);
     }
 
     /** 코드표: 접수유형·상태·고장유형·요청유형·처리유형. 화면 셀렉트 박스용. */
@@ -65,6 +70,14 @@ public class AsRequestController {
         CurrentUser me = AuthContext.get();
         requireAnyView(me);
         return ApiResponse.ok(requests.list(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, unassigned, sort), page, size));
+    }
+
+    /** 내 할 일: 지금 이 사용자가 처리할 AS 묶음 (접수 지연 · 방문 지연 · 대상 장비 지정 · 기사 미배정 · 평가 대기 …). */
+    @GetMapping("/todo")
+    public ApiResponse todo() {
+        CurrentUser me = AuthContext.get();
+        requireAnyView(me);
+        return ApiResponse.ok(requests.todo(me));
     }
 
     /** 대시보드 요약(유형별·상태별 건수, 내 처리 대기). */

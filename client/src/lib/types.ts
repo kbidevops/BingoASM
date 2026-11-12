@@ -31,6 +31,8 @@ export interface Me {
   permissions: string[];
   /** AS 서비스 this user's 교육청 uses (C 정보기기 · M 무선망 · S 스쿨넷 · T 스마트기기). */
   asTypes?: RceptTy[];
+  /** 교육지원청 담당자의 담당 AS 유형 (비어 있으면 모든 유형) */
+  dutyTypes?: RceptTy[];
 }
 
 /** GET /api/site: what the signed-out site shows. */
@@ -146,10 +148,51 @@ export interface AsRow {
   evalScore?: number;
   /** 목록에서만: 지금 이 사용자가 만족도를 평가할 수 있는 건 (신청자 · 그 학교 담당자, 처리완료 · 미평가) */
   canEvaluate?: boolean;
+  /** 처리 담당: VENDOR 업체 · REGION 교육지원청 · PROVINCE 교육청 (담당자는 engineerName) */
+  handlerType?: "VENDOR" | "REGION" | "PROVINCE";
+  /** 처리 담당 이름: 업체명 · "천안 교육지원청" · "교육청" */
+  handlerName?: string;
+  /** 현장 도착 시각 (기사의 도착 기록 또는 보고서의 방문일시) */
+  visitAt?: string;
+  /** 목록에서만: 지연 (지연 알림 기준) — RECEIVE 접수 지연 · ESCALATED 에스컬레이션 · VISIT 방문 지연 */
+  late?: "RECEIVE" | "ESCALATED" | "VISIT";
 }
 
+/** GET /api/as/requests/todo: 내 할 일 */
+export interface TodoRow {
+  asvcSn: number;
+  rceptTy: RceptTy;
+  rceptTyName: string;
+  schoolName?: string;
+  symptom?: string;
+  status: AsStatus;
+  statusName: string;
+  requestAt?: string;
+  visitPlannedAt?: string;
+  vendorName?: string;
+  engineerName?: string;
+  evalScore?: number;
+  late?: AsRow["late"] | null;
+}
+export interface TodoBucket { key: string; label: string; hint: string; count: number; rows: TodoRow[] }
+export interface Todo { buckets: TodoBucket[]; total: number; dutyTypes: RceptTy[] }
+
+
+export interface HandlerPerson { userId: number; userName: string; positionName?: string; covers?: boolean }
+/** 처리 담당 지정 (스쿨넷) 창의 선택지 */
+export interface HandlerOptions {
+  vendors: { vendorId: number; vendorName: string }[];
+  suggestedVendorId?: number;
+  regionUsers: HandlerPerson[];
+  provinceUsers: HandlerPerson[];
+  current: { handlerType: "VENDOR" | "REGION" | "PROVINCE"; vendorId?: number; userId?: number };
+}
 
 export interface AsDetail extends AsRow {
+  handlerOptions?: HandlerOptions;
+  /** 기사 배정 추천: 학교 관리의 기본 담당 기사 (아직 기사가 없을 때) */
+  suggestedEngineerUserId?: number;
+  suggestedEngineerName?: string;
   school?: { schoolName: string; address?: string; tel?: string };
   vendor?: { vendorName: string; tel?: string };
   report?: {

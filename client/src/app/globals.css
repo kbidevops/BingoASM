@@ -1755,3 +1755,100 @@ tr.evw-row>td:first-child{box-shadow:inset 3px 0 0 var(--evw-line)}
 .btn.evw-btn{background:var(--evw-btn);border-color:var(--evw-btn);color:#fff}
 .btn.evw-btn:hover{background:var(--evw-btn-h);border-color:var(--evw-btn-h)}
 @media (max-width:640px){.tw table.cards tr.evw-row{background:var(--evw-bg);border-color:var(--evw-line);box-shadow:inset 3px 0 0 var(--evw-line)}.tw table.cards tr.evw-row>td{background:transparent}tr.evw-row>td:first-child{box-shadow:none}}
+
+/* 담당 AS 유형 (사용자 관리) */
+.duty-pick { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
+.duty-pick label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.duty-types { color: var(--muted, #667); }
+
+/* AS 지연 표시 (목록 · 할 일) */
+.late-b{display:inline-block;margin-left:2px;padding:1px 7px;border-radius:999px;font-size:.75rem;font-weight:700;white-space:nowrap;vertical-align:middle;color:var(--err);background:color-mix(in srgb,var(--err) 10%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--err) 35%,transparent)}
+.late-b.hi{color:#fff;background:var(--err);box-shadow:none}
+
+/* 홈: 내 할 일 */
+.td-wrap{margin:0 0 24px}
+.td-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.td-total{display:inline-block;min-width:24px;margin-left:6px;padding:1px 8px;border-radius:999px;background:var(--pri);color:#fff;font-size:.8125rem;text-align:center;vertical-align:middle}
+.td-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.td-card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px 16px;min-width:0}
+.td-card.urgent{border-color:color-mix(in srgb,var(--err) 45%,var(--line));box-shadow:inset 3px 0 0 var(--err)}
+.td-card header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.td-card h3{margin:0;font-size:1rem}
+.td-n{font-size:1.25rem;color:var(--pri)}.td-card.urgent .td-n{color:var(--err)}
+.td-hint{margin:2px 0 8px;color:var(--muted);font-size:.8125rem}
+.td-card ul{list-style:none;margin:0;padding:0}
+.td-card li+li{border-top:1px dashed var(--line)}
+.td-card li a{display:flex;align-items:flex-start;gap:8px;padding:7px 2px;color:inherit;text-decoration:none;border-radius:8px}
+.td-card li a:hover,.td-card li a:focus-visible{background:color-mix(in srgb,var(--pri) 7%,transparent)}
+.td-ty{flex:none;font-size:.6875rem;font-weight:700;color:var(--pri);border:1px solid color-mix(in srgb,var(--pri) 40%,transparent);border-radius:6px;padding:1px 5px;margin-top:2px}
+.td-main{flex:1;min-width:0;font-size:.875rem}
+.td-main small{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-when{flex:none;font-size:.75rem;color:var(--muted);white-space:nowrap;margin-top:2px}
+.td-more{margin:6px 0 0;font-size:.8125rem;color:var(--muted)}
+.td-clear{margin:0;padding:14px 16px;border:1px dashed var(--line);border-radius:14px;color:var(--ok);font-weight:700}
+.td-idle{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.td-idle span{font-size:.75rem;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+
+/* 관리자: 지연 알림 기준 */
+.ar-tab input[type=number]{width:84px}
+.ar-tab td small{color:var(--muted)}
+
+
+/* 장비 정보(QR): 처리 중 장애 · 문의처 */
+.dvs-open{margin:12px 0;padding:12px 14px;border-radius:14px;border:1px solid color-mix(in srgb,var(--err) 40%,var(--line));background:color-mix(in srgb,var(--err) 6%,var(--surface))}
+.dvs-open h4{margin:0 0 8px;font-size:.9375rem;color:var(--err)}
+.dvs-cnt{display:inline-block;min-width:20px;padding:0 6px;border-radius:999px;background:var(--err);color:#fff;font-size:.75rem;text-align:center;margin-left:4px}
+.dvs-open ul{list-style:none;margin:0;padding:0}
+.dvs-open li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:8px 0}
+.dvs-open li+li{border-top:1px dashed var(--line)}
+.dvs-open li.mine{background:color-mix(in srgb,var(--pri) 6%,transparent);border-radius:10px;padding:8px}
+.dvs-open-b{flex:1;min-width:200px}
+.dvs-open-b small{display:block;color:var(--muted);margin-top:2px}
+.dvs-open-b p{margin:4px 0 0;font-size:.875rem}
+.dvs-open-a{display:flex;gap:6px;flex-wrap:wrap}
+.dvs-open-a .btn{min-height:40px}
+.dvs-me{display:inline-block;margin-left:6px;padding:0 7px;border-radius:999px;font-size:.6875rem;font-weight:700;color:var(--pri);border:1px solid var(--pri)}
+.dvs-open>.hint{margin:6px 0 0;font-size:.8125rem}
+.dvs-note{margin:8px 0;padding:8px 12px;border-radius:10px;background:var(--head,#f1f4f8);font-size:.875rem}
+.dvs-many{color:var(--err)}
+.dvs-contacts{margin:14px 0;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--surface)}
+.dvs-contacts h4{margin:0 0 6px;font-size:.9375rem}
+.dvs-contacts ul{list-style:none;margin:0;padding:0}
+.dvs-contacts li{display:grid;grid-template-columns:minmax(90px,auto) 1fr auto;gap:8px;align-items:center;padding:7px 0}
+.dvs-contacts li+li{border-top:1px dashed var(--line)}
+.dvs-contacts li>span{color:var(--muted);font-size:.8125rem}
+.dvs-contacts li small{color:var(--muted);font-weight:400}
+.dvs-tel{display:inline-flex;align-items:center;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--pri);color:var(--pri);font-weight:700;text-decoration:none;white-space:nowrap}
+.dvs-tel::before{content:"\260E";margin-right:5px}
+@media (max-width:480px){.dvs-contacts li{grid-template-columns:1fr auto}.dvs-contacts li>span{grid-column:1/-1}}
+
+
+/* 관리자: 근무 시간 · 휴일 */
+.cal-card{display:grid;gap:12px;padding:14px 16px}
+.cal-row{display:grid;grid-template-columns:90px 1fr;gap:10px;align-items:center}
+.cal-row.top{align-items:start}
+.cal-row>b{font-size:.875rem}
+.cal-days{display:flex;flex-wrap:wrap;gap:6px}
+.cal-days label{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:36px;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-weight:700;color:var(--muted)}
+.cal-days label.on{border-color:var(--pri);color:var(--pri);background:color-mix(in srgb,var(--pri) 8%,transparent)}
+.cal-days input{position:absolute;opacity:0;width:1px;height:1px}
+.cal-days label:focus-within{outline:2px solid var(--pri);outline-offset:2px}
+.cal-hol{display:grid;gap:8px;min-width:0}
+.cal-add{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cal-sep{width:1px;height:24px;background:var(--line);margin:0 4px}
+.cal-list{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.cal-list li{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:.8125rem}
+.cal-list li span{color:var(--muted)}
+.cal-x{border:0;background:transparent;color:var(--muted);font-size:1rem;line-height:1;width:24px;height:24px;border-radius:50%;cursor:pointer}
+.cal-x:hover{background:color-mix(in srgb,var(--err) 12%,transparent);color:var(--err)}
+.cal-now{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.75rem;font-weight:700;color:var(--muted);border:1px solid var(--line)}
+.cal-now.on{color:var(--ok);border-color:var(--ok)}
+@media (max-width:560px){.cal-row{grid-template-columns:1fr}}
+
+
+/* 처리 담당 지정 (스쿨넷) */
+.hd-pick{display:grid;gap:6px}
+.hd-pick label{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer}
+.hd-pick label.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 6%,transparent)}
+.hd-pick input{grid-row:span 2}
+.hd-pick small{color:var(--muted);font-size:.75rem}

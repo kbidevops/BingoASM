@@ -73,7 +73,9 @@ public class AuthController {
                 .with("regionId", regionId).with("regionName", region)
                 .with("memberType", PermissionService.memberType(u)).with("otpEnabled", Boolean.TRUE.equals(u.otpEnabled)).with("otpRegistered", u.totpSecret != null)
                 .with("passwordChangedAt", u.passwordChangedAt).with("mustChangePassword", Boolean.TRUE.equals(u.mustChangePassword)).with("createdAt", u.createdAt).with("lastLoginAt", u.lastLoginAt)
-                .with("roles", u.roles).with("permissions", new ArrayList<>(permissions.effectivePerms(u))).with("asTypes", permissions.asTypes(u.orgId));
+                .with("roles", u.roles).with("permissions", new ArrayList<>(permissions.effectivePerms(u))).with("asTypes", permissions.asTypes(u.orgId))
+                // 교육지원청 담당자의 담당 AS 유형 (비어 있으면 모든 유형)
+                .with("dutyTypes", u.asTypeList());
     }
 
     private static String clientIp(HttpServletRequest req) {

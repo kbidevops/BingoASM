@@ -24,6 +24,9 @@ public class Org {
     /** 이 교육청이 쓰는 원클릭 AS 서비스 (C,M,S,T 중 쉼표 구분). 비어 있으면 app.default-as-types. */
     @Column(length = 20)
     public String asTypes;
+    /** 스쿨넷 신고를 먼저 받는 곳 (V15): REGION 교육지원청(기본) · VENDOR 통신사로 바로 */
+    @jakarta.persistence.Column(length = 10)
+    public String schoolnetRoute;
     @Column(length = 1)
     public String useYn = "Y";
     public LocalDateTime createdAt;

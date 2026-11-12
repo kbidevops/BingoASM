@@ -272,6 +272,7 @@ public class AsDataSeeder implements CommandLineRunner {
         WirelessDevice d = new WirelessDevice(); d.orgId = o; d.rceptTy = "S"; d.schoolId = s.schoolId; d.deviceCode = code; d.deviceName = name; d.deviceType = type; d.modelName = model;
         d.ipAddress = ip; d.location = loc; d.carrier = carrier; d.circuitId = circuit; d.bandwidth = bandwidth;
         d.installedAt = LocalDate.of(2022, 3, 2); d.lastCheckedAt = LocalDate.of(2026, 8, 28); d.status = status;
+        d.vendorId = schoolVendors.findBySchoolIdAndRceptTy(s.schoolId, d.rceptTy).map(x -> x.vendorId).orElse(null);  // 유지보수 업체 = 학교 배정 업체
         devices.save(d);
     }
 
@@ -279,6 +280,7 @@ public class AsDataSeeder implements CommandLineRunner {
         WirelessDevice d = new WirelessDevice(); d.orgId = o; d.schoolId = s.schoolId; d.deviceCode = code; d.deviceName = name; d.deviceType = type; d.modelName = model;
         d.ipAddress = ip; d.macAddress = String.format("A8:BD:27:%02X:%02X:%02X", code.hashCode() & 0xff, (code.hashCode() >> 8) & 0xff, (code.hashCode() >> 16) & 0xff);
         d.location = loc; d.installedAt = LocalDate.of(2023, 2, 20); d.lastCheckedAt = LocalDate.of(2026, 9, 12); d.status = status;
+        d.vendorId = schoolVendors.findBySchoolIdAndRceptTy(s.schoolId, d.rceptTy).map(x -> x.vendorId).orElse(null);  // 유지보수 업체 = 학교 배정 업체
         return devices.save(d);
     }
 

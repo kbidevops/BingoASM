@@ -46,9 +46,33 @@ public class NotificationService {
         for (AppUser u : users.findByOrgIdOrderByUserIdAsc(r.orgId)) {
             if (!r.vendorId.equals(u.vendorId)) continue;
             boolean admin = u.roles.contains("VENDOR_ADMIN");
-            boolean engineer = r.engineerUserId == null ? u.roles.contains("AS_ENGINEER") : u.userId.equals(r.engineerUserId);
+            // 기사는 자기에게 배정된 건만 본다 — 아직 기사가 없으면 업체 관리자에게만 알린다.
+            boolean engineer = u.userId.equals(r.engineerUserId);
             if (admin || engineer) out.add(u.userId);
         }
+        return out;
+    }
+
+    /**
+     * 관할 교육지원청 쪽: 그 학교 지역의 교육지원청 담당자 중 이 AS 유형을 맡은 사람
+     * (담당 AS 유형을 정하지 않은 담당자는 모든 유형을 받는다).
+     */
+    public Set<Long> regionSide(AsRequest r, Long schoolRegionId) {
+        Set<Long> out = new LinkedHashSet<>();
+        if (schoolRegionId == null) return out;
+        for (AppUser u : users.findByOrgIdOrderByUserIdAsc(r.orgId)) {
+            if (!schoolRegionId.equals(u.regionId) || u.schoolId != null || u.vendorId != null) continue;
+            boolean regionRole = u.roles.stream().anyMatch(x -> "region".equals(com.bingoasm.auth.Roles.AFFILIATION.get(x)));
+            if (regionRole && u.coversAsType(r.rceptTy)) out.add(u.userId);
+        }
+        return out;
+    }
+
+    /** 교육청(도교육청) 쪽: 학교 · 업체 · 교육지원청 소속이 아닌 교육청 관리자 (에스컬레이션 · 교육청으로 올린 건). */
+    public Set<Long> provinceSide(Long orgId) {
+        Set<Long> out = new LinkedHashSet<>();
+        for (AppUser u : users.findByOrgIdOrderByUserIdAsc(orgId))
+            if ("ACTIVE".equals(u.status) && u.schoolId == null && u.vendorId == null && u.regionId == null && u.roles.contains("EDU_ADMIN")) out.add(u.userId);
         return out;
     }
 

@@ -30,6 +30,9 @@ public class AppUser {
     public Long schoolId;
     public Long vendorId;
     public Long regionId;
+    /** 교육지원청 담당자의 담당 AS 유형 (V12): 쉼표로 이은 접수유형 코드 (예 "M,S"). null = 모든 유형. */
+    @Column(length = 40)
+    public String asTypes;
     /** 2단계 인증(OTP) 사용 여부 */
     public Boolean otpEnabled = false;
     /** 인증 앱(Google OTP 등)의 TOTP 비밀값 (Base32). 없으면 다음 로그인 때 등록한다. Encrypted at rest. */
@@ -67,6 +70,18 @@ public class AppUser {
     @CollectionTable(name = "user_perm_denies", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "perm_code", length = 40)
     public Set<String> deniedPerms = new LinkedHashSet<>();
+
+    /** 담당 AS 유형 목록. 비어 있으면 모든 유형. */
+    public java.util.List<String> asTypeList() {
+        if (asTypes == null || asTypes.isBlank()) return java.util.List.of();
+        return java.util.Arrays.stream(asTypes.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+    }
+
+    /** 이 유형을 맡는가 (담당 유형을 정하지 않았으면 모든 유형). */
+    public boolean coversAsType(String ty) {
+        java.util.List<String> l = asTypeList();
+        return l.isEmpty() || l.contains(ty);
+    }
 
     public Set<String> roleSet() {
         return new LinkedHashSet<>(roles);

@@ -47,4 +47,6 @@ public class WirelessDevice {
     public String note;
     @Column(length = 1)
     public String useYn = "Y";
+    /** 유지보수 업체 (V15): 무선망 AS는 대상 장비의 업체가 맡는다. 스쿨넷은 회선 통신사(통신사에 넘길 때 추천). */
+    public Long vendorId;
 }

@@ -12,7 +12,7 @@ const SCORE = ["", "매우불만족", "불만족", "보통", "만족", "매우�
 /** 처리 보고서 첨부 개수. 한 번 업로드에 5개까지라(FileService) 새 파일도 그 안에 들어간다. */
 const REPORT_FILES_MAX = 5;
 /** Actions this screen offers (서버 allowedActions 중). `update`(신청 수정)는 신청 화면에서 한다. */
-const SHOWN = ["receive", "assign", "visit", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
+const SHOWN = ["receive", "handler", "assign", "device", "engineer", "visit", "arrive", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
 function nowLocal() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -32,15 +32,24 @@ function Files({ files }: { files?: FileInfo[] }) {
   );
 }
 
-export default function AsDetailModal({ sn, onClose, onChanged }: { sn: number; onClose: () => void; onChanged: () => void }) {
+export default function AsDetailModal({ sn, onClose, onChanged, initialAction }: {
+  sn: number; onClose: () => void; onChanged: () => void;
+  /** 열자마자 펼칠 처리 (예: 장비 라벨 QR의 "처리 보고서 작성" → report). 할 수 없는 처리면 무시한다. */
+  initialAction?: string | null;
+}) {
   const [d, setD] = useState<AsDetail | null>(null);
   const [err, setErr] = useState("");
   const [action, setAction] = useState<string | null>(null);
+  const [first, setFirst] = useState(true);
 
   const load = useCallback(() => {
     setErr("");
     api.get<AsDetail>(`/api/as/requests/${sn}`).then(setD).catch((e) => setErr(e.message));
   }, [sn]);
+  if (first && d) {
+    setFirst(false);
+    if (initialAction && d.allowedActions?.includes(initialAction)) setAction(initialAction);
+  }
   useEffect(load, [load]);
 
   const done = (closeAfter: boolean) => {
@@ -79,8 +88,12 @@ export default function AsDetailModal({ sn, onClose, onChanged }: { sn: number; 
                 {(d.equipmentName || d.modelName) && r("장비", d.equipmentName ?? "-", "모델 / 수량", `${d.modelName ?? "-"} / ${d.quantity ?? "-"}`)}
                 {wide(d.rceptTy === "S" ? "신청내용" : "장애증상", d.symptom ?? "-")}
                 {d.attachments?.length ? wide("첨부파일", <Files files={d.attachments} />) : null}
-                {r("처리업체", d.vendorName ?? "미배정", "담당 기사", `${d.engineerName ?? "-"}${d.engineerTel ? ` (${d.engineerTel})` : ""}`)}
+                {d.handlerType && d.handlerType !== "VENDOR"
+                  ? r("처리 담당", d.handlerName ?? "-", "담당자", d.engineerName ?? "미지정 (담당 모두)")
+                  : r("처리업체", d.vendorName ?? "미배정", "담당 기사", `${d.engineerName ?? "-"}${d.engineerTel ? ` (${d.engineerTel})` : ""}`)}
                 {r("접수일시", fmtDateTime(d.receivedAt), "방문예정일시", fmtDateTime(d.visitPlannedAt))}
+                {/* 기사가 도착을 기록했고 보고서는 아직 (보고서가 있으면 아래 보고서의 방문일시) */}
+                {d.visitAt && !d.report && wide("현장 도착", fmtDateTime(d.visitAt))}
                 {d.status === "X" && wide("반려사유", d.returnReason ?? "-")}
                 {d.transferFromTy && wide("이관", `${AS_NAME[d.transferFromTy as RceptTy] ?? d.transferFromTy}에서 이관 — ${d.transferContent ?? ""}`)}
                 {d.report && (
@@ -150,7 +163,8 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     rceptTy: "",
     content: "",
     engineerName: d.report?.engineerName ?? d.engineerName ?? me?.userName ?? "",
-    visitAt: d.report?.visitAt?.slice(0, 16) ?? d.visitPlannedAt?.slice(0, 16) ?? nowLocal(),
+    // 도착 기록이 있으면 그 시각, 없으면 방문예정일시
+    visitAt: d.report?.visitAt?.slice(0, 16) ?? d.visitAt?.slice(0, 16) ?? d.visitPlannedAt?.slice(0, 16) ?? nowLocal(),
     visitEndAt: d.report?.visitEndAt?.slice(0, 16) ?? nowLocal(),
     troubleSymptom: d.report?.troubleSymptom ?? "",
     inspectContent: d.report?.inspectContent ?? "",
@@ -159,8 +173,23 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     score: "",
     opinion: "",
     vendorId: d.vendorId ? String(d.vendorId) : "",
-    engineerUserId: d.engineerUserId ? String(d.engineerUserId) : "",
+    // 기사 배정: 아직 기사가 없으면 학교의 기본 담당 기사를 먼저 골라 둔다 (추천)
+    engineerUserId: d.engineerUserId ? String(d.engineerUserId) : action === "engineer" && d.suggestedEngineerUserId ? String(d.suggestedEngineerUserId) : "",
+    deviceId: d.deviceId ? String(d.deviceId) : "",
+    // 처리 담당 지정 (스쿨넷): 지금 담당이 교육지원청이면 기본은 '통신사에 넘김'
+    handlerType: d.handlerOptions?.current.handlerType === "VENDOR" ? "REGION" : "VENDOR",
+    handlerVendorId: d.handlerOptions?.suggestedVendorId ? String(d.handlerOptions.suggestedVendorId) : "",
+    handlerUserId: "",
   });
+  // 대상 장비 지정: 이 학교의 무선장비(무선망 AS) · 스쿨넷 장비(스쿨넷 AS)
+  const [devices, setDevices] = useState<{ deviceId: number; deviceCode: string; deviceName: string; location?: string }[] | null>(null);
+  useEffect(() => {
+    if (action !== "device" || !d.schoolId) return;
+    api.get<{ content?: NonNullable<typeof devices> } | NonNullable<typeof devices>>(d.rceptTy === "S" ? "/api/as/schoolnet-devices" : "/api/as/wireless-devices", { schoolId: d.schoolId, size: 200 })
+      .then((x) => setDevices(Array.isArray(x) ? x : x.content ?? []))
+      .catch(() => setDevices([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action]);
   // 업체 배정: 이 AS 유형을 맡는 업체 (학교 지역을 맡는 업체가 먼저) · 고른 업체의 기사
   const [vendors, setVendors] = useState<{ vendorId: number; vendorName: string; allRegions?: boolean; regions?: { regionId: number }[] }[]>([]);
   const [engineers, setEngineers] = useState<{ userId: number; userName: string; mobile?: string }[]>([]);
@@ -172,11 +201,13 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     }).catch(() => setVendors([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [action]);
+  // 기사 목록: 업체 배정은 고른 업체, 기사 배정은 이 신청의 업체
+  const engVendor = action === "engineer" ? (d.vendorId ? String(d.vendorId) : "") : v.vendorId;
   useEffect(() => {
-    if (action !== "assign" || !v.vendorId) { setEngineers([]); return; }
-    api.get<typeof engineers>(`/api/as/vendors/${v.vendorId}/engineers`).then(setEngineers).catch(() => setEngineers([]));
+    if ((action !== "assign" && action !== "engineer") || !engVendor) { setEngineers([]); return; }
+    api.get<typeof engineers>(`/api/as/vendors/${engVendor}/engineers`).then(setEngineers).catch(() => setEngineers([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action, v.vendorId]);
+  }, [action, engVendor]);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV((p) => ({ ...p, [k]: e.target.value }));
   // 비용 항목. 예전 보고서의 단일 금액은 "기타" 한 줄로 보여 준다.
   const [lines, setLines] = useState<CostLine[]>(() =>
@@ -234,6 +265,19 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
         if (!v.vendorId) check = "배정할 업체를 선택해 주세요.";
         body = { vendorId: Number(v.vendorId), engineerUserId: v.engineerUserId ? Number(v.engineerUserId) : null };
         break;
+      case "device":
+        body = { deviceId: v.deviceId ? Number(v.deviceId) : null };
+        break;
+      case "handler":
+        if (v.handlerType === "VENDOR" && !v.handlerVendorId) check = "넘길 통신사(업체)를 선택해 주세요.";
+        if (v.handlerType === "PROVINCE" && !v.handlerUserId) check = "교육청 담당자를 선택해 주세요.";
+        body = { handlerType: v.handlerType, vendorId: v.handlerType === "VENDOR" ? Number(v.handlerVendorId) : null,
+          userId: v.handlerType !== "VENDOR" && v.handlerUserId ? Number(v.handlerUserId) : null };
+        break;
+      case "engineer":
+        if (!v.engineerUserId) check = "담당 기사를 선택해 주세요.";
+        body = { engineerUserId: Number(v.engineerUserId) };
+        break;
     }
     if (check) return setMsg(check);
     setBusy(true);
@@ -249,11 +293,12 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     }
   };
 
-  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete";
+  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete" || action === "arrive";
   const confirmText: Record<string, string> = {
     delete: "이 AS 신청을 삭제합니다. 삭제한 내용은 되돌릴 수 없습니다.",
     cancel: "이 AS 신청을 취소합니다.",
     "return-cancel": "반려를 취소하고 신청완료 상태로 되돌립니다.",
+    arrive: "지금 시각을 현장 도착으로 기록합니다 (학교에 알림이 갑니다).",
   };
 
   return (
@@ -340,6 +385,59 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
               </select>
             </td></tr>
           </>
+        )}
+        {action === "handler" && d.handlerOptions && (() => {
+          const o = d.handlerOptions;
+          const people = v.handlerType === "REGION" ? o.regionUsers : o.provinceUsers;
+          return (
+            <>
+              <tr><th scope="row"><i>*</i>처리 담당</th><td>
+                <span className="hd-pick" role="radiogroup" aria-label="처리 담당">
+                  {([["VENDOR", "통신사에 넘김", "회선 · 통신사 장비 문제"], ["REGION", "교육지원청 직접 처리", "학교 쪽 · 설정 문제 (원격 조치 등)"], ["PROVINCE", "교육청으로 올림", "여러 학교 동시 장애 등 큰 장애"]] as const).map(([k, l, h]) => (
+                    <label key={k} className={v.handlerType === k ? "on" : ""}>
+                      <input type="radio" name="handlerType" value={k} checked={v.handlerType === k} onChange={() => setV((p) => ({ ...p, handlerType: k, handlerUserId: "" }))} />
+                      <b>{l}</b><small>{h}</small>
+                    </label>
+                  ))}
+                </span>
+              </td></tr>
+              {v.handlerType === "VENDOR" ? (
+                <tr><th scope="row"><i>*</i>통신사</th><td>
+                  <select aria-label="통신사" value={v.handlerVendorId} onChange={set("handlerVendorId")}>
+                    <option value="">-- 선택 --</option>
+                    {o.vendors.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName}{x.vendorId === o.suggestedVendorId ? " — 이 학교 · 회선 업체" : ""}</option>)}
+                  </select>{" "}
+                  <small className="hint">업체 관리자가 기사를 정합니다.</small>
+                </td></tr>
+              ) : (
+                <tr><th scope="row">{v.handlerType === "PROVINCE" && <i>*</i>}담당자</th><td>
+                  <select aria-label="담당자" value={v.handlerUserId} onChange={set("handlerUserId")}>
+                    <option value="">{v.handlerType === "REGION" ? "-- 지정 안 함 (스쿨넷 담당 모두) --" : "-- 선택 --"}</option>
+                    {people.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.positionName ? ` · ${x.positionName}` : ""}{v.handlerType === "REGION" && x.covers ? " (스쿨넷 담당)" : ""}</option>)}
+                  </select>{" "}
+                  <small className="hint">{v.handlerType === "REGION" ? "담당자가 접수하면 그 사람이 맡습니다." : "교육청 담당자에게 알림이 갑니다."}</small>
+                </td></tr>
+              )}
+            </>
+          );
+        })()}
+        {action === "device" && (
+          <tr><th scope="row">대상 장비</th><td>
+            <select aria-label="대상 장비" value={v.deviceId} onChange={set("deviceId")} disabled={devices === null}>
+              <option value="">{devices === null ? "불러오는 중…" : devices.length ? "-- 지정 안 함 --" : `이 학교에 등록된 ${d.rceptTy === "S" ? "스쿨넷 장비" : "무선장비"}가 없습니다`}</option>
+              {(devices ?? []).map((x) => <option key={x.deviceId} value={x.deviceId}>{x.deviceCode} {x.deviceName}{x.location ? ` (${x.location})` : ""}</option>)}
+            </select>{" "}
+            <small className="hint">{d.rceptTy === "S" ? "스쿨넷은 선택입니다 — 연결하면 회선 가용률에 들어갑니다." : "학교가 신고한 증상 · 장소를 보고 장애 장비를 연결합니다. 장비의 유지보수 업체가 이 AS를 맡게 됩니다."}</small>
+          </td></tr>
+        )}
+        {action === "engineer" && (
+          <tr><th scope="row"><i>*</i>담당 기사</th><td>
+            <select aria-label="담당 기사" value={v.engineerUserId} onChange={set("engineerUserId")}>
+              <option value="">-- 선택 --</option>
+              {engineers.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.mobile ? ` (${x.mobile})` : ""}{x.userId === d.suggestedEngineerUserId ? " — 학교 기본 담당" : ""}</option>)}
+            </select>{" "}
+            <small className="hint">배정된 기사만 이 신청을 보고 처리합니다.{d.suggestedEngineerName && !d.engineerUserId ? ` 학교 기본 담당 기사(${d.suggestedEngineerName})를 먼저 골라 두었습니다.` : ""}</small>
+          </td></tr>
         )}
         {action === "evaluate" && (
           <>

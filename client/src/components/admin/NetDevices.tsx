@@ -205,7 +205,13 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
     deviceType: device?.deviceType ?? k.types[0][0], modelName: device?.modelName ?? "", ipAddress: device?.ipAddress ?? "", macAddress: device?.macAddress ?? "",
     location: device?.location ?? "", installedAt: device?.installedAt ?? "", lastCheckedAt: device?.lastCheckedAt ?? "", status: device?.status ?? "NORMAL", note: device?.note ?? "",
     carrier: device?.carrier ?? "", circuitId: device?.circuitId ?? "", bandwidth: device?.bandwidth ?? "",
+    vendorId: device?.vendorId ? String(device.vendorId) : "",
   });
+  // 유지보수 업체: 이 유형을 맡는 업체 (무선망 AS는 장비의 업체가 맡는다)
+  const [vendors, setVendors] = useState<{ vendorId: number; vendorName: string }[]>([]);
+  useEffect(() => {
+    api.get<{ vendorId: number; vendorName: string }[]>("/api/as/vendors", { rceptTy: ty }).then(setVendors).catch(() => setVendors([]));
+  }, [ty]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(false);
@@ -222,7 +228,9 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
     if (place?.error) return setMsg(place.error);
     setBusy(true);
     const body = { ...v, location: place ? place.location : v.location, ...(place?.unplace ? { unplace: true } : {}),
-      schoolId: Number(v.schoolId), deviceCode: v.deviceCode.trim() || undefined, installedAt: v.installedAt || null, lastCheckedAt: v.lastCheckedAt || null };
+      schoolId: Number(v.schoolId), deviceCode: v.deviceCode.trim() || undefined, installedAt: v.installedAt || null, lastCheckedAt: v.lastCheckedAt || null,
+      // 새 장비에서 업체를 고르지 않으면 보내지 않는다 → 서버가 학교 배정 업체로 채운다
+      vendorId: v.vendorId ? Number(v.vendorId) : device ? null : undefined };
     try {
       const saved = device ? await api.put<Device>(`${k.api}/${device.deviceId}`, body) : await api.post<Device>(k.api, body);
       // 다른 층으로 옮기고 "새 층 도면에 바로 놓기"면 그 층 도면을 장비 배치로 연다.
@@ -283,6 +291,13 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
               <small className="hint" style={{ display: "block", marginTop: 4 }}>통신사 · 회선번호 · 속도. 라우터 등 회선이 들어오는 장비에 적습니다. 장애 신고 때 통신사에 알려 줄 회선번호입니다.</small>
             </FormRow>
           )}
+          <FormRow label="유지보수 업체">
+            <select aria-label="유지보수 업체" value={v.vendorId} onChange={set("vendorId")}>
+              <option value="">{device ? "-- 없음 --" : "-- 학교 배정 업체 (자동) --"}</option>
+              {vendors.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName}</option>)}
+            </select>{" "}
+            <small className="hint">{ty === "M" ? "이 장비의 무선망 AS를 맡는 업체입니다." : "통신사에 넘길 때 먼저 골라 두는 업체입니다."}</small>
+          </FormRow>
           <FormRow label="설치일 / 최근 점검">
             <input type="date" aria-label="설치일" value={v.installedAt} onChange={set("installedAt")} />{" "}
             <input type="date" aria-label="최근 점검일" value={v.lastCheckedAt} onChange={set("lastCheckedAt")} />

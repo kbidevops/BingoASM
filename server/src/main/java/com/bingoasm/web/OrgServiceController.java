@@ -69,6 +69,11 @@ public class OrgServiceController {
         if (types.isEmpty()) throw ApiException.badRequest("AS 서비스를 하나 이상 선택해 주세요.");
         Org org = orgs.findById(me.orgId()).orElseThrow(() -> ApiException.notFound("기관을 찾을 수 없습니다."));
         org.asTypes = String.join(",", types);
+        if (body.containsKey("schoolnetRoute")) {
+            String route = body.get("schoolnetRoute") == null ? null : String.valueOf(body.get("schoolnetRoute"));
+            if (!"REGION".equals(route) && !"VENDOR".equals(route)) throw ApiException.badRequest("스쿨넷 신고 접수처를 선택해 주세요.");
+            org.schoolnetRoute = route;
+        }
         orgs.save(org);
         return ApiResponse.ok(view(org.orgId));
     }
@@ -80,6 +85,7 @@ public class OrgServiceController {
                 .map(t -> Json.obj().with("rceptTy", t).with("name", AsCodes.RCEPT_TY_NAME.get(t)).with("enabled", on.contains(t))
                         .with("openRequests", requests.countByOrgIdAndRceptTyAndUseYnAndStatusIn(orgId, t, "Y", List.of("A", "R"))))
                 .toList();
-        return Json.obj().with("asTypes", on).with("types", types);
+        String route = orgs.findById(orgId).map(o -> o.schoolnetRoute).orElse(null);
+        return Json.obj().with("asTypes", on).with("types", types).with("schoolnetRoute", route == null ? "REGION" : route);
     }
 }

@@ -41,11 +41,24 @@ public class AsRequestService {
     private final PermissionService permissions;
     private final NotificationService notices;
     private final WirelessDeviceService deviceService;
+    private final AsAlertService alerts;
+    private final com.bingoasm.repo.OrgRepository orgs;
+
+    /** 스쿨넷 신고를 먼저 받는 곳: REGION 교육지원청(기본) · VENDOR 통신사. */
+    String schoolnetRoute(Long orgId) {
+        return orgs.findById(orgId).map(o -> o.schoolnetRoute).filter(x -> x != null && !x.isBlank()).orElse("REGION");
+    }
+
+    /** 교육지원청 · 교육청이 처리 담당인 건 */
+    static boolean officeHandled(AsRequest r) { return "REGION".equals(r.handlerType) || "PROVINCE".equals(r.handlerType); }
 
     public AsRequestService(AsRequestRepository requests, AsHistoryRepository histories, SchoolService schoolService, UserRepository users,
                             WirelessDeviceRepository devices, AssetRepository assets, com.bingoasm.repo.FileRepository files, AsCostItemRepository costItems,
-                            PermissionService permissions, NotificationService notices, WirelessDeviceService deviceService) {
+                            PermissionService permissions, NotificationService notices, WirelessDeviceService deviceService, AsAlertService alerts,
+                            com.bingoasm.repo.OrgRepository orgs) {
         this.deviceService = deviceService;
+        this.orgs = orgs;
+        this.alerts = alerts;
         this.files = files; this.costItems = costItems; this.permissions = permissions; this.notices = notices;
         this.requests = requests; this.histories = histories; this.schoolService = schoolService; this.users = users;
         this.devices = devices; this.assets = assets;
@@ -61,6 +74,8 @@ public class AsRequestService {
     static boolean isRegionManager(CurrentUser me) { return me.scope().region() && me.can("AS_MANAGE"); }
     static boolean isVendorSide(CurrentUser me) { return me.scope().vendor() && me.scope().vendorId() != null; }
     static boolean isSchoolSide(CurrentUser me) { return me.scope().school() && me.scope().schoolId() != null; }
+    /** 업체 쪽 사용자 중 기사 배정 권한이 없는 사람(기사): 자기에게 배정된 AS만 본다. 업체 관리자는 업체 전체를 보고 기사를 정한다. */
+    static boolean engineerOnly(CurrentUser me) { return isVendorSide(me) && !me.can("AS_ENGINEER_ASSIGN"); }
 
     private Specification<AsRequest> scope(CurrentUser me) {
         Set<Long> inScope = me.scope().vendor() ? null : schoolService.scopeSchoolIds(me);
@@ -70,7 +85,11 @@ public class AsRequestService {
             p.add(cb.equal(root.get("useYn"), "Y"));
             if (isAdmin(me)) return cb.and(p.toArray(Predicate[]::new));
             // 업체는 학교가 아니라 자기 업체에 배정된 AS를 본다.
-            if (me.scope().vendor()) p.add(isVendorSide(me) ? cb.equal(root.get("vendorId"), me.scope().vendorId()) : cb.disjunction());
+            if (me.scope().vendor()) {
+                p.add(isVendorSide(me) ? cb.equal(root.get("vendorId"), me.scope().vendorId()) : cb.disjunction());
+                // 기사(기사 배정 권한 없음)는 자기에게 배정된 건만
+                if (engineerOnly(me)) p.add(cb.equal(root.get("engineerUserId"), me.userId()));
+            }
             else if (inScope != null) p.add(inScope.isEmpty() ? cb.disjunction() : root.get("schoolId").in(inScope));
             else p.add(cb.equal(root.get("applicantUserId"), me.userId()));
             return cb.and(p.toArray(Predicate[]::new));
@@ -80,7 +99,8 @@ public class AsRequestService {
     private boolean inScope(CurrentUser me, AsRequest r) {
         if (!r.orgId.equals(me.orgId())) return false;
         if (isAdmin(me)) return true;
-        if (me.scope().vendor()) return isVendorSide(me) && me.scope().vendorId().equals(r.vendorId);
+        if (me.scope().vendor()) return isVendorSide(me) && me.scope().vendorId().equals(r.vendorId)
+                && (!engineerOnly(me) || me.userId().equals(r.engineerUserId));
         Set<Long> inScope = schoolService.scopeSchoolIds(me);
         if (inScope != null) return inScope.contains(r.schoolId);
         return me.userId().equals(r.applicantUserId);
@@ -118,9 +138,15 @@ public class AsRequestService {
                 .with("requestAt", r.requestAt).with("vendorId", r.vendorId).with("vendorName", v == null ? null : v.vendorName)
                 .with("engineerUserId", r.engineerUserId).with("engineerName", r.engineerName != null ? r.engineerName : eng == null ? null : eng.userName)
                 .with("engineerTel", eng == null ? null : eng.mobile)
+                // 처리 담당: VENDOR 업체 · REGION 교육지원청 · PROVINCE 교육청 (담당자는 engineerName)
+                .with("handlerType", r.handlerType == null ? "VENDOR" : r.handlerType)
+                .with("handlerName", "REGION".equals(r.handlerType) ? (reg == null ? "교육지원청" : reg.regionName + " 교육지원청")
+                        : "PROVINCE".equals(r.handlerType) ? "교육청" : v == null ? null : v.vendorName)
                 .with("receivedAt", r.receivedAt).with("visitPlannedAt", r.visitPlannedAt).with("completedAt", r.completedAt)
                 .with("returnReason", r.returnReason).with("transferFromTy", r.transferFromTy).with("transferContent", r.transferContent)
-                .with("hasReport", r.visitAt != null || r.processContent != null)
+                .with("hasReport", r.processContent != null)
+                // 현장 도착 시각 (도착 기록 또는 보고서의 방문일시)
+                .with("visitAt", r.visitAt)
                 .with("processTypeCode", r.processTypeCode).with("processTypeName", r.processTypeCode == null ? null : AsCodes.PROCESS_TYPE_NAME.get(r.processTypeCode))
                 .with("processAmount", r.processAmount)
                 .with("evalScore", r.evalScore).with("evaluatedAt", r.evaluatedAt)
@@ -154,7 +180,7 @@ public class AsRequestService {
     // ---------- queries ----------
 
     public record Filter(String rceptTy, String keyword, String searchType, LocalDate fromDate, LocalDate toDate, String status,
-                         Long schoolId, Long regionId, Long vendorId, Long engineerUserId, boolean mine, boolean unassigned, String sort) {}
+                         Long schoolId, Long regionId, Long vendorId, Long engineerUserId, boolean mine, boolean unassigned, String sort, boolean myTypes) {}
 
     private Specification<AsRequest> spec(CurrentUser me, Filter f) {
         Set<Long> regionSchools = f.regionId() == null && !"region".equals(f.searchType()) ? null
@@ -165,9 +191,12 @@ public class AsRequestService {
                 .map(s -> s.schoolId).collect(Collectors.toSet());
         // 교육청이 쓰지 않는 서비스의 신청은 목록·엑셀에서 빠진다. 기록은 남아 다시 켜면 그대로 보인다.
         List<String> inUse = permissions.asTypes(me.orgId());
+        // 내 담당 유형만: 교육지원청 담당자에게 정해 둔 담당 AS 유형 (정하지 않았으면 거르지 않는다)
+        List<String> duty = f.myTypes() ? me.user().asTypeList() : List.of();
         return scope(me).and((root, q, cb) -> {
             List<Predicate> p = new ArrayList<>();
             p.add(root.get("rceptTy").in(inUse));
+            if (!duty.isEmpty()) p.add(root.get("rceptTy").in(duty));
             if (!Params.blank(f.rceptTy())) p.add(cb.equal(root.get("rceptTy"), f.rceptTy()));
             if (!Params.blank(f.status())) p.add(cb.equal(root.get("status"), f.status()));
             if (f.fromDate() != null) p.add(cb.greaterThanOrEqualTo(root.get("requestAt"), f.fromDate().atStartOfDay()));
@@ -207,7 +236,240 @@ public class AsRequestService {
         List<Json> rs = rows(res.getContent(), me.orgId());
         // 목록에서 ‘만족도 평가 대기’를 강조하도록: 지금 이 사용자가 평가할 수 있는 건 (상세의 평가 버튼과 같은 조건)
         for (int i = 0; i < rs.size(); i++) if (canEvaluate(me, res.getContent().get(i))) rs.get(i).put("canEvaluate", true);
+        // 지연 표시: RECEIVE(접수 지연) · ESCALATED(에스컬레이션) · VISIT(방문 지연)
+        Map<String, AsAlertService.Rule> rules = alerts.rules(me.orgId());
+        WorkCalendar cal = alerts.calendar(me.orgId());
+        LocalDateTime now = Times.now();
+        for (int i = 0; i < rs.size(); i++) {
+            AsRequest r = res.getContent().get(i);
+            String late = AsAlertService.lateOf(r, rules.get(r.rceptTy), cal, now);
+            if (late != null) rs.get(i).put("late", late);
+        }
         return new PageResult<>(rs, res.getTotalElements(), p, s, res.getTotalPages());
+    }
+
+    // ---------- 스쿨넷 처리 담당 ----------
+
+    private static boolean provinceUser(AppUser u) {
+        return u.schoolId == null && u.vendorId == null && u.regionId == null && u.roles.contains("EDU_ADMIN");
+    }
+
+    private Long schoolRegion(AsRequest r) {
+        School s = r.schoolId == null ? null : schoolService.schoolMap(r.orgId).get(r.schoolId);
+        return s == null ? null : s.regionId;
+    }
+
+    /** 처리 담당 지정 창의 선택지: 통신사(스쿨넷 업체, 교육지원청은 관할 지역 업체만) · 관할 교육지원청 담당자 · 교육청 담당자. */
+    private Json handlerOptions(CurrentUser me, AsRequest r, Ref ref) {
+        Long rid = schoolRegion(r);
+        List<Json> vendors = schoolService.vendorMap(me.orgId()).values().stream()
+                .filter(v -> v.serviceTypeList().contains(r.rceptTy) && (!me.scope().region() || schoolService.vendorCovers(v, me.scope().regionId())))
+                .sorted(Comparator.comparing((Vendor v) -> v.vendorName))
+                .map(v -> Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName)).toList();
+        // 추천 통신사: 대상 장비(회선)의 업체 → 학교 배정 업체
+        Long suggested = r.deviceId == null ? null : devices.findById(r.deviceId).map(d -> d.vendorId).orElse(null);
+        if (suggested == null) suggested = schoolService.resolveVendor(r.schoolId, r.rceptTy).map(sv -> sv.vendorId).orElse(null);
+        List<Json> region = new ArrayList<>(), province = new ArrayList<>();
+        for (AppUser u : ref.users().values()) {
+            if (!"ACTIVE".equals(u.status)) continue;
+            Json p = Json.obj().with("userId", u.userId).with("userName", u.userName).with("positionName", u.positionName)
+                    .with("covers", u.coversAsType(r.rceptTy));
+            if (u.roles.contains("REGION_ADMIN") && rid != null && rid.equals(u.regionId)) region.add(p);
+            else if (provinceUser(u)) province.add(p);
+        }
+        return Json.obj().with("vendors", vendors).with("suggestedVendorId", suggested).with("regionUsers", region).with("provinceUsers", province)
+                .with("current", Json.obj().with("handlerType", r.handlerType == null ? "VENDOR" : r.handlerType).with("vendorId", r.vendorId).with("userId", r.engineerUserId));
+    }
+
+    /**
+     * 처리 담당 지정 (스쿨넷): body { handlerType: VENDOR|REGION|PROVINCE, vendorId?, userId? }.
+     * VENDOR = 통신사에 넘김 (그 업체 관리자가 기사를 정한다). REGION = 교육지원청 직접 처리 (담당자를 비우면 그 교육지원청의 스쿨넷 담당 모두).
+     * PROVINCE = 교육청으로 올림 (담당자 필수). 담당이 바뀌면 다시 신청완료(접수 전)로 돌아가 새 담당이 접수한다.
+     */
+    private void handler(CurrentUser me, AsRequest r, String prev, Map<String, Object> b) {
+        String type = Params.str(b, "handlerType");
+        Long uid = Params.lng(b, "userId");
+        String before = (r.handlerType == null ? "VENDOR" : r.handlerType) + ":" + r.vendorId + ":" + r.engineerUserId;
+        String text;
+        Set<Long> to;
+        switch (type == null ? "" : type) {
+            case "VENDOR" -> {
+                Long vid = Params.lng(b, "vendorId");
+                Vendor v = vid == null ? null : schoolService.vendorMap(me.orgId()).get(vid);
+                if (v == null) throw ApiException.badRequest("넘길 통신사(업체)를 선택해 주세요.");
+                if (!v.serviceTypeList().contains(r.rceptTy)) throw ApiException.badRequest(v.vendorName + "은(는) " + AsCodes.RCEPT_TY_NAME.get(r.rceptTy) + " 업체가 아닙니다.");
+                if (me.scope().region() && !schoolService.vendorCovers(v, me.scope().regionId()))
+                    throw ApiException.badRequest(v.vendorName + "은(는) 관할 지역을 담당하지 않는 업체입니다.");
+                r.handlerType = "VENDOR"; r.vendorId = v.vendorId; r.engineerUserId = null; r.engineerName = null;
+                text = "통신사에 넘김: " + v.vendorName;
+                to = notices.vendorSide(r);
+            }
+            case "REGION" -> {
+                Long rid = schoolRegion(r);
+                AppUser u = uid == null ? null : users.findById(uid)
+                        .filter(x -> "ACTIVE".equals(x.status) && x.roles.contains("REGION_ADMIN") && rid != null && rid.equals(x.regionId))
+                        .orElseThrow(() -> ApiException.badRequest("관할 교육지원청 담당자를 선택해 주세요."));
+                r.handlerType = "REGION"; r.vendorId = null;
+                r.engineerUserId = u == null ? null : u.userId; r.engineerName = u == null ? null : u.userName;
+                text = "교육지원청 직접 처리" + (u == null ? "" : ": " + u.userName);
+                to = u == null ? notices.regionSide(r, rid) : Set.of(u.userId);
+            }
+            case "PROVINCE" -> {
+                AppUser u = uid == null ? null : users.findById(uid).filter(x -> "ACTIVE".equals(x.status) && x.orgId.equals(me.orgId()) && provinceUser(x)).orElse(null);
+                if (u == null) throw ApiException.badRequest("교육청 담당자를 선택해 주세요.");
+                r.handlerType = "PROVINCE"; r.vendorId = null; r.engineerUserId = u.userId; r.engineerName = u.userName;
+                text = "교육청으로 올림: " + u.userName;
+                to = Set.of(u.userId);
+            }
+            default -> throw ApiException.badRequest("처리 담당을 선택해 주세요.");
+        }
+        String after = r.handlerType + ":" + r.vendorId + ":" + r.engineerUserId;
+        if (after.equals(before)) throw ApiException.badRequest("이미 그 담당입니다.");
+        // 담당 종류 · 업체가 바뀌면 새 담당이 다시 접수한다 (같은 곳 안에서 담당자만 바꾸면 그대로).
+        boolean moved = !after.split(":")[0].equals(before.split(":")[0]) || !String.valueOf(r.vendorId).equals(before.split(":")[1]);
+        if (moved && "R".equals(r.status) && r.processContent == null) { r.status = "A"; r.receivedAt = null; r.visitPlannedAt = null; r.visitAt = null; }
+        history(r, prev, "HANDLER", text, me.userId());
+        notices.notify(to, me.userId(), r, "AS_ASSIGNED", label(r) + " 처리 담당", schoolName(r) + " · " + text + " · " + clip(r.symptom, 60));
+    }
+
+    // ---------- 장비 라벨 QR: 이 장비의 AS · 문의처 ----------
+
+    /**
+     * 장비 정보(QR) 화면에 붙는 AS 정보. 장비를 볼 수 있는지는 호출 전에 확인한다 (WirelessDeviceService.scanView).
+     * <ul>
+     *   <li>open — 이 장비에 걸린 처리 중 AS (신청완료 · 접수완료). 볼 수 없는 건(다른 기사 배정 등)은 상태만 (중복 신고 · 중복 출동 방지).</li>
+     *   <li>count90 — 최근 90일 이 장비의 AS 건수 (취소 제외).</li>
+     *   <li>unlinked — 같은 학교 · 같은 유형의 처리 중 신고 중 대상 장비가 아직 지정되지 않은 건수 (볼 수 있는 것만).</li>
+     *   <li>contacts — 담당 업체 · 기본 담당 기사 · 이 유형을 맡은 관할 교육지원청 담당자.</li>
+     * </ul>
+     */
+    @Transactional(readOnly = true)
+    public Json deviceAs(CurrentUser me, Long deviceId, String ty, Long schoolId) {
+        Ref ref = ref(me.orgId());
+        LocalDateTime now = Times.now();
+        List<AsRequest> mine = requests.findByOrgIdAndUseYn(me.orgId(), "Y").stream()
+                .filter(r -> deviceId.equals(r.deviceId) && ty.equals(r.rceptTy)).toList();
+        List<Json> open = new ArrayList<>();
+        for (AsRequest r : mine.stream().filter(r -> "A".equals(r.status) || "R".equals(r.status))
+                .sorted(Comparator.comparing((AsRequest r) -> r.requestAt, Comparator.nullsLast(Comparator.naturalOrder()))).toList()) {
+            boolean see = inScope(me, r);
+            Json j = Json.obj().with("asvcSn", r.asvcSn).with("status", r.status).with("statusName", AsCodes.STATUS_NAME.get(r.status))
+                    .with("requestAt", r.requestAt).with("canOpen", see);
+            if (see) {
+                List<String> acts = allowedActions(me, r);
+                j.with("symptom", clip(r.symptom, 60)).with("visitPlannedAt", r.visitPlannedAt).with("visitAt", r.visitAt)
+                        .with("engineerName", r.engineerName != null ? r.engineerName : userName(ref, r.engineerUserId))
+                        .with("assignedToMe", me.userId().equals(r.engineerUserId))
+                        .with("canArrive", acts.contains("arrive")).with("canReport", acts.contains("report")).with("canReceive", acts.contains("receive"));
+            }
+            open.add(j);
+        }
+        long count90 = mine.stream().filter(r -> r.requestAt != null && r.requestAt.isAfter(now.minusDays(90))).count();
+        long unlinked = requests.findByOrgIdAndUseYnAndStatusIn(me.orgId(), "Y", List.of("A", "R")).stream()
+                .filter(r -> ty.equals(r.rceptTy) && schoolId != null && schoolId.equals(r.schoolId) && r.deviceId == null && inScope(me, r)).count();
+
+        // 문의처
+        Json contacts = Json.obj();
+        schoolService.resolveVendor(schoolId, ty).ifPresent(sv -> {
+            Vendor v = sv.vendorId == null ? null : ref.vendors().get(sv.vendorId);
+            if (v != null) contacts.put("vendor", Json.obj().with("vendorName", v.vendorName).with("tel", v.tel));
+            AppUser e = sv.engineerUserId == null ? null : ref.users().get(sv.engineerUserId);
+            if (e != null && "ACTIVE".equals(e.status)) contacts.put("engineer", Json.obj().with("userName", e.userName).with("tel", e.mobile));
+        });
+        School s = schoolId == null ? null : ref.schools().get(schoolId);
+        AsRequest probe = new AsRequest(); probe.orgId = me.orgId(); probe.rceptTy = ty;
+        List<Json> region = new ArrayList<>();
+        for (Long uid : notices.regionSide(probe, s == null ? null : s.regionId)) {
+            AppUser u = ref.users().get(uid);
+            if (u != null && "ACTIVE".equals(u.status))
+                region.add(Json.obj().with("userName", u.userName).with("positionName", u.positionName).with("tel", u.mobile)
+                        .with("regionName", Optional.ofNullable(ref.regions().get(u.regionId)).map(x -> x.regionName).orElse(null)));
+        }
+        contacts.put("region", region);
+        return Json.obj().with("open", open).with("count90", count90).with("unlinked", unlinked).with("contacts", contacts);
+    }
+
+    // ---------- 내 할 일 ----------
+
+    private record Bucket(String key, String label, String hint, java.util.function.Predicate<AsRequest> test, Comparator<AsRequest> order) {}
+
+    /**
+     * 지금 이 사용자가 처리해야 할 AS를 묶음별로 (홈 화면의 '내 할 일'). 묶음은 계정 종류 · 처리 기능 권한에 맞는 것만 나오고,
+     * 건수와 오래된 순 5건을 준다. 교육지원청 담당자는 담당 AS 유형만 (정했으면).
+     */
+    @Transactional(readOnly = true)
+    public Json todo(CurrentUser me) {
+        List<String> inUse = permissions.asTypes(me.orgId());
+        List<String> duty = me.scope().region() ? me.user().asTypeList() : List.of();
+        List<AsRequest> all = requests.findAll(scope(me)).stream()
+                .filter(r -> inUse.contains(r.rceptTy) && (duty.isEmpty() || duty.contains(r.rceptTy))).toList();
+        Map<String, AsAlertService.Rule> rules = alerts.rules(me.orgId());
+        LocalDateTime now = Times.now();
+        LocalDate today = Times.today();
+        boolean manager = isAdmin(me) || isRegionManager(me);
+        boolean vendor = isVendorSide(me);
+        boolean vendorAdmin = vendor && me.can("AS_ENGINEER_ASSIGN");
+        WorkCalendar cal = alerts.calendar(me.orgId());
+        java.util.function.Function<AsRequest, String> late = r -> AsAlertService.lateOf(r, rules.get(r.rceptTy), cal, now);
+        Comparator<AsRequest> oldest = Comparator.comparing((AsRequest r) -> r.requestAt, Comparator.nullsLast(Comparator.naturalOrder()));
+        Comparator<AsRequest> byVisit = Comparator.comparing((AsRequest r) -> r.visitPlannedAt, Comparator.nullsLast(Comparator.naturalOrder()));
+
+        List<Bucket> buckets = new ArrayList<>();
+        if (manager || vendor) {
+            buckets.add(new Bucket("receive-late", "접수 지연", "기준 시간 안에 접수되지 않은 신청",
+                    r -> "A".equals(r.status) && late.apply(r) != null, oldest));
+            buckets.add(new Bucket("visit-late", "방문 지연", "방문예정일시가 지났는데 처리 보고서가 없는 건",
+                    r -> "VISIT".equals(late.apply(r)), byVisit));
+        }
+        if (manager && me.can("AS_ASSIGN"))
+            buckets.add(new Bucket("triage", "스쿨넷 1차 확인", "교육지원청이 먼저 확인합니다 — 직접 처리하거나 통신사에 넘기세요",
+                    r -> "S".equals(r.rceptTy) && "A".equals(r.status) && "REGION".equals(r.handlerType) && r.engineerUserId == null, oldest));
+        if (manager)
+            buckets.add(new Bucket("mine", "내가 처리할 건", "교육지원청 · 교육청이 직접 처리하기로 한, 내가 담당인 건",
+                    r -> officeHandled(r) && me.userId().equals(r.engineerUserId) && ("A".equals(r.status) || "R".equals(r.status)), oldest));
+        // 대상 장비는 무선망만 꼭 지정한다 (스쿨넷은 선택)
+        if (manager && me.can("AS_DEVICE"))
+            buckets.add(new Bucket("device", "대상 장비 지정", "학교가 신고한 무선망 AS에 장애 장비를 연결해 주세요 (장비의 업체가 맡게 됩니다)",
+                    r -> "M".equals(r.rceptTy) && ("A".equals(r.status) || "R".equals(r.status)) && r.deviceId == null, oldest));
+        if (manager && me.can("AS_ASSIGN"))
+            buckets.add(new Bucket("vendor", "업체 미배정", "담당 업체가 정해지지 않은 신청",
+                    r -> "A".equals(r.status) && r.vendorId == null && !officeHandled(r), oldest));
+        if ((manager || vendorAdmin) && me.can("AS_ENGINEER_ASSIGN"))
+            buckets.add(new Bucket("engineer", "기사 미배정", "업체는 정해졌지만 담당 기사가 없는 건",
+                    r -> ("A".equals(r.status) || "R".equals(r.status)) && r.vendorId != null && r.engineerUserId == null, oldest));
+        if (vendor && me.can("AS_RECEIVE"))
+            buckets.add(new Bucket("receive", "접수 대기", "아직 접수하지 않은 신청",
+                    r -> "A".equals(r.status), oldest));
+        if (vendor)
+            buckets.add(new Bucket("visit-soon", "오늘 · 내일 방문", "방문예정일이 오늘이나 내일인 건",
+                    r -> "R".equals(r.status) && r.visitPlannedAt != null && AsAlertService.noReport(r)
+                            && !r.visitPlannedAt.toLocalDate().isBefore(today) && !r.visitPlannedAt.toLocalDate().isAfter(today.plusDays(1)), byVisit));
+        if (me.can("AS_EVALUATE"))
+            buckets.add(new Bucket("evaluate", "만족도 평가 대기", "처리가 끝난 신청의 만족도를 평가해 주세요",
+                    r -> canEvaluate(me, r), Comparator.comparing((AsRequest r) -> r.completedAt, Comparator.nullsLast(Comparator.naturalOrder()))));
+        if (manager)
+            buckets.add(new Bucket("low-score", "낮은 만족도", "최근 30일 안에 2점 이하로 평가된 건 — 확인이 필요합니다",
+                    r -> "C".equals(r.status) && r.evalScore != null && r.evalScore <= 2 && r.evaluatedAt != null && r.evaluatedAt.isAfter(now.minusDays(30)),
+                    Comparator.comparing((AsRequest r) -> r.evaluatedAt, Comparator.nullsLast(Comparator.reverseOrder()))));
+
+        Ref ref = ref(me.orgId());
+        List<Json> out = new ArrayList<>();
+        long total = 0;
+        for (Bucket b : buckets) {
+            List<AsRequest> l = all.stream().filter(b.test()).sorted(b.order()).toList();
+            total += l.size();
+            out.add(Json.obj().with("key", b.key()).with("label", b.label()).with("hint", b.hint()).with("count", l.size())
+                    .with("rows", l.stream().limit(5).map(r -> {
+                        Json j = row(r, ref);
+                        Json x = Json.obj();
+                        for (String k : List.of("asvcSn", "rceptTy", "rceptTyName", "schoolName", "status", "statusName", "requestAt", "visitPlannedAt",
+                                "vendorName", "engineerName", "evalScore")) x.put(k, j.get(k));
+                        x.put("symptom", clip(r.symptom, 40));
+                        x.put("late", late.apply(r));
+                        return x;
+                    }).toList()));
+        }
+        return Json.obj().with("buckets", out).with("total", total).with("dutyTypes", duty);
     }
 
     @Transactional(readOnly = true)
@@ -248,7 +510,7 @@ public class AsRequestService {
         if (s != null) j.put("school", Json.obj().with("schoolId", s.schoolId).with("schoolName", s.schoolName).with("address", s.address).with("tel", s.tel));
         Vendor v = r.vendorId == null ? null : ref.vendors().get(r.vendorId);
         if (v != null) j.put("vendor", Json.obj().with("vendorId", v.vendorId).with("vendorName", v.vendorName).with("tel", v.tel));
-        if (r.visitAt != null || r.processContent != null) {
+        if (r.processContent != null) {
             j.put("report", Json.obj().with("engineerName", r.engineerName).with("visitAt", r.visitAt).with("visitEndAt", r.visitEndAt)
                     .with("troubleSymptom", r.troubleSymptom).with("inspectContent", r.inspectContent)
                     .with("processTypeCode", r.processTypeCode).with("processTypeName", r.processTypeCode == null ? null : AsCodes.PROCESS_TYPE_NAME.get(r.processTypeCode))
@@ -268,13 +530,23 @@ public class AsRequestService {
                 .with("workerName", h.workerId == null ? null : Optional.ofNullable(ref.users().get(h.workerId)).map(u -> u.userName).orElse(null))
                 .with("createdAt", h.createdAt)).toList());
         j.put("allowedActions", allowedActions(me, r));
+        if (j.get("allowedActions") instanceof List<?> acts0 && acts0.contains("handler")) j.put("handlerOptions", handlerOptions(me, r, ref));
+        // 기사 배정 추천: 학교 관리의 기본 담당 기사 (같은 업체 · 사용 중인 계정일 때만)
+        if (r.engineerUserId == null && r.vendorId != null && j.get("allowedActions") instanceof List<?> acts && acts.contains("engineer"))
+            schoolService.resolveVendor(r.schoolId, r.rceptTy)
+                    .filter(sv -> sv.engineerUserId != null && r.vendorId.equals(sv.vendorId))
+                    .map(sv -> ref.users().get(sv.engineerUserId))
+                    .filter(u -> u != null && "ACTIVE".equals(u.status) && r.vendorId.equals(u.vendorId))
+                    .ifPresent(u -> j.with("suggestedEngineerUserId", u.userId).with("suggestedEngineerName", u.userName));
         return j;
     }
 
     /** 동작 → 그 동작을 여는 처리 기능 권한. 여기 없는 동작(방문·보고서·평가·배정·수정)은 기존 조건만 본다. */
-    private static final Map<String, String> ACTION_PERM = Map.of(
-            "receive", "AS_RECEIVE", "return", "AS_RETURN", "return-cancel", "AS_RETURN", "transfer", "AS_TRANSFER",
-            "cancel", "AS_CANCEL", "delete", "AS_DELETE", "assign", "AS_ASSIGN", "visit", "AS_VISIT", "report", "AS_REPORT");
+    private static final Map<String, String> ACTION_PERM = Map.ofEntries(
+            Map.entry("receive", "AS_RECEIVE"), Map.entry("return", "AS_RETURN"), Map.entry("return-cancel", "AS_RETURN"), Map.entry("transfer", "AS_TRANSFER"),
+            Map.entry("cancel", "AS_CANCEL"), Map.entry("delete", "AS_DELETE"), Map.entry("assign", "AS_ASSIGN"), Map.entry("visit", "AS_VISIT"),
+            Map.entry("report", "AS_REPORT"), Map.entry("device", "AS_DEVICE"), Map.entry("engineer", "AS_ENGINEER_ASSIGN"),
+            Map.entry("arrive", "AS_REPORT"), Map.entry("handler", "AS_ASSIGN"));
 
     /** 신청자(또는 그 학교 담당자)가 처리완료 건을 아직 평가하지 않았고 평가 권한이 있는가. */
     private boolean canEvaluate(CurrentUser me, AsRequest r) {
@@ -290,14 +562,19 @@ public class AsRequestService {
         List<String> a = new ArrayList<>();
         // 처리(접수 · 방문 · 보고서 · 반려 · 이관): 도교육청 · 배정된 업체, 그리고 처리 기능을 켜 준 교육지원청 담당자(관내 건만).
         // 어떤 처리를 할 수 있는지는 아래에서 처리 기능 권한(AS_RECEIVE 등)으로 거른다.
+        // 교육지원청은 처리 담당이 교육지원청인 건(스쿨넷 직접 처리)만 처리한다. 업체가 맡은 건은 업체가.
         boolean process = (me.can("AS_PROCESS") && (isAdmin(me) || (isVendorSide(me) && me.scope().vendorId().equals(r.vendorId))))
-                || isRegionManager(me);
+                || (isRegionManager(me) && "REGION".equals(r.handlerType));
         boolean owner = isOwner(me, r);
         // load()/inScope already limit a 교육지원청 담당자 to their district, so here they act like an admin (minus delete).
         boolean manager = isAdmin(me) || isRegionManager(me);
         switch (r.status) {
             case "A" -> { if (process) a.addAll(List.of("receive", "return", "transfer")); if (owner || manager) a.addAll(List.of("update", "cancel")); }
-            case "R" -> { if (process) a.addAll(List.of("visit", "report", "transfer")); }
+            case "R" -> {
+                if (process) a.addAll(List.of("visit", "report", "transfer"));
+                // 현장 도착 기록 (장비 라벨 QR): 아직 도착 · 보고서가 없을 때
+                if (process && r.visitAt == null && r.processContent == null) a.add("arrive");
+            }
             case "C" -> {
                 if (process) a.add("report");
                 if (canEvaluate(me, r)) a.add("evaluate");
@@ -305,7 +582,14 @@ public class AsRequestService {
             case "X" -> { if (process) a.add("return-cancel"); if (owner || manager) a.add("cancel"); }
             default -> { }
         }
-        if (manager && !"C".equals(r.status)) a.add("assign");
+        // 업체 배정. 스쿨넷은 대신 '처리 담당 지정' (통신사에 넘김 · 교육지원청 직접 처리 · 교육청으로 올림)
+        if ("S".equals(r.rceptTy)) { if (manager && ("A".equals(r.status) || "R".equals(r.status))) a.add("handler"); }
+        else if (manager && !"C".equals(r.status)) a.add("assign");
+        // 대상 장비 지정: 교육청 · 교육지원청이 무선망 · 스쿨넷 건에 (취소 · 삭제 전까지)
+        if (manager && ("M".equals(r.rceptTy) || "S".equals(r.rceptTy)) && !"X".equals(r.status)) a.add("device");
+        // 기사 배정: 업체가 정해진 건을 처리 전(신청완료 · 접수완료)에 — 그 업체의 업체 관리자, 교육청 · 교육지원청
+        if (r.vendorId != null && ("A".equals(r.status) || "R".equals(r.status))
+                && (manager || (isVendorSide(me) && me.scope().vendorId().equals(r.vendorId)))) a.add("engineer");
         if (isAdmin(me)) a.add("delete");
         // 사용자별로 끈 처리 기능 (Roles.ACTION_PERMS)
         a.removeIf(x -> ACTION_PERM.containsKey(x) && !me.can(ACTION_PERM.get(x)));
@@ -380,6 +664,16 @@ public class AsRequestService {
         return s == null ? "" : s.schoolName;
     }
 
+    /**
+     * 관할 교육지원청의 담당자 중 이 AS 유형을 맡은 사람에게 알린다. 다른 쪽(학교·업체) 알림을 이미 받은 사람은 뺀다.
+     */
+    private void notifyRegion(AsRequest r, Set<Long> already, CurrentUser me, String type, String title, String body) {
+        School s = r.schoolId == null ? null : schoolService.schoolMap(r.orgId).get(r.schoolId);
+        Set<Long> to = new LinkedHashSet<>(notices.regionSide(r, s == null ? null : s.regionId));
+        to.removeAll(already);
+        notices.notify(to, me.userId(), r, type, title, body);
+    }
+
     private static String when(LocalDateTime t) { return t == null ? "" : t.toString().replace('T', ' ').substring(0, 16); }
 
     private static String won(Long v) { return String.format("%,d원", v == null ? 0L : v); }
@@ -426,7 +720,7 @@ public class AsRequestService {
         if ("M".equals(ty) && creating && r.requestTypeCode == null) throw ApiException.badRequest("요청내용을 선택해주세요.");
         if (b.containsKey("symptom")) r.symptom = Params.str(b, "symptom");
         if (b.containsKey("installPlace")) r.installPlace = Params.str(b, "installPlace");
-        if (("M".equals(ty) || "C".equals(ty)) && creating && Params.blank(r.installPlace)) throw ApiException.badRequest("설치장소를 입력해주세요.");
+        if ("C".equals(ty) && creating && Params.blank(r.installPlace)) throw ApiException.badRequest("설치장소를 입력해주세요.");
         if (b.containsKey("applicantName") && Params.str(b, "applicantName") != null) r.applicantName = Params.str(b, "applicantName");
         String t = tel(b);
         if (t != null) r.contactTel = t;
@@ -441,6 +735,8 @@ public class AsRequestService {
                 WirelessDevice d = devices.findById(did).filter(x -> x.orgId.equals(me.orgId()) && x.rceptTy.equals(ty) && "Y".equals(x.useYn))
                         .orElseThrow(() -> ApiException.badRequest("S".equals(ty) ? "스쿨넷 장비를 다시 선택해 주세요." : "무선장비관리번호를 선택해주세요."));
                 r.deviceId = d.deviceId; r.deviceName = d.deviceCode + " " + d.deviceName + (d.location == null ? "" : " (" + d.location + ")");
+                // 무선망 · 스쿨넷의 설치장소는 대상 장비의 설치위치다 (직접 입력하지 않는다).
+                if (d.location != null && !d.location.isBlank()) r.installPlace = d.location;
             } else r.deviceId = null;
         }
         if (b.containsKey("deviceName") && Params.str(b, "deviceName") != null) r.deviceName = Params.str(b, "deviceName");
@@ -474,18 +770,27 @@ public class AsRequestService {
         if (!me.can(perm)) throw ApiException.forbidden("권한이 없습니다.");
         Long schoolId = isSchoolSide(me) ? me.scope().schoolId() : Params.lng(b, "schoolId");
         School school = schoolService.loadSchool(me, schoolId);
-        SchoolVendor sv = schoolService.resolveVendor(school.schoolId, ty).orElseThrow(() -> ApiException.badRequest("기관에 등록된 유지보수 업체가 없습니다."));
+        // 스쿨넷은 교육청 설정에 따라 교육지원청이 먼저 받는다 (업체 없이). 그 밖은 학교 배정 업체.
+        boolean office = "S".equals(ty) && "REGION".equals(schoolnetRoute(me.orgId()));
+        SchoolVendor sv = schoolService.resolveVendor(school.schoolId, ty).orElse(null);
+        if (sv == null && !office) throw ApiException.badRequest("기관에 등록된 유지보수 업체가 없습니다.");
 
         AsRequest r = new AsRequest();
         r.orgId = me.orgId(); r.rceptTy = ty; r.schoolId = school.schoolId;
         r.applicantUserId = me.userId(); r.applicantName = me.user().userName; r.contactTel = me.user().mobile;
         r.status = "A"; r.requestAt = Times.now();
-        r.vendorId = sv.vendorId; r.engineerUserId = sv.engineerUserId;
-        if (sv.engineerUserId != null) r.engineerName = users.findById(sv.engineerUserId).map(u -> u.userName).orElse(null);
+        // 업체만 학교 배정에서 정한다. 기사는 업체 관리자가 정한다 (학교의 기본 담당 기사는 기사 배정 때 추천으로만 쓴다).
+        if (office) { r.handlerType = "REGION"; r.vendorId = null; }
+        else { r.handlerType = "VENDOR"; r.vendorId = sv.vendorId; }
         applyRequestFields(me, r, b, true);
+        // 무선망: 장비가 붙어 온 신고(장비 라벨 QR)는 그 장비의 유지보수 업체가 맡는다.
+        if ("M".equals(ty) && r.deviceId != null)
+            devices.findById(r.deviceId).map(d -> d.vendorId).filter(v -> schoolService.vendorMap(me.orgId()).containsKey(v)).ifPresent(v -> r.vendorId = v);
         requests.save(r);
         history(r, null, "REQUEST", AsCodes.RCEPT_TY_NAME.get(ty) + " AS 신청 등록", me.userId());
-        notices.notify(notices.vendorSide(r), me.userId(), r, "AS_NEW", label(r) + " 새 신청", schoolName(r) + " · " + clip(r.symptom, 80));
+        Set<Long> vs = notices.vendorSide(r);
+        notices.notify(vs, me.userId(), r, "AS_NEW", label(r) + " 새 신청", schoolName(r) + " · " + clip(r.symptom, 80));
+        notifyRegion(r, vs, me, "AS_NEW", label(r) + " 새 신청", schoolName(r) + " · " + clip(r.symptom, 80));
         return r.asvcSn;
     }
 
@@ -499,7 +804,7 @@ public class AsRequestService {
     public void act(CurrentUser me, Long sn, String action, Map<String, Object> b) {
         AsRequest r = load(me, sn);
         if (!allowedActions(me, r).contains(action)) {
-            if (!List.of("receive", "return", "return-cancel", "transfer", "cancel", "visit", "report", "evaluate", "assign", "delete", "update").contains(action))
+            if (!List.of("receive", "return", "return-cancel", "transfer", "cancel", "visit", "report", "evaluate", "assign", "device", "engineer", "arrive", "handler", "delete", "update").contains(action))
                 throw ApiException.notFound("지원하지 않는 처리입니다.");
             throw ApiException.conflict("현재 상태(" + AsCodes.STATUS_NAME.get(r.status) + ")에서는 처리할 수 없거나 권한이 없습니다.");
         }
@@ -509,7 +814,8 @@ public class AsRequestService {
                 LocalDateTime planned = visitTime(b, "visitPlannedAt", "visitPlannedDate");
                 if (planned == null) throw ApiException.badRequest("방문예정일시를 입력해주세요.");
                 r.status = "R"; r.receivedAt = Times.now(); r.visitPlannedAt = planned;
-                if (isVendorSide(me)) { r.engineerUserId = me.userId(); r.engineerName = me.user().userName; }
+                // 담당 기사가 아직 없을 때만 접수한 사람이 맡는다 (업체 관리자가 정해 둔 기사를 바꾸지 않는다).
+                if ((isVendorSide(me) || officeHandled(r)) && r.engineerUserId == null) { r.engineerUserId = me.userId(); r.engineerName = me.user().userName; }
                 history(r, prev, "RECEIVE", "접수 처리 · 방문예정 " + planned.toString().replace('T', ' '), me.userId());
                 notices.notify(notices.schoolSide(r), me.userId(), r, "AS_RECEIVED", label(r) + " 접수", "방문예정 " + when(planned) + (r.engineerName == null ? "" : " · 담당 " + r.engineerName));
             }
@@ -518,7 +824,9 @@ public class AsRequestService {
                 if (reason == null) throw ApiException.badRequest("반려 사유를 입력해주세요.");
                 r.status = "X"; r.returnReason = reason;
                 history(r, prev, "RETURN", "반려: " + reason, me.userId());
-                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_RETURNED", label(r) + " 반려", clip(reason, 200));
+                Set<Long> ss = notices.schoolSide(r);
+                notices.notify(ss, me.userId(), r, "AS_RETURNED", label(r) + " 반려", clip(reason, 200));
+                notifyRegion(r, ss, me, "AS_RETURNED", label(r) + " 반려", schoolName(r) + " · " + clip(reason, 200));
             }
             case "return-cancel" -> {
                 r.status = "A"; r.returnReason = null;
@@ -533,20 +841,35 @@ public class AsRequestService {
                 if (content == null) throw ApiException.badRequest("이관 내용을 입력해주세요.");
                 SchoolVendor sv = schoolService.resolveVendor(r.schoolId, to).orElseThrow(() -> ApiException.badRequest("이관 대상 서비스에 대한 AS 업체 또는 담당 기사가 지정되어 있지 않습니다."));
                 r.transferFromTy = r.rceptTy; r.transferContent = content; r.rceptTy = to;
-                r.vendorId = sv.vendorId; r.engineerUserId = sv.engineerUserId;
-                r.engineerName = sv.engineerUserId == null ? null : users.findById(sv.engineerUserId).map(u -> u.userName).orElse(null);
+                // 이관된 유형의 업체로. 기사는 그 업체 관리자가 새로 정한다.
+                r.vendorId = sv.vendorId; r.engineerUserId = null; r.engineerName = null;
                 r.status = "A"; r.receivedAt = null; r.visitPlannedAt = null;
                 Map<String, String> ft = AsCodes.FAULT_TYPES.get(to);
                 if (!ft.containsKey(r.faultTypeCode)) { r.faultTypeCode = ft.keySet().iterator().next(); r.faultTypeName = ft.get(r.faultTypeCode); }
                 history(r, prev, "TRANSFER", AsCodes.RCEPT_TY_NAME.get(r.transferFromTy) + " → " + AsCodes.RCEPT_TY_NAME.get(to) + " 이관: " + content, me.userId());
                 String moved = AsCodes.RCEPT_TY_NAME.get(r.transferFromTy) + " → " + AsCodes.RCEPT_TY_NAME.get(to);
-                notices.notify(notices.vendorSide(r), me.userId(), r, "AS_NEW", label(r) + " 이관 신청", schoolName(r) + " · " + moved);
-                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_TRANSFERRED", label(r) + " 이관", moved + " · " + clip(content, 120));
+                Set<Long> vs = notices.vendorSide(r), ss = notices.schoolSide(r);
+                notices.notify(vs, me.userId(), r, "AS_NEW", label(r) + " 이관 신청", schoolName(r) + " · " + moved);
+                notices.notify(ss, me.userId(), r, "AS_TRANSFERRED", label(r) + " 이관", moved + " · " + clip(content, 120));
+                // 이관된 유형을 맡은 교육지원청 담당자에게 (새 유형 기준)
+                Set<Long> both = new LinkedHashSet<>(vs); both.addAll(ss);
+                notifyRegion(r, both, me, "AS_NEW", label(r) + " 이관 신청", schoolName(r) + " · " + moved);
             }
             case "cancel" -> {
                 r.useYn = "N";
                 history(r, prev, "CANCEL", "신청 취소", me.userId());
-                if (!"C".equals(prev)) notices.notify(notices.vendorSide(r), me.userId(), r, "AS_CANCELED", label(r) + " 신청 취소", schoolName(r));
+                if (!"C".equals(prev)) {
+                    Set<Long> vs = notices.vendorSide(r);
+                    notices.notify(vs, me.userId(), r, "AS_CANCELED", label(r) + " 신청 취소", schoolName(r));
+                    notifyRegion(r, vs, me, "AS_CANCELED", label(r) + " 신청 취소", schoolName(r));
+                }
+            }
+            case "arrive" -> {
+                // 기사가 장비 라벨을 찍고 도착을 기록한다: SLA의 현장 도착 시각, 방문 지연 알림도 멈춘다.
+                r.visitAt = Times.now();
+                if ((isVendorSide(me) || officeHandled(r)) && r.engineerUserId == null) { r.engineerUserId = me.userId(); r.engineerName = me.user().userName; }
+                history(r, prev, "ARRIVE", "현장 도착" + (Boolean.TRUE.equals(b.get("byQr")) ? " (장비 라벨 QR)" : ""), me.userId());
+                notices.notify(notices.schoolSide(r), me.userId(), r, "AS_ARRIVED", label(r) + " 기사 도착", (r.engineerName == null ? "" : r.engineerName + " · ") + when(r.visitAt));
             }
             case "visit" -> {
                 LocalDateTime planned = visitTime(b, "visitPlannedAt", "visitPlannedDate");
@@ -582,8 +905,12 @@ public class AsRequestService {
                 r.status = "C";
                 if (first || r.completedAt == null) r.completedAt = r.visitEndAt;
                 history(r, prev, first ? "REPORT" : "REPORT_UPDATE", (first ? "처리 보고서 등록: " : "처리 보고서 수정: ") + r.processContent, me.userId());
-                if (first) notices.notify(notices.schoolSide(r), me.userId(), r, "AS_DONE", label(r) + " 처리 완료",
-                        clip(r.processContent, 120) + " · 만족도 평가를 부탁드립니다.");
+                if (first) {
+                    Set<Long> ss = notices.schoolSide(r);
+                    notices.notify(ss, me.userId(), r, "AS_DONE", label(r) + " 처리 완료",
+                            clip(r.processContent, 120) + " · 만족도 평가를 부탁드립니다.");
+                    notifyRegion(r, ss, me, "AS_DONE", label(r) + " 처리 완료", schoolName(r) + " · " + clip(r.processContent, 120));
+                }
             }
             case "evaluate" -> {
                 Integer score = Params.integer(b, "score");
@@ -606,6 +933,40 @@ public class AsRequestService {
                 history(r, prev, "ASSIGN", "업체 배정: " + v.vendorName + (e == null ? "" : " / " + e.userName), me.userId());
                 notices.notify(notices.vendorSide(r), me.userId(), r, "AS_ASSIGNED", label(r) + " 배정", schoolName(r) + " · " + clip(r.symptom, 80));
             }
+            case "device" -> {
+                Long did = Params.lng(b, "deviceId");
+                if (did == null) {
+                    r.deviceId = null; r.deviceName = null; r.installPlace = null;
+                    history(r, prev, "DEVICE", "대상 장비 지정 해제", me.userId());
+                } else {
+                    WirelessDevice d = devices.findById(did).filter(x -> x.orgId.equals(me.orgId()) && x.rceptTy.equals(r.rceptTy) && "Y".equals(x.useYn)
+                                    && Objects.equals(x.schoolId, r.schoolId))
+                            .orElseThrow(() -> ApiException.badRequest("이 학교의 " + ("S".equals(r.rceptTy) ? "스쿨넷 장비" : "무선장비") + "를 선택해 주세요."));
+                    r.deviceId = d.deviceId; r.deviceName = d.deviceCode + " " + d.deviceName + (d.location == null ? "" : " (" + d.location + ")");
+                    // 설치장소는 그 장비의 설치위치로 바뀐다.
+                    r.installPlace = d.location;
+                    history(r, prev, "DEVICE", "대상 장비 지정: " + r.deviceName, me.userId());
+                    // 무선망: 처리 전이면 그 장비의 유지보수 업체가 맡는다 (업체가 바뀌면 기사는 새 업체 관리자가 정한다).
+                    Vendor dv = d.vendorId == null ? null : schoolService.vendorMap(me.orgId()).get(d.vendorId);
+                    if ("M".equals(r.rceptTy) && dv != null && !dv.vendorId.equals(r.vendorId) && ("A".equals(r.status) || "R".equals(r.status))) {
+                        r.vendorId = dv.vendorId; r.engineerUserId = null; r.engineerName = null;
+                        if ("R".equals(r.status)) { r.status = "A"; r.receivedAt = null; r.visitPlannedAt = null; }
+                        history(r, prev, "ASSIGN", "업체 변경 (장비의 유지보수 업체): " + dv.vendorName, me.userId());
+                        notices.notify(notices.vendorSide(r), me.userId(), r, "AS_ASSIGNED", label(r) + " 배정", schoolName(r) + " · " + clip(r.symptom, 80));
+                    }
+                }
+            }
+            case "engineer" -> {
+                Long eid = Params.lng(b, "engineerUserId");
+                AppUser e = eid == null ? null : users.findById(eid)
+                        .filter(u -> r.vendorId.equals(u.vendorId) && "ACTIVE".equals(u.status) && (u.roles.contains("AS_ENGINEER") || u.roles.contains("VENDOR_ADMIN")))
+                        .orElseThrow(() -> ApiException.badRequest("담당 기사가 이 업체 소속이 아닙니다."));
+                if (e == null) throw ApiException.badRequest("담당 기사를 선택해 주세요.");
+                r.engineerUserId = e.userId; r.engineerName = e.userName;
+                history(r, prev, "ENGINEER", "기사 배정: " + e.userName, me.userId());
+                notices.notify(Set.of(e.userId), me.userId(), r, "AS_ASSIGNED", label(r) + " 담당 배정", schoolName(r) + " · " + clip(r.symptom, 80));
+            }
+            case "handler" -> handler(me, r, prev, b);
             case "delete" -> {
                 r.useYn = "N";
                 history(r, prev, "DELETE", "관리자 삭제", me.userId());

@@ -31,6 +31,17 @@ export const ACTION_LABEL: Record<string, string> = {
   delete: "삭제",
   assign: "업체 배정",
   ASSIGN: "업체 배정",
+  device: "대상 장비 지정",
+  DEVICE: "대상 장비 지정",
+  engineer: "기사 배정",
+  ENGINEER: "기사 배정",
+  // 처리 이력의 자동 기록 (지연 알림)
+  ALERT: "지연 알림",
+  arrive: "도착 기록",
+  handler: "처리 담당 지정",
+  HANDLER: "처리 담당 지정",
+  ARRIVE: "현장 도착",
+  ESCALATE: "에스컬레이션",
 };
 
 let codesCache: Promise<AsCodes> | null = null;

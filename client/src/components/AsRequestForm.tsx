@@ -76,12 +76,14 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
 
   // 무선망·스쿨넷: the chosen school's devices of that kind.
   const pickDevice = ty === "M" || ty === "S";
+  // 학교 담당자는 증상만 신고한다 — 대상 장비는 교육지원청이 지정 (장비 라벨 QR로 신청할 때만 그 장비가 붙는다).
+  const listDevices = pickDevice && !school;
   useEffect(() => {
-    if (!pickDevice || !f.schoolId) return setDevices([]);
+    if (!listDevices || !f.schoolId) return setDevices([]);
     api.get<Page<WirelessDevice> | WirelessDevice[]>(ty === "M" ? "/api/as/wireless-devices" : "/api/as/schoolnet-devices", { schoolId: f.schoolId, size: 200 })
       .then((d) => setDevices(rows(d)))
       .catch(() => setDevices([]));
-  }, [ty, pickDevice, f.schoolId]);
+  }, [ty, listDevices, f.schoolId]);
 
   // 장비 라벨 QR → "이 장비로 AS 신청" (?device=123): 학교·대상장비·설치장소를 채워 둔다.
   useEffect(() => {
@@ -99,7 +101,10 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
   if (!codes) return <Loading />;
 
   const faults = codes.faultTypes[ty] ?? {};
-  const placeRequired = ty === "C" || ty === "M";
+  // 설치장소: 정보기기만 직접 입력(필수). 무선망 · 스쿨넷은 대상 장비의 설치위치를 따른다.
+  const placeRequired = ty === "C";
+  const placeFromDevice = pickDevice;
+  const chosenDevice = devices.find((d) => String(d.deviceId) === f.deviceId);
   const name = AS_NAME[ty];
 
   const validate = () => {
@@ -138,7 +143,7 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
         faultTypeName: f.faultTypeCode === "W" ? f.faultTypeName.trim() : undefined,
         requestTypeCode: ty === "M" ? f.requestTypeCode : undefined,
         symptom: f.symptom.trim(),
-        installPlace: f.installPlace.trim() || undefined,
+        installPlace: placeFromDevice ? undefined : f.installPlace.trim() || undefined,
         visitRequestAt: f.visitRequestAt,
         contactTel: f.contactTel,
         deviceId: pickDevice && f.deviceId ? Number(f.deviceId) : undefined,
@@ -201,13 +206,23 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
             <FormRow label="방문요청일시" required error={errors.visitRequestAt}>
               <DateTimeInput label="방문요청일시" value={f.visitRequestAt} onChange={(v) => set("visitRequestAt", v)} />
             </FormRow>
-            <FormRow label="설치장소" required={placeRequired} error={errors.installPlace}>
-              <input aria-label="설치장소" value={f.installPlace} onChange={(e) => set("installPlace", e.target.value)} /> <small>설치 장소를 입력해 주세요. (예: 본관 2층 교무실)</small>
-            </FormRow>
+            {placeFromDevice ? (
+              <FormRow label="설치장소">
+                {f.deviceId ? <b>{chosenDevice?.location ?? f.installPlace ?? "-"}</b> : null}
+                <small className="hint">{f.deviceId ? " 대상 장비의 설치위치입니다." : school ? "대상 장비를 지정하면 그 장비의 설치위치로 정해집니다. 장애 위치는 신청내용에 적어 주세요." : "대상 장비를 고르면 그 장비의 설치위치로 정해집니다."}</small>
+              </FormRow>
+            ) : (
+              <FormRow label="설치장소" required={placeRequired} error={errors.installPlace}>
+                <input aria-label="설치장소" value={f.installPlace} onChange={(e) => set("installPlace", e.target.value)} /> <small>설치 장소를 입력해 주세요. (예: 본관 2층 교무실)</small>
+              </FormRow>
+            )}
             <FormRow label="연락처" required error={errors.contactTel}>
               <TelInput value={f.contactTel} onChange={(v) => set("contactTel", v)} />
             </FormRow>
-            {pickDevice && (
+            {pickDevice && school && f.deviceId && (
+              <FormRow label="대상장비"><span className="hint">장비 라벨(QR)로 신청한 장비가 함께 접수됩니다.</span></FormRow>
+            )}
+            {listDevices && (
               <FormRow label="대상장비">
                 <select aria-label="대상장비" value={f.deviceId} onChange={(e) => set("deviceId", e.target.value)} disabled={!f.schoolId}>
                   <option value="">{f.schoolId ? (devices.length ? "-- 선택 안 함 --" : `등록된 ${ty === "M" ? "무선장비" : "스쿨넷 장비"}가 없습니다`) : "기관을 먼저 선택하세요"}</option>

@@ -544,6 +544,8 @@ public class SchoolService {
     public List<Json> engineers(CurrentUser me, Long vendorId) {
         if (me.scope().region() && !servesRegion(me.orgId(), vendorId, me.scope().regionId()))
             throw ApiException.forbidden("관할 교육지원청을 맡은 업체의 기사만 볼 수 있습니다.");
+        if (me.scope().vendor() && !Objects.equals(me.scope().vendorId(), vendorId))
+            throw ApiException.forbidden("자기 업체의 기사만 볼 수 있습니다.");
         return users.findByOrgIdOrderByUserIdAsc(me.orgId()).stream()
                 .filter(u -> vendorId.equals(u.vendorId) && "ACTIVE".equals(u.status) && (u.roles.contains("AS_ENGINEER") || u.roles.contains("VENDOR_ADMIN")))
                 .map(u -> Json.obj().with("userId", u.userId).with("userName", u.userName).with("positionName", u.positionName).with("mobile", u.mobile)

@@ -10,7 +10,8 @@ import { fetchAll, loadSchools, type SchoolFull, type Vendor } from "@/lib/admin
 import { useAuth } from "@/lib/auth";
 import { clearRegionCache, loadRegions } from "@/lib/boards";
 import { fmtDate } from "@/lib/format";
-import type { Region } from "@/lib/types";
+import { AS_NAME, useAsTypes } from "@/lib/as";
+import type { RceptTy, Region } from "@/lib/types";
 
 /**
  * 사용자 관리 (/api/users): 계정을 등록·조회·수정·삭제한다. 삭제는 사용 중지다.
@@ -44,6 +45,8 @@ interface UserRow {
   schoolId?: number;
   vendorId?: number;
   regionId?: number;
+  /** 교육지원청 담당자의 담당 AS 유형 (비어 있으면 모든 유형) */
+  dutyTypes?: RceptTy[];
   lastLoginAt?: string;
 }
 
@@ -176,7 +179,10 @@ function Users() {
                   <td data-label="아이디">{u.loginId}</td>
                   <td data-label="이름" className="tl">{u.userName}{self && <span className="hint"> (나)</span>}</td>
                   <td data-label="구분">{u.memberType}</td>
-                  <td data-label="소속" className="tl">{u.affiliation ?? "-"}</td>
+                  <td data-label="소속" className="tl">
+                    {u.affiliation ?? "-"}
+                    {u.roles.includes("REGION_ADMIN") && <small className="duty-types"> · 담당 {u.dutyTypes?.length ? u.dutyTypes.map((t) => AS_NAME[t]).join(", ") : "전체 유형"}</small>}
+                  </td>
                   <td data-label="상태">
                     {u.status === "DISABLED" ? <span className="hint">삭제됨</span> : u.locked ? <b className="st s4">잠김</b> : <b className="st s1">정상</b>}
                     {u.mustChangePassword && u.status !== "DISABLED" && <small className="um-pill warn" style={{ display: "inline-block", marginLeft: 4 }} title="다음 로그인 때 비밀번호를 바꿔야 합니다">임시 비밀번호</small>}
@@ -256,6 +262,10 @@ function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
     vendorId: user?.vendorId ? String(user.vendorId) : mgr.vendorId ? String(mgr.vendorId) : "", regionId: user?.regionId ? String(user.regionId) : "",
     status: user?.status === "DISABLED" ? "DISABLED" : "ACTIVE", password: "",
   });
+  // 담당 AS 유형 (교육지원청 담당자): 여러 개 고를 수 있다. 하나도 고르지 않으면 모든 유형.
+  const inUse = useAsTypes();
+  const [duty, setDuty] = useState<RceptTy[]>(user?.dutyTypes ?? []);
+  const toggleDuty = (t: RceptTy) => setDuty((d) => (d.includes(t) ? d.filter((x) => x !== t) : [...d, t]));
   const [schools, setSchools] = useState<SchoolFull[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
@@ -291,6 +301,7 @@ function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
       body.schoolId = aff === "school" ? Number(v.schoolId) : null;
       body.vendorId = aff === "vendor" ? Number(v.vendorId) : null;
       body.regionId = aff === "region" ? Number(v.regionId) : null;
+      body.dutyTypes = aff === "region" ? duty : [];
     }
     // 역할은 바꿀 때만 보낸다: 통합 관리자(SYS_ADMIN+SUPER_ADMIN)처럼 함께 가진 역할을 잃지 않도록.
     if (!user || v.kind !== initialKind) body.roles = [v.kind];
@@ -349,6 +360,19 @@ function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
                 <option value="">-- 선택 --</option>
                 {regions.map((r) => <option key={r.regionId} value={r.regionId}>{r.regionName}</option>)}
               </select>
+            </FormRow>
+          )}
+          {aff === "region" && (
+            <FormRow label="담당 AS 유형">
+              <span className="duty-pick" role="group" aria-label="담당 AS 유형">
+                {(["C", "M", "S", "T"] as RceptTy[]).filter((t) => inUse.includes(t) || duty.includes(t)).map((t) => (
+                  <label key={t}><input type="checkbox" checked={duty.includes(t)} onChange={() => toggleDuty(t)} /> {AS_NAME[t]}</label>
+                ))}
+              </span>
+              <small className="hint">
+                {" "}여러 개 고를 수 있습니다. 고른 유형의 신청 · 이관 · 취소 · 반려 · 처리 완료 알림을 받고, AS 목록에서 &lsquo;내 담당 유형만&rsquo;으로 볼 수 있습니다.
+                {!duty.length && " 고르지 않으면 모든 유형을 맡습니다."}
+              </small>
             </FormRow>
           )}
           <FormRow label="직위"><input aria-label="직위" value={v.positionName} onChange={set("positionName")} /></FormRow>

@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import type { AsRow, AsStatus, RceptTy } from "@/lib/types";
 import AsDetailModal from "./AsDetailModal";
-import { AsBadge, ErrorBox, EvalWait, Icon, Loading, NoticeBox, Pager, useToast } from "./ui";
+import { AsBadge, ErrorBox, EvalWait, Icon, LateBadge, Loading, NoticeBox, Pager, useToast } from "./ui";
 
 const STATUSES: [AsStatus | "", string][] = [["", "전체"], ["A", "신청완료"], ["R", "접수완료"], ["C", "처리완료"], ["X", "반려"]];
 const PAGE_SIZE = 10;
@@ -22,6 +22,8 @@ interface Filter {
   toDate: string;
   status: string;
   unassigned: boolean;
+  /** 교육지원청 담당자의 담당 AS 유형만 */
+  myTypes: boolean;
 }
 
 /**
@@ -39,9 +41,12 @@ export default function AsList({ ty }: { ty?: RceptTy }) {
 
 function AsListBody({ ty }: { ty?: RceptTy }) {
   const toast = useToast();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const asTypes = useAsTypes();
-  const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: "", unassigned: false };
+  // 담당 AS 유형이 정해진 교육지원청 담당자는 전체 목록에서 처음부터 자기 담당 유형만 본다 (끄면 모두).
+  const duty = (me?.dutyTypes ?? []).filter((t) => asTypes.includes(t));
+  const hasDuty = !ty && duty.length > 0;
+  const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: "", unassigned: false, myTypes: hasDuty };
   const [page, setPage] = useState(1);
   const [draft, setDraft] = useState<Filter>(empty);
   const [filter, setFilter] = useState<Filter>(empty);
@@ -49,7 +54,10 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
   const [data, setData] = useState<Page<AsRow> | null>(null);
   const [err, setErr] = useState("");
   // ?open=123 (from a notification) opens that request's detail; a later link with another number re-opens.
-  const urlOpen = Number(useSearchParams().get("open")) || null;
+  const sp = useSearchParams();
+  const urlOpen = Number(sp.get("open")) || null;
+  // ?act=report (장비 라벨 QR의 "처리 보고서 작성"): 그 건을 열면서 그 처리를 바로 펼친다.
+  const urlAct = sp.get("act");
   const [open, setOpen] = useState<number | null>(urlOpen);
   const [seenOpen, setSeenOpen] = useState(urlOpen);
   if (urlOpen !== seenOpen) {
@@ -60,7 +68,7 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
   const query = useCallback(
     (f: Filter) => ({
       rceptTy: f.rceptTy, status: f.status, keyword: f.keyword.trim(), searchType: f.keyword.trim() ? f.searchType : "",
-      fromDate: f.fromDate, toDate: f.toDate, unassigned: f.unassigned || undefined,
+      fromDate: f.fromDate, toDate: f.toDate, unassigned: f.unassigned || undefined, myTypes: f.myTypes || undefined,
     }),
     [],
   );
@@ -133,6 +141,11 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
                 {!ty && (
                   <label style={{ marginLeft: 8 }}><input type="checkbox" checked={draft.unassigned} onChange={(e) => setDraft({ ...draft, unassigned: e.target.checked })} /> 미배정만</label>
                 )}
+                {hasDuty && (
+                  <label style={{ marginLeft: 8 }} title={`담당: ${duty.map((t) => AS_NAME[t]).join(", ")}`}>
+                    <input type="checkbox" checked={draft.myTypes} onChange={(e) => setDraft({ ...draft, myTypes: e.target.checked })} /> 내 담당 유형만 ({duty.map((t) => AS_NAME[t]).join("·")})
+                  </label>
+                )}
               </td>
             </tr>
           </tbody>
@@ -158,12 +171,12 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
                   const no = data.totalElements - (data.page - 1) * data.size - i;
                   const cells: React.ReactNode[] = sn
                     ? [no, r.schoolName, r.deviceName ?? "-", fmtDate(r.requestAt), r.applicantName, fmtDate(r.visitRequestAt)]
-                    : [no, ...(ty ? [] : [r.rceptTyName]), r.schoolName, r.applicantName, fmtDate(r.requestAt), r.status === "C" ? fmtDate(r.completedAt) : "-", r.vendorName ?? "-"];
+                    : [no, ...(ty ? [] : [r.rceptTyName]), r.schoolName, r.applicantName, fmtDate(r.requestAt), r.status === "C" ? fmtDate(r.completedAt) : "-", r.handlerType && r.handlerType !== "VENDOR" ? r.handlerName : r.vendorName ?? "-"];
                   return (
                     <tr key={r.asvcSn} className={r.canEvaluate ? "evw-row" : undefined}>
                       {cells.map((c, j) => <td key={j} data-label={head[j]}>{c ?? "-"}</td>)}
                       <td data-label="상태">
-                        <AsBadge status={r.status} name={r.statusName} /> <EvalWait row={r} />
+                        <AsBadge status={r.status} name={r.statusName} /> <EvalWait row={r} /> <LateBadge late={r.late} />
                       </td>
                       <td data-label="보고서">
                         {r.canEvaluate
@@ -184,7 +197,7 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
           <Pager page={data.page} totalPages={data.totalPages} onPage={setPage} />
         </>
       )}
-      {open !== null && <AsDetailModal sn={open} onClose={() => setOpen(null)} onChanged={load} />}
+      {open !== null && <AsDetailModal sn={open} initialAction={open === urlOpen ? urlAct : null} onClose={() => setOpen(null)} onChanged={load} />}
     </>
   );
 }

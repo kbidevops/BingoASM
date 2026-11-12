@@ -95,6 +95,17 @@ public class AsRequest {
     @Column(length = 1)
     public String useYn = "Y";
 
+    /** 처리 담당 종류 (V15): VENDOR 업체(기사) · REGION 교육지원청 · PROVINCE 교육청. null = VENDOR. 담당자는 engineerUserId. */
+    @Column(length = 10)
+    public String handlerType;
+
+    // ---- 지연 알림 (V13, AsAlertService) ----
+    /** 보낸 접수 지연 단계: 0 없음 · 1 업체에 접수 지연 · 2 교육지원청에 에스컬레이션 */
+    @Column(nullable = false)
+    public Integer receiveAlertLevel = 0;
+    /** 방문 지연을 알린 방문예정일시 (일정을 바꾸면 다시 알린다) */
+    public LocalDateTime visitAlertFor;
+
     /** 유상 건의 청구 단계. 무상·보고서 없음은 null. */
     public String billStatus() {
         return "PAID".equals(chargeType) ? (billStatus == null ? "BILLED" : billStatus) : null;

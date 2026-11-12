@@ -48,6 +48,7 @@ public class UserService {
                 .with("mustChangePassword", Boolean.TRUE.equals(u.mustChangePassword))
                 .with("lastLoginAt", u.lastLoginAt).with("createdAt", u.createdAt).with("roles", u.roles)
                 .with("schoolId", u.schoolId).with("vendorId", u.vendorId).with("regionId", u.regionId)
+                .with("dutyTypes", u.asTypeList())
                 .with("memberType", PermissionService.memberType(u)).with("affiliation", affiliation(u))
                 .with("locked", "LOCKED".equals(u.status) || (u.lockedUntil != null && u.lockedUntil.isAfter(Times.now())))
                 .with("permOverrides", u.grantedPerms.size() + u.deniedPerms.size())
@@ -175,6 +176,16 @@ public class UserService {
         if (b.containsKey("schoolId")) u.schoolId = Params.lng(b, "schoolId");
         if (b.containsKey("vendorId")) u.vendorId = Params.lng(b, "vendorId");
         if (b.containsKey("regionId")) u.regionId = Params.lng(b, "regionId");
+        // 교육지원청 담당자의 담당 AS 유형 (여러 개). 빈 목록 = 모든 유형.
+        if (b.containsKey("dutyTypes")) {
+            Object v = b.get("dutyTypes");
+            List<String> picked = v instanceof List<?> l ? l.stream().map(String::valueOf).toList()
+                    : v == null || String.valueOf(v).isBlank() ? List.of() : List.of(String.valueOf(v).split(","));
+            for (String t : picked) if (!com.bingoasm.domain.as.AsCodes.RCEPT_TYPES.contains(t.trim())) throw ApiException.badRequest("담당 AS 유형이 올바르지 않습니다.");
+            List<String> ordered = com.bingoasm.domain.as.AsCodes.RCEPT_TYPES.stream().filter(t -> picked.stream().anyMatch(p -> p.trim().equals(t))).toList();
+            // 모든 유형을 고른 것은 정하지 않은 것과 같다.
+            u.asTypes = ordered.isEmpty() || ordered.size() == com.bingoasm.domain.as.AsCodes.RCEPT_TYPES.size() ? null : String.join(",", ordered);
+        }
         if (b.containsKey("status")) {
             String s = Params.str(b, "status");
             if (s != null && !Codes.USER_STATUS.contains(s)) throw ApiException.badRequest("사용자 상태가 올바르지 않습니다.");
@@ -210,6 +221,8 @@ public class UserService {
             if (u.regionId == null) throw ApiException.badRequest("교육지원청 담당자는 소속 교육지원청을 지정해야 합니다.");
         }
         if (u.schoolId != null || u.vendorId != null) u.regionId = null;
+        // 담당 AS 유형은 교육지원청 담당자만 갖는다.
+        if (!kinds.contains("region")) u.asTypes = null;
     }
 
     /** body.roles를 알려진 역할만 정해진 순서로. 시스템·통합 관리자 권한은 통합 관리자만 줄 수 있다. roles가 없으면 null. */

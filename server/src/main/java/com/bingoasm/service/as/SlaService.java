@@ -163,7 +163,7 @@ public class SlaService {
         summary.put("prevMetRate", rate(prevItems));
 
         // 업체별 · 지역별
-        List<Json> byVendor = group(items, r -> r.vendorId, id -> Optional.ofNullable(ref.vendors().get(id)).map(v -> v.vendorName).orElse("미배정"), "vendorId", "vendorName");
+        List<Json> byVendor = group(items, r -> r.vendorId, id -> Optional.ofNullable(ref.vendors().get(id)).map(v -> v.vendorName).orElse("업체 없음 (교육지원청 · 교육청 처리 포함)"), "vendorId", "vendorName");
         List<Json> byRegion = group(items, r -> Optional.ofNullable(ref.schools().get(r.schoolId)).map(s -> s.regionId).orElse(null),
                 id -> Optional.ofNullable(ref.regions().get(id)).map(x -> x.regionName).orElse("지역 미지정"), "regionId", "regionName");
 
@@ -232,6 +232,32 @@ public class SlaService {
         }).sorted(Comparator.comparing((Json j) -> (Long) j.get("missed")).reversed().thenComparing(j -> -((Long) j.get("total")))).toList();
     }
 
+    /**
+     * 한 회선의 장애 구간들 → 그 달의 [장애 횟수, 장애 분]. 겹치거나 맞닿은 구간은 하나의 장애로 합친다.
+     * 장애 분은 합친 구간을 그 달(monthStart ~ countEnd, 이번 달이면 지금까지) 안으로 잘라 더하고,
+     * 장애 횟수는 그 달 안(monthStart ~ monthEnd)에 시작한 합친 장애만 센다 (지난달부터 이어진 장애는 시간만 더한다).
+     */
+    static long[] outage(List<LocalDateTime[]> spans, LocalDateTime monthStart, LocalDateTime monthEnd, LocalDateTime countEnd) {
+        List<LocalDateTime[]> l = spans.stream().filter(s -> s[0] != null && s[1] != null && !s[1].isBefore(s[0]))
+                .sorted(Comparator.comparing((LocalDateTime[] s) -> s[0])).toList();
+        long count = 0, minutes = 0;
+        LocalDateTime cs = null, ce = null;
+        for (int i = 0; i <= l.size(); i++) {
+            LocalDateTime[] s = i < l.size() ? l.get(i) : null;
+            if (s != null && cs != null && !s[0].isAfter(ce)) {   // 겹침 → 늘린다
+                if (s[1].isAfter(ce)) ce = s[1];
+                continue;
+            }
+            if (cs != null) {                                         // 합친 구간 하나를 마감
+                LocalDateTime a = cs.isBefore(monthStart) ? monthStart : cs, z = ce.isAfter(countEnd) ? countEnd : ce;
+                if (z.isAfter(a)) minutes += Duration.between(a, z).toMinutes();
+                if (!cs.isBefore(monthStart) && cs.isBefore(monthEnd)) count++;
+            }
+            if (s != null) { cs = s[0]; ce = s[1]; }
+        }
+        return new long[]{count, minutes};
+    }
+
     /** 회선(스쿨넷 장비)별 그 달의 장애 횟수 · 장애 시간 · 가용률. 장애가 없던 회선은 개수만 센다. */
     private Json lines(CurrentUser me, Period p, SlaTarget t, LocalDateTime now, List<AsRequest> overlap, AsRequestService.Ref ref, Long regionId) {
         Set<Long> inScope = me.scope().vendor() ? null : schoolService.scopeSchoolIds(me);
@@ -242,19 +268,19 @@ public class SlaService {
         Map<Long, WirelessDevice> byId = all.stream().collect(Collectors.toMap(d -> d.deviceId, d -> d));
         LocalDateTime ms = p.start(), me2 = p.end().isAfter(now) ? now : p.end();
         long monthMin = Duration.between(p.start(), p.end()).toMinutes();
-        Map<Long, long[]> agg = new LinkedHashMap<>();  // deviceId → [장애 횟수, 장애 분]
+        // 회선마다 장애 구간(신청 → 처리완료, 진행 중이면 지금)을 모은 뒤, 겹치는 구간은 하나로 합친다.
+        // 같은 장애를 여러 건 신고해도 장애 시간 · 횟수를 두 번 세지 않는다.
+        Map<Long, List<LocalDateTime[]>> spans = new LinkedHashMap<>();
         for (AsRequest r : overlap) {
             if (!byId.containsKey(r.deviceId)) continue;
-            LocalDateTime from = r.requestAt;
             LocalDateTime to = "C".equals(r.status) ? (r.completedAt != null ? r.completedAt : r.visitEndAt) : now;
             if (to == null) to = now;
-            LocalDateTime a = from.isBefore(ms) ? ms : from, z = to.isAfter(me2) ? me2 : to;
-            boolean inMonth = !r.requestAt.isBefore(ms) && r.requestAt.isBefore(p.end());
-            long down = z.isAfter(a) ? Duration.between(a, z).toMinutes() : 0;
-            if (!inMonth && down == 0) continue;
-            long[] v = agg.computeIfAbsent(r.deviceId, k -> new long[2]);
-            if (inMonth) v[0]++;
-            v[1] += down;
+            spans.computeIfAbsent(r.deviceId, k -> new ArrayList<>()).add(new LocalDateTime[]{r.requestAt, to});
+        }
+        Map<Long, long[]> agg = new LinkedHashMap<>();  // deviceId → [장애 횟수, 장애 분]
+        for (var e : spans.entrySet()) {
+            long[] v = outage(e.getValue(), ms, p.end(), me2);
+            if (v[0] > 0 || v[1] > 0) agg.put(e.getKey(), v);
         }
         List<Json> rows = agg.entrySet().stream().map(e -> {
             WirelessDevice d = byId.get(e.getKey());

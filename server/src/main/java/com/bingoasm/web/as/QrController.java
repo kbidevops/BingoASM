@@ -25,8 +25,11 @@ public class QrController {
     private final QrService qr;
     private final AppProperties props;
     private final com.bingoasm.service.as.WirelessDeviceService devices;
+    private final com.bingoasm.service.as.AsRequestService requests;
 
-    public QrController(QrService qr, AppProperties props, com.bingoasm.service.as.WirelessDeviceService devices) { this.qr = qr; this.props = props; this.devices = devices; }
+    public QrController(QrService qr, AppProperties props, com.bingoasm.service.as.WirelessDeviceService devices, com.bingoasm.service.as.AsRequestService requests) {
+        this.qr = qr; this.props = props; this.devices = devices; this.requests = requests;
+    }
 
     private static ResponseEntity<byte[]> png(byte[] bytes) {
         return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).cacheControl(CacheControl.noCache()).body(bytes);
@@ -63,7 +66,13 @@ public class QrController {
     /** 장비 라벨 QR을 찍었을 때의 장비 정보 (학교 담당자는 자기 학교 장비만, 업체는 배정 학교만). */
     @GetMapping("/api/qr/devices/{id}")
     @RequirePerm({"WDEVICE_MANAGE", "SDEVICE_MANAGE", "AS_M_REQUEST", "AS_S_REQUEST", "AS_M_VIEW", "AS_S_VIEW", "AS_PROCESS"})
-    public ApiResponse device(@PathVariable Long id) { return ApiResponse.ok(devices.scanView(AuthContext.get(), id)); }
+    public ApiResponse device(@PathVariable Long id) {
+        var me = AuthContext.get();
+        com.bingoasm.common.Json j = devices.scanView(me, id);
+        // 이 장비의 처리 중 AS · 최근 90일 건수 · 장비 미지정 신고 · 문의처
+        j.put("as", requests.deviceAs(me, id, (String) j.get("rceptTy"), (Long) j.get("schoolId")));
+        return ApiResponse.ok(j);
+    }
 
     /** 빈 라벨용 자산번호 예약. body: { count, year?, schoolId? } */
     @PostMapping("/api/qr/reserve")

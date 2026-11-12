@@ -20,6 +20,9 @@ export const badgeClass = (table: [string, string, string][], code?: string | nu
 
 export interface Device {
   deviceId: number;
+  /** 유지보수 업체 (무선망 AS는 이 업체가 맡는다) */
+  vendorId?: number;
+  vendorName?: string;
   /** M 무선망 장비 / S 스쿨넷 장비 */
   rceptTy?: "M" | "S";
   deviceCode: string;

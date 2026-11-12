@@ -62,7 +62,12 @@ public class WirelessDeviceService {
     }
 
     public Json view(WirelessDevice d, Map<Long, School> sm, Map<Long, Region> rm, Map<Long, String> fn) {
+        return view(d, sm, rm, fn, schoolService.allVendorMap(d.orgId));
+    }
+
+    public Json view(WirelessDevice d, Map<Long, School> sm, Map<Long, Region> rm, Map<Long, String> fn, Map<Long, com.bingoasm.domain.as.Vendor> vm) {
         School s = d.schoolId == null ? null : sm.get(d.schoolId);
+        com.bingoasm.domain.as.Vendor v = d.vendorId == null ? null : vm.get(d.vendorId);
         Region r = s == null || s.regionId == null ? null : rm.get(s.regionId);
         return Json.obj().with("deviceId", d.deviceId).with("rceptTy", d.rceptTy).with("deviceCode", d.deviceCode).with("deviceName", d.deviceName)
                 .with("deviceType", d.deviceType).with("deviceTypeName", TYPES.get(d.rceptTy).getOrDefault(d.deviceType, d.deviceType))
@@ -72,7 +77,8 @@ public class WirelessDeviceService {
                 .with("floorId", d.floorId).with("posX", d.posX).with("posY", d.posY).with("floorFullName", d.floorId == null ? null : fn.get(d.floorId))
                 .with("status", d.status).with("statusName", STATUS_NAME.getOrDefault(d.status, d.status))
                 .with("schoolId", d.schoolId).with("schoolName", s == null ? null : s.schoolName)
-                .with("regionId", s == null ? null : s.regionId).with("regionName", r == null ? null : r.regionName).with("note", d.note);
+                .with("regionId", s == null ? null : s.regionId).with("regionName", r == null ? null : r.regionName).with("note", d.note)
+                .with("vendorId", d.vendorId).with("vendorName", v == null ? null : v.vendorName);
     }
 
     @Transactional(readOnly = true)
@@ -83,6 +89,9 @@ public class WirelessDeviceService {
         Set<Long> inScope = schoolService.scopeSchoolIds(me);
         List<WirelessDevice> all = devices.findByOrgIdAndRceptTyAndUseYnOrderBySchoolIdAscDeviceCodeAsc(me.orgId(), ty, "Y");
         Map<Long, String> fn = floorNames(all);
+        Map<Long, com.bingoasm.domain.as.Vendor> vm = schoolService.allVendorMap(me.orgId());
+        // IP · MAC은 장비를 다루는 사람에게만 (학교 담당자 등 신청 · 조회만 하는 계정에는 빼고 준다). IP로 찾기도 그들만.
+        boolean tech = me.can(EDIT_PERM.get(ty)) || me.can("AS_PROCESS") || me.scope().province() || me.scope().region();
         List<Json> rows = all.stream()
                 .filter(d -> inScope == null || inScope.contains(d.schoolId))
                 .filter(d -> schoolId == null || schoolId.equals(d.schoolId))
@@ -90,8 +99,9 @@ public class WirelessDeviceService {
                 .filter(d -> Params.blank(deviceType) || deviceType.equals(d.deviceType))
                 .filter(d -> Params.blank(status) || status.equals(d.status))
                 .filter(d -> Params.blank(keyword) || contains(d.deviceCode, keyword) || contains(d.deviceName, keyword) || contains(d.modelName, keyword)
-                        || contains(d.ipAddress, keyword) || contains(d.circuitId, keyword) || (sm.get(d.schoolId) != null && contains(sm.get(d.schoolId).schoolName, keyword)))
-                .map(d -> view(d, sm, rm, fn)).toList();
+                        || (tech && contains(d.ipAddress, keyword)) || contains(d.circuitId, keyword) || (sm.get(d.schoolId) != null && contains(sm.get(d.schoolId).schoolName, keyword)))
+                .map(d -> view(d, sm, rm, fn, vm)).toList();
+        if (!tech) for (Json j : rows) { j.remove("ipAddress"); j.remove("macAddress"); }
         return PageResult.of(rows, page, size);
     }
 
@@ -121,6 +131,16 @@ public class WirelessDeviceService {
         if (b.containsKey("lastCheckedAt")) d.lastCheckedAt = Params.date(b, "lastCheckedAt");
         if (b.containsKey("status")) { String s = Params.str(b, "status"); if (s != null && !STATUS_NAME.containsKey(s)) throw ApiException.badRequest("상태가 올바르지 않습니다."); if (s != null) d.status = s; }
         if (b.containsKey("note")) d.note = Params.str(b, "note");
+        // 유지보수 업체: 이 유형을 맡는 사용 중인 업체만 (비우면 업체 없음)
+        if (b.containsKey("vendorId")) {
+            Long vid = Params.lng(b, "vendorId");
+            if (vid != null) {
+                com.bingoasm.domain.as.Vendor v = schoolService.vendorMap(me.orgId()).get(vid);
+                if (v == null) throw ApiException.badRequest("유지보수 업체를 다시 선택해 주세요.");
+                if (!v.serviceTypeList().contains(d.rceptTy)) throw ApiException.badRequest(v.vendorName + "은(는) " + NOUN.get(d.rceptTy) + " 유지관리 업체가 아닙니다.");
+            }
+            d.vendorId = vid;
+        }
         if ("S".equals(d.rceptTy)) {
             if (b.containsKey("carrier")) d.carrier = Params.str(b, "carrier");
             if (b.containsKey("circuitId")) d.circuitId = Params.str(b, "circuitId");
@@ -136,6 +156,9 @@ public class WirelessDeviceService {
         // 무선망은 예전처럼 AP가 기본, 스쿨넷은 유형을 꼭 고른다.
         d.deviceType = "M".equals(ty) ? "AP" : null;
         apply(me, d, b);
+        // 유지보수 업체를 정하지 않았으면 그 학교 · 유형의 배정 업체
+        if (d.vendorId == null && !b.containsKey("vendorId"))
+            schoolService.resolveVendor(d.schoolId, ty).ifPresent(sv -> d.vendorId = sv.vendorId);
         devices.save(d);
         if (d.deviceCode == null) d.deviceCode = String.format("%s-%04d", CODE_PREFIX.get(ty), d.deviceId);
         return view(d, schoolService.schoolMap(me.orgId()), schoolService.regionMap(me.orgId()));
@@ -389,6 +412,9 @@ public class WirelessDeviceService {
         j.put("canRequest", me.can(REQUEST_PERM.get(d.rceptTy)));
         // 관리자에게만: 최근 위치 변경 (장비를 못 찾을 때 언제 어디로 옮겼는지)
         if (me.can(MANAGE_PERM.get(d.rceptTy))) j.put("history", historyOf(d.deviceId, 5));
+        // IP · MAC은 장비를 다루는 사람(관리 · 처리 · 교육청 · 교육지원청)에게만. 학교 담당자에게는 쓸모가 적고 노출만 된다.
+        boolean tech = me.can(EDIT_PERM.get(d.rceptTy)) || me.can("AS_PROCESS") || me.scope().province() || me.scope().region();
+        if (!tech) { j.remove("ipAddress"); j.remove("macAddress"); }
         return j;
     }
 

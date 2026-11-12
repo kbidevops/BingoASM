@@ -151,6 +151,13 @@ export function EvalWait({ row }: { row: { status: AsStatus; evalScore?: number;
     : <span className="evw">평가 대기</span>;
 }
 
+/** AS 지연 표시 (서버의 지연 알림 기준): 접수 지연 · 에스컬레이션 · 방문 지연. */
+export const LATE_LABEL: Record<string, string> = { RECEIVE: "접수 지연", ESCALATED: "미접수 에스컬레이션", VISIT: "방문 지연" };
+export function LateBadge({ late }: { late?: string | null }) {
+  if (!late || !LATE_LABEL[late]) return null;
+  return <span className={"late-b" + (late === "ESCALATED" ? " hi" : "")}><span aria-hidden="true">⏱</span> {LATE_LABEL[late]}</span>;
+}
+
 export function PostBadge({ status, name }: { status?: string; name?: string }) {
   if (!status) return <>-</>;
   return <b className={"st " + (status === "DONE" ? "s1" : status === "RECEIVED" ? "s2" : "s3")}>{name}</b>;
