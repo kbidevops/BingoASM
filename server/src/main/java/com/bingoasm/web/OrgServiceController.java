@@ -30,9 +30,12 @@ public class OrgServiceController {
     private final PermissionService permissions;
     private final AppProperties props;
     private final com.bingoasm.repo.as.AsRequestRepository requests;
+    private final com.bingoasm.service.as.WorkflowService workflows;
 
-    public OrgServiceController(OrgRepository orgs, PermissionService permissions, AppProperties props, com.bingoasm.repo.as.AsRequestRepository requests) {
+    public OrgServiceController(OrgRepository orgs, PermissionService permissions, AppProperties props, com.bingoasm.repo.as.AsRequestRepository requests,
+                                com.bingoasm.service.as.WorkflowService workflows) {
         this.requests = requests;
+        this.workflows = workflows;
         this.orgs = orgs;
         this.permissions = permissions;
         this.props = props;
@@ -73,6 +76,9 @@ public class OrgServiceController {
             String route = body.get("schoolnetRoute") == null ? null : String.valueOf(body.get("schoolnetRoute"));
             if (!"REGION".equals(route) && !"VENDOR".equals(route)) throw ApiException.badRequest("스쿨넷 신고 접수처를 선택해 주세요.");
             org.schoolnetRoute = route;
+            // 처리 흐름(스쿨넷의 첫 접수처)도 같이
+            orgs.save(org);
+            workflows.setFirstReceiver(org.orgId, "S", route);
         }
         orgs.save(org);
         return ApiResponse.ok(view(org.orgId));
@@ -85,7 +91,6 @@ public class OrgServiceController {
                 .map(t -> Json.obj().with("rceptTy", t).with("name", AsCodes.RCEPT_TY_NAME.get(t)).with("enabled", on.contains(t))
                         .with("openRequests", requests.countByOrgIdAndRceptTyAndUseYnAndStatusIn(orgId, t, "Y", List.of("A", "R"))))
                 .toList();
-        String route = orgs.findById(orgId).map(o -> o.schoolnetRoute).orElse(null);
-        return Json.obj().with("asTypes", on).with("types", types).with("schoolnetRoute", route == null ? "REGION" : route);
+        return Json.obj().with("asTypes", on).with("types", types).with("schoolnetRoute", workflows.flow(orgId, "S").firstReceiver());
     }
 }

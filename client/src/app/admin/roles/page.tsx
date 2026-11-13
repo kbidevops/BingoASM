@@ -59,7 +59,7 @@ const ROLE_SCOPE: Record<string, string> = {
   EDU_ADMIN: "교육청 전체", REGION_ADMIN: "관할 교육지원청 학교", SYS_ADMIN: "시스템 전체",
 };
 const ACTIONS: [string, string][] = [
-  ["AS_RECEIVE", "접수"], ["AS_ASSIGN", "업체 배정"], ["AS_DEVICE", "대상 장비 지정"], ["AS_ENGINEER_ASSIGN", "기사 배정"], ["AS_VISIT", "방문일 변경"], ["AS_REPORT", "처리 보고서 작성 · 수정"],
+  ["AS_RECEIVE", "접수"], ["AS_ASSIGN", "업체 배정"], ["AS_DEVICE", "대상 장비 지정"], ["AS_ENGINEER_ASSIGN", "기사 배정"], ["AS_VISIT", "방문일 변경"], ["AS_HOLD", "보류"], ["AS_REPORT", "처리 보고서 작성 · 수정"],
   ["AS_RETURN", "반려 · 반려 취소"], ["AS_TRANSFER", "이관"], ["AS_CANCEL", "신청 취소"], ["AS_DELETE", "삭제"],
   ["AS_EVALUATE", "만족도 평가"],
 ];

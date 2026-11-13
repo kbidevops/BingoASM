@@ -87,6 +87,7 @@ export const MENU: MenuGroup[] = [
       { title: "역할 권한 관리", href: "/admin/roles", perm: "ORG_WRITE" },
       { title: "사용자 메뉴 권한", href: "/admin/user-menus", perm: "ROLE_GRANT" },
       { title: "AS 서비스 설정", href: "/admin/services", perm: "ORG_WRITE" },
+      { title: "AS 처리 흐름", href: "/admin/workflow", perm: "ORG_WRITE" },
     ],
   },
 ];

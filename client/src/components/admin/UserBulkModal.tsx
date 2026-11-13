@@ -88,7 +88,9 @@ export default function UserBulkModal({ onClose, onDone }: { onClose: () => void
     onClose();
   };
 
-  const rows = res ? res.rows.filter((r) => !errOnly || !r.ok || r.warning) : [];
+  const badCount = res ? res.rows.filter((r) => !r.ok || r.warning).length : 0;
+  const allBad = !!res && badCount === res.rows.length;
+  const rows = res ? res.rows.filter((r) => !errOnly || allBad || !r.ok || r.warning) : [];
   return (
     <Modal title="사용자 엑셀 일괄 등록" wide onClose={close}>
       <ol className="bk-steps">
@@ -101,7 +103,7 @@ export default function UserBulkModal({ onClose, onDone }: { onClose: () => void
         <>
           <div className="nbox">
             <p>■ 양식의 1행(제목)은 바꾸지 마세요. 열 순서: 아이디 · 이름 · 회원유형 · 소속 · 직위 · 휴대폰 · 이메일 · 초기 비밀번호</p>
-            <p>■ 회원유형: 학교 담당자 · AS 기사 · 업체 관리자 · 교육지원청 담당자 · 교육청 관리자. 소속은 그 유형에 맞는 학교 · 업체 · 교육지원청 이름입니다 (양식의 ‘소속 목록’ 시트).</p>
+            <p>■ 회원유형 · 소속: 양식을 내려받으면 이 계정이 등록할 수 있는 유형과 소속(학교 · 업체 · 교육지원청)만 들어 있습니다 (&lsquo;안내&rsquo; · &lsquo;소속 목록&rsquo; 시트). 사용자 등록 화면과 같은 범위로 행마다 확인합니다.</p>
             <p>■ 초기 비밀번호를 비우면 임시 비밀번호를 만들어 등록 결과에서 <b>한 번만</b> 보여 줍니다. 최대 500행.</p>
           </div>
           <p>
@@ -129,21 +131,27 @@ export default function UserBulkModal({ onClose, onDone }: { onClose: () => void
           </div>
           <p style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <span className="hint">{file?.name}</span>
-            <label><input type="checkbox" checked={errOnly} onChange={(e) => setErrOnly(e.target.checked)} /> 오류·경고 행만 보기</label>
+            {badCount === 0 ? (
+              <span className="hint">오류·경고 행이 없습니다.</span>
+            ) : allBad ? (
+              <span className="hint">모든 행({badCount})이 오류·경고입니다 — 사유는 &lsquo;결과&rsquo; 열을 보세요.</span>
+            ) : (
+              <label><input type="checkbox" checked={errOnly} onChange={(e) => setErrOnly(e.target.checked)} /> 오류·경고 행만 보기 ({badCount}행)</label>
+            )}
           </p>
           <div className="tw" style={{ maxHeight: 360, overflow: "auto" }}>
             <table>
-              <thead><tr><th scope="col">행</th>{res.head.map((h) => <th key={h} scope="col">{h}</th>)}<th scope="col">결과</th></tr></thead>
+              <thead><tr><th scope="col">행</th><th scope="col" style={{ minWidth: 220 }}>결과</th>{res.head.map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.rowNo}>
                     <td>{r.rowNo}</td>
-                    {res.head.map((_, i) => <td key={i} className="tl">{r.cells[i] ?? ""}</td>)}
-                    <td className="tl">
+                    <td className="tl" style={{ minWidth: 220 }}>
                       {r.ok ? <b className="st s1">등록</b> : <b className="st s4">오류</b>}
                       {r.errors.map((e) => <div key={e}><small style={{ color: "var(--err)" }}>{e}</small></div>)}
                       {r.warning && <div><small className="hint">{r.warning}</small></div>}
                     </td>
+                    {res.head.map((_, i) => <td key={i} className="tl" style={{ whiteSpace: "nowrap" }}>{r.cells[i] ?? ""}</td>)}
                   </tr>
                 ))}
                 {!rows.length && <tr><td colSpan={res.head.length + 2}>표시할 행이 없습니다.</td></tr>}

@@ -64,9 +64,18 @@ public class UserBulkService {
         this.userService = userService; this.users = users; this.schools = schools; this.vendors = vendors; this.regions = regions;
     }
 
-    private static void requireAdmin(CurrentUser me) {
-        if (!me.scope().province()) throw ApiException.forbidden("사용자 관리는 도교육청 관리자만 할 수 있습니다.");
-        if (!me.can("ROLE_GRANT")) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
+    /**
+     * 일괄 등록은 사용자 등록 화면과 같은 범위다: 도교육청(역할 부여 권한) = 전체, 교육지원청 = 관내 학교 담당자 + 관할 지역만 맡는 업체의
+     * 기사 · 업체 관리자, 업체 = 자기 업체 기사, 학교 = 자기 학교 담당자. 행마다 UserService.prepareNew가 같은 규칙으로 다시 확인한다.
+     */
+    private void requireAdmin(CurrentUser me) { userService.requireBulkUserAdmin(me); }
+
+    /** 이 계정이 일괄 등록할 수 있는 회원유형 (이름 → 역할). */
+    private Map<String, String> typesFor(CurrentUser me) {
+        List<String> allowed = userService.manageableRolesOf(me);
+        Map<String, String> m = new LinkedHashMap<>();
+        TYPE_NAME.forEach((k, v) -> { if (allowed == null || allowed.contains(v)) m.put(k, v); });
+        return m;
     }
 
     // ---------- template ----------
@@ -74,9 +83,13 @@ public class UserBulkService {
     @Transactional(readOnly = true)
     public byte[] template(CurrentUser me) throws IOException {
         requireAdmin(me);
-        List<School> ss = schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(me.orgId(), "Y");
-        List<Vendor> vs = vendors.findByOrgIdAndUseYnOrderByVendorNameAsc(me.orgId(), "Y");
-        List<Region> rs = regions.findByOrgIdOrderBySortOrderAsc(me.orgId()).stream().filter(Region::active).toList();
+        Map<String, String> types = typesFor(me);
+        // 이 계정이 등록할 수 있는 유형의 소속만 (범위 밖 학교 · 업체 · 교육지원청은 목록에 없다)
+        List<School> ss = types.containsValue("SCHOOL_USER") ? schools.findByOrgIdAndUseYnOrderBySchoolNameAsc(me.orgId(), "Y").stream()
+                .filter(s -> userService.schoolInScope(me, s)).toList() : List.of();
+        List<Vendor> vs = types.containsValue("AS_ENGINEER") || types.containsValue("VENDOR_ADMIN") ? vendors.findByOrgIdAndUseYnOrderByVendorNameAsc(me.orgId(), "Y").stream()
+                .filter(v -> userService.vendorInScope(me, v.vendorId)).toList() : List.of();
+        List<Region> rs = types.containsValue("REGION_ADMIN") ? regions.findByOrgIdOrderBySortOrderAsc(me.orgId()).stream().filter(Region::active).toList() : List.of();
         try (XSSFWorkbook wb = new XSSFWorkbook()) {
             XSSFSheet sh = wb.createSheet("사용자");
             CellStyle head = wb.createCellStyle();
@@ -88,9 +101,10 @@ public class UserBulkService {
             text.setDataFormat(wb.createDataFormat().getFormat("@"));
             Row h = sh.createRow(0);
             for (int i = 0; i < HEAD.size(); i++) { Cell c = h.createCell(i); c.setCellValue(HEAD.get(i)); c.setCellStyle(head); }
-            String[][] sample = {
-                    {"school_hong", "홍길동", "학교 담당자", ss.isEmpty() ? "봉황초등학교" : ss.get(0).schoolName, "정보부장", "010-1234-5678", "hong@example.go.kr", ""},
-                    {"eng_kim", "김기사", "AS 기사", vs.isEmpty() ? "한빛네트웍스" : vs.get(0).vendorName, "기술과장", "010-2345-6789", "", ""}};
+            List<String[]> sl = new ArrayList<>();
+            if (types.containsValue("SCHOOL_USER")) sl.add(new String[]{"school_hong", "홍길동", "학교 담당자", ss.isEmpty() ? "봉황초등학교" : ss.get(0).schoolName, "정보부장", "010-1234-5678", "hong@example.go.kr", ""});
+            if (types.containsValue("AS_ENGINEER")) sl.add(new String[]{"eng_kim", "김기사", "AS 기사", vs.isEmpty() ? "한빛네트웍스" : vs.get(0).vendorName, "기술과장", "010-2345-6789", "", ""});
+            String[][] sample = sl.toArray(String[][]::new);
             for (int r = 0; r < sample.length; r++) {
                 Row row = sh.createRow(r + 1);
                 for (int c = 0; c < sample[r].length; c++) row.createCell(c).setCellValue(sample[r][c]);
@@ -101,7 +115,7 @@ public class UserBulkService {
             sh.setDefaultColumnStyle(PW, text);
             sh.createFreezePane(0, 1);
             XSSFDataValidationHelper dv = new XSSFDataValidationHelper(sh);
-            DataValidation v = dv.createValidation(dv.createExplicitListConstraint(TYPE_NAME.keySet().toArray(String[]::new)),
+            DataValidation v = dv.createValidation(dv.createExplicitListConstraint(types.keySet().toArray(String[]::new)),
                     new CellRangeAddressList(1, MAX_ROWS, 2, 2));
             v.setShowErrorBox(false); v.setSuppressDropDownArrow(true);
             sh.addValidationData(v);
@@ -111,13 +125,14 @@ public class UserBulkService {
                     {"열", "입력 규칙"},
                     {"아이디", "영문 · 숫자 · . _ - 로 3~50자. 이미 있는 아이디나 파일 안에서 겹치는 아이디는 등록되지 않습니다."},
                     {"이름", "50자 이내."},
-                    {"회원유형", String.join(" / ", TYPE_NAME.keySet()) + ". 시스템 관리자는 사용자 관리 화면에서 한 명씩 등록합니다."},
-                    {"소속", "학교 담당자 → 학교 이름, AS 기사 · 업체 관리자 → 업체 이름, 교육지원청 담당자 → 교육지원청 이름 (‘소속 목록’ 시트 참고). 교육청 관리자는 비워 둡니다."},
+                    {"회원유형", String.join(" / ", types.keySet()) + (me.scope().province() ? ". 시스템 관리자는 사용자 관리 화면에서 한 명씩 등록합니다." : ". 이 계정이 등록할 수 있는 유형만입니다.")},
+                    {"소속", affGuide(types)},
                     {"직위", "선택. 50자 이내."},
                     {"휴대폰", "선택. 예: 010-1234-5678. 알림 · 문의처에 쓰입니다."},
                     {"이메일", "선택."},
                     {"초기 비밀번호", "선택. 9~20자, 영문 · 숫자 · 특수문자 포함, 아이디 · 휴대폰 번호 포함 금지. 비우면 임시 비밀번호를 만들어 등록 결과에서 한 번만 보여 줍니다."},
-                    {"행 수", "한 번에 최대 " + MAX_ROWS + "행. 예시 2행은 지우고 올려 주세요."},
+                    {"범위", userService.scopeRuleOf(me) == null ? "도교육청 관리자: 모든 학교 · 업체 · 교육지원청의 계정을 등록할 수 있습니다." : userService.scopeRuleOf(me) + " 소속을 비우면 " + (me.scope().school() ? "자기 학교" : me.scope().vendor() ? "자기 업체" : "-") + "로 넣습니다."},
+                    {"행 수", "한 번에 최대 " + MAX_ROWS + "행. 예시 행은 지우고 올려 주세요."},
                     {"보안", "비밀번호를 적은 파일은 등록이 끝나면 지우세요. 계정을 받은 사람은 첫 로그인 뒤 마이페이지에서 비밀번호를 바꾸게 안내하세요."}};
             for (int r = 0; r < g.length; r++) { Row row = guide.createRow(r); for (int c = 0; c < g[r].length; c++) { Cell cell = row.createCell(c); cell.setCellValue(g[r][c]); if (r == 0) cell.setCellStyle(head); } }
             guide.setColumnWidth(0, 16 * 256); guide.setColumnWidth(1, 100 * 256);
@@ -136,6 +151,15 @@ public class UserBulkService {
             wb.write(out);
             return out.toByteArray();
         }
+    }
+
+    /** 안내 시트의 소속 설명: 이 계정이 등록할 수 있는 유형만. */
+    private static String affGuide(Map<String, String> types) {
+        List<String> l = new ArrayList<>();
+        if (types.containsValue("SCHOOL_USER")) l.add("학교 담당자 → 학교 이름");
+        if (types.containsValue("AS_ENGINEER") || types.containsValue("VENDOR_ADMIN")) l.add("AS 기사 · 업체 관리자 → 업체 이름");
+        if (types.containsValue("REGION_ADMIN")) l.add("교육지원청 담당자 → 교육지원청 이름");
+        return String.join(", ", l) + " (‘소속 목록’ 시트 참고)." + (types.containsValue("EDU_ADMIN") ? " 교육청 관리자는 비워 둡니다." : "");
     }
 
     private static int affRow(XSSFSheet sh, int ri, String kind, String name, String use) {
@@ -162,6 +186,7 @@ public class UserBulkService {
 
     private List<Checked> check(CurrentUser me, List<List<String>> rows) {
         requireAdmin(me);
+        Map<String, String> types = typesFor(me);
         if (rows.isEmpty()) throw ApiException.badRequest("빈 파일입니다. 양식을 내려받아 작성해 주세요.");
         List<String> head = rows.get(0).stream().map(s -> s == null ? "" : s.trim()).toList();
         for (int i = 0; i < HEAD.size(); i++)
@@ -206,7 +231,8 @@ public class UserBulkService {
 
             String role = TYPE_ALIAS.get(AssetBulkService.norm(type));
             if (type.isEmpty()) errors.add("회원유형을 입력하세요.");
-            else if (role == null) errors.add("회원유형 '" + type + "'은(는) 쓸 수 없습니다. (" + String.join(" / ", TYPE_NAME.keySet()) + ")");
+            else if (role == null) errors.add("회원유형 '" + type + "'은(는) 쓸 수 없습니다. (" + String.join(" / ", types.keySet()) + ")");
+            else if (!types.containsValue(role)) { errors.add("이 계정은 '" + type + "'을(를) 등록할 수 없습니다. 등록할 수 있는 유형: " + String.join(" / ", types.keySet())); role = null; }
 
             Map<String, Object> b = new LinkedHashMap<>();
             b.put("loginId", loginId); b.put("userName", name);
@@ -220,6 +246,12 @@ public class UserBulkService {
             b.put("email", blankToNull(email));
 
             if (role != null) {
+                // 학교 · 업체 계정은 소속을 비우면 자기 학교 · 업체
+                if (aff.isEmpty() && "SCHOOL_USER".equals(role) && me.scope().school() && me.scope().schoolId() != null)
+                    aff = schools.findById(me.scope().schoolId()).map(s -> s.schoolName).orElse("");
+                if (aff.isEmpty() && ("AS_ENGINEER".equals(role) || "VENDOR_ADMIN".equals(role)) && me.scope().vendor() && me.scope().vendorId() != null)
+                    aff = vendors.findById(me.scope().vendorId()).map(v -> v.vendorName).orElse("");
+                if (!aff.equals(cells.get(3))) cells.set(3, aff);
                 String a = AssetBulkService.norm(aff);
                 switch (role) {
                     case "SCHOOL_USER" -> {
@@ -227,6 +259,7 @@ public class UserBulkService {
                         if (aff.isEmpty()) errors.add("학교 담당자는 소속 학교를 입력하세요.");
                         else if (m.isEmpty()) errors.add("학교 '" + aff + "'을(를) 찾을 수 없습니다.");
                         else if (m.size() > 1) errors.add("이름이 '" + aff + "'인 학교가 " + m.size() + "곳입니다. 학교 관리에서 이름을 구분해 주세요.");
+                        else if (!userService.schoolInScope(me, m.get(0))) errors.add("학교 '" + aff + "'은(는) 이 계정이 다룰 수 없는 학교입니다. " + userService.scopeRuleOf(me));
                         else b.put("schoolId", m.get(0).schoolId);
                     }
                     case "AS_ENGINEER", "VENDOR_ADMIN" -> {
@@ -234,6 +267,7 @@ public class UserBulkService {
                         if (aff.isEmpty()) errors.add("AS 기사 · 업체 관리자는 소속 업체를 입력하세요.");
                         else if (m.isEmpty()) errors.add("업체 '" + aff + "'을(를) 찾을 수 없습니다.");
                         else if (m.size() > 1) errors.add("이름이 '" + aff + "'인 업체가 " + m.size() + "곳입니다.");
+                        else if (!userService.vendorInScope(me, m.get(0).vendorId)) errors.add("업체 '" + aff + "'은(는) 이 계정이 다룰 수 없는 업체입니다. " + userService.scopeRuleOf(me));
                         else b.put("vendorId", m.get(0).vendorId);
                     }
                     case "REGION_ADMIN" -> {

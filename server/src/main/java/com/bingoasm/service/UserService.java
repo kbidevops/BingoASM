@@ -105,6 +105,38 @@ public class UserService {
         return vendorOnlyInRegion(u.vendorId, sc.regionId());
     }
 
+    // ---------- 일괄 등록(UserBulkService)이 쓰는 범위 ----------
+
+    /** 사용자를 다룰 수 있는 계정인가: 도교육청(역할 부여 권한 필요) · 교육지원청 · 업체 · 학교. 아니면 403. */
+    public void requireBulkUserAdmin(CurrentUser me) {
+        requireUserAdmin(me);
+        if (me.scope().province() && !me.can("ROLE_GRANT")) throw ApiException.forbidden("역할을 줄 권한이 없습니다.");
+    }
+
+    /** 이 계정이 등록할 수 있는 역할 (도교육청 = null, 제한 없음). */
+    public List<String> manageableRolesOf(CurrentUser me) { return manageableRoles(me); }
+
+    /** 이 계정이 학교 담당자를 둘 수 있는 학교인가: 도교육청 전체 · 교육지원청 관내 · 학교는 자기 학교. */
+    public boolean schoolInScope(CurrentUser me, com.bingoasm.domain.as.School s) {
+        var sc = me.scope();
+        if (sc.province()) return true;
+        if (sc.school()) return sc.schoolId() != null && sc.schoolId().equals(s.schoolId);
+        if (sc.region()) return sc.regionId() != null && sc.regionId().equals(s.regionId);
+        return false;
+    }
+
+    /** 이 계정이 기사 · 업체 관리자를 둘 수 있는 업체인가: 도교육청 전체 · 업체는 자기 업체 · 교육지원청은 관할 지역만 맡는 업체. */
+    public boolean vendorInScope(CurrentUser me, Long vendorId) {
+        var sc = me.scope();
+        if (sc.province()) return true;
+        if (sc.vendor()) return sc.vendorId() != null && sc.vendorId().equals(vendorId);
+        if (sc.region()) return vendorOnlyInRegion(vendorId, sc.regionId());
+        return false;
+    }
+
+    /** 교육지원청 · 업체 · 학교 계정의 범위 안내 (일괄 등록 양식 · 오류에 쓴다). 도교육청은 null. */
+    public String scopeRuleOf(CurrentUser me) { return me.scope().province() ? null : scopeRule(me); }
+
     private static String scopeRule(CurrentUser me) {
         if (me.scope().region()) return "교육지원청 담당자는 관내 학교 담당자와 관할 지역만 맡는 업체의 AS 기사 · 업체 관리자 계정만 다룰 수 있습니다.";
         if (me.scope().vendor()) return "업체 계정은 자기 업체의 AS 기사 계정만 다룰 수 있습니다.";

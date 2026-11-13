@@ -24,6 +24,15 @@ public class SlaTarget {
     /** 회선 월 가용률 목표 (%) */
     @Column(nullable = false)
     public Double availabilityPct = 99.5;
+    /** 단계마다 시간 세는 법 (V19): true = 근무 시간 달력(알림과 같은 달력)으로, false = 24시간. 가용률은 늘 24시간. */
+    @Column(nullable = false)
+    public Boolean receiveBiz = false;
+    @Column(nullable = false)
+    public Boolean visitBiz = false;
+    @Column(nullable = false)
+    public Boolean recoverBiz = false;
+
+    public boolean anyBiz() { return Boolean.TRUE.equals(receiveBiz) || Boolean.TRUE.equals(visitBiz) || Boolean.TRUE.equals(recoverBiz); }
     public LocalDateTime updatedAt;
     public Long updatedBy;
 }

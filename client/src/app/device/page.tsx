@@ -7,7 +7,7 @@ import { StatusDot } from "@/components/admin/common";
 import { HistoryList } from "@/components/admin/NetDevices";
 import AsDetailModal from "@/components/AsDetailModal";
 import SubPage from "@/components/SubPage";
-import { ErrorBox, Loading, useToast } from "@/components/ui";
+import { ErrorBox, HoldBadge, Loading, SlaBadge, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { AS_LIST_HREF } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
@@ -38,6 +38,10 @@ interface OpenAs {
   visitAt?: string;
   engineerName?: string;
   assignedToMe?: boolean;
+  sla?: { stage: string; label: string; dueAt: string; remainingMin: number; targetMin: number } | null;
+  onHold?: boolean;
+  holdReason?: string;
+  holdUntil?: string;
   canArrive?: boolean;
   canReport?: boolean;
   canReceive?: boolean;
@@ -163,7 +167,7 @@ function DeviceView() {
                 <div className="dvs-open-b">
                   <b className={"st " + (o.status === "A" ? "s2" : "s3")}>{o.statusName}</b>{" "}
                   {o.canOpen ? <a href={asHref(o.asvcSn)} onClick={openAs(o.asvcSn)}>AS-{o.asvcSn}</a> : <span>AS-{o.asvcSn}</span>}
-                  {o.assignedToMe && <span className="dvs-me">내 담당</span>}
+                  {o.assignedToMe && <span className="dvs-me">내 담당</span>} <HoldBadge row={o} /> <SlaBadge sla={o.sla} />
                   <small>
                     신청 {fmtDate(o.requestAt)}
                     {o.visitPlannedAt && <> · 방문예정 {fmtDateTime(o.visitPlannedAt)}</>}

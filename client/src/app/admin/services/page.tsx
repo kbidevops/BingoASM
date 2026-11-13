@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import SubPage from "@/components/SubPage";
-import { ErrorBox, FormMsg, Loading, useToast } from "@/components/ui";
+import { ErrorBox, FormMsg, Loading, QuickIcon, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Me, RceptTy } from "@/lib/types";
@@ -22,19 +23,54 @@ const DESC: Record<RceptTy, string> = {
   C: "정보기기 AS 신청·결과조회, 불용PC수거신청, 유지관리업체(정보공유)",
   T: "스마트기기 지원신청·결과조회",
 };
+const ICON: Record<RceptTy, "wifi" | "net" | "pc" | "tab"> = { M: "wifi", S: "net", C: "pc", T: "tab" };
 
 export default function Page() {
   return (
     <SubPage perm="ORG_WRITE">
+      <nav className="svc-nav" aria-label="AS 서비스 설정 구역">
+        <a href="#svc-1">① 사용 서비스</a>
+        <a href="#svc-2">② 근무 시간 · 휴일</a>
+        <a href="#svc-3">③ 지연 알림 기준</a>
+        <Link href="/admin/workflow">AS 처리 흐름 →</Link>
+      </nav>
       <AsServicesForm />
-      <SchoolnetRouteForm />
       <WorkCalendarForm />
       <AlertRulesForm />
     </SubPage>
   );
 }
 
-/** 통합관리 → AS 서비스 설정: which AS services this 교육청 uses. */
+/** 구역 머리: 번호 · 제목 · 한 줄 요약, 긴 설명은 '자세히'로 접는다. */
+function SecHead({ n, title, sub, children }: { n: number; title: string; sub: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <header className="svc-h">
+      <h2 className="sla-h"><span className="svc-n" aria-hidden="true">{n}</span>{title}</h2>
+      <p className="svc-sub">{sub}</p>
+      {children && (
+        <details className="svc-more">
+          <summary>자세히</summary>
+          <div>{children}</div>
+        </details>
+      )}
+    </header>
+  );
+}
+
+/** 저장 막대: 바뀐 것이 있을 때만 눈에 띈다. */
+function SaveBar({ dirty, busy, idle, onReset, onSave, extra }: { dirty: boolean; busy: boolean; idle: string; onReset: () => void; onSave: () => void; extra?: React.ReactNode }) {
+  return (
+    <div className={"um-bar svc-bar" + (dirty ? " dirty" : "")}>
+      <span className="um-bar-t">{dirty ? "저장하지 않은 변경이 있습니다" : idle}</span>
+      {extra}
+      <button type="button" className="btn sm sec" disabled={!dirty || busy} onClick={onReset}>되돌리기</button>
+      <button type="button" className="btn sm" disabled={!dirty || busy} onClick={onSave}>{busy ? "저장 중…" : "저장"}</button>
+    </div>
+  );
+}
+
+/* ---------- ① 사용 서비스 ---------- */
+
 function AsServicesForm() {
   const toast = useToast();
   const { setMe } = useAuth();
@@ -84,33 +120,35 @@ function AsServicesForm() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      <p className="um-note">
-        이 교육청에서 쓰는 AS 서비스만 켜 두세요. 끈 서비스는 모든 사용자에게서 메뉴와 신청·이관이 함께 닫히고,
-        사용자별 메뉴 권한으로도 열 수 없습니다. 이미 있는 신청 기록은 지우지 않으며 다시 켜면 그대로 보입니다.
-      </p>
-      <section className="um-card" aria-label="AS 서비스">
-        <div className="um-card-h">
-          <div>
-            <b>AS 서비스</b>
-            <small>{on.size}/{data.types.length} 사용</small>
-          </div>
-        </div>
-        <ul className="um-items">
-          {data.types.map((t) => (
-            <li key={t.rceptTy}>
-              <div className="um-item-t">
-                <span>{t.name}</span>
-                <small>{DESC[t.rceptTy]}</small>
-                {!!t.openRequests && <small className="svc-open">처리 중 AS {t.openRequests.toLocaleString()}건</small>}
-              </div>
-              {on.has(t.rceptTy) ? <span className="um-pill add">사용</span> : <span className="um-pill none">사용 안 함</span>}
-              <input type="checkbox" role="switch" className="um-sw" aria-label={`${t.name} 사용`}
-                checked={on.has(t.rceptTy)} onChange={(e) => flip(t.rceptTy, e.target.checked)} />
+    <section id="svc-1" className="svc-sec" aria-labelledby="svc-1-t">
+      <SecHead n={1} title="사용 서비스" sub={<>이 교육청에서 쓰는 AS 서비스만 켜 두세요. 지금 <b>{on.size}</b>개 사용 중 / 전체 {data.types.length}개</>}>
+        끈 서비스는 모든 사용자에게서 메뉴와 신청 · 이관이 함께 닫히고, 사용자별 메뉴 권한으로도 열 수 없습니다.
+        이미 있는 신청 기록은 지우지 않으며 다시 켜면 그대로 보입니다. 신고를 누가 먼저 받는지 · 대상 장비 · 기사 배정 · 만족도 평가 등
+        유형별 처리 단계는 <Link href="/admin/workflow">AS 처리 흐름</Link>에서 정합니다.
+      </SecHead>
+      <ul className="svc-grid">
+        {data.types.map((t) => {
+          const isOn = on.has(t.rceptTy), changed = t.enabled !== isOn;
+          return (
+            <li key={t.rceptTy} className={"svc-c" + (isOn ? " on" : "") + (changed ? " changed" : "")}>
+              <label>
+                <span className="svc-ic"><QuickIcon name={ICON[t.rceptTy]} /></span>
+                <span className="svc-t">
+                  <b>{t.name}</b>
+                  <small>{DESC[t.rceptTy]}</small>
+                  <span className="svc-meta">
+                    <span className={"svc-st" + (isOn ? " on" : "")}>{isOn ? "사용" : "사용 안 함"}</span>
+                    {!!t.openRequests && <span className="svc-open">처리 중 {t.openRequests.toLocaleString()}건</span>}
+                    {changed && <span className="svc-chg">{isOn ? "켜짐 (저장 전)" : "꺼짐 (저장 전)"}</span>}
+                  </span>
+                </span>
+                <input type="checkbox" role="switch" className="um-sw" aria-label={`${t.name} 사용`}
+                  checked={isOn} onChange={(e) => flip(t.rceptTy, e.target.checked)} />
+              </label>
             </li>
-          ))}
-        </ul>
-      </section>
+          );
+        })}
+      </ul>
       {hiding.length > 0 && (
         <div className="svc-warn" role="alert">
           <b>저장하면 처리 중인 AS가 숨겨집니다.</b>
@@ -121,14 +159,12 @@ function AsServicesForm() {
         </div>
       )}
       {msg && <FormMsg kind="bad" text={msg} />}
-      <div className={"um-bar" + (dirty ? " dirty" : "")}>
-        <span className="um-bar-t">{dirty ? "저장하지 않은 변경이 있습니다" : "변경 사항 없음"}</span>
-        <button type="button" className="btn sm sec" disabled={!dirty || busy} onClick={() => { setOn(new Set(data.asTypes)); setMsg(""); }}>되돌리기</button>
-        <button type="button" className="btn sm" disabled={!dirty || busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
-      </div>
-    </div>
+      <SaveBar dirty={dirty} busy={busy} idle="변경 사항 없음" onReset={() => { setOn(new Set(data.asTypes)); setMsg(""); }} onSave={save} />
+    </section>
   );
 }
+
+/* ---------- ③ 지연 알림 기준 ---------- */
 
 interface AlertRule {
   rceptTy: RceptTy;
@@ -150,14 +186,32 @@ function dur(min: number) {
   return [d ? `${d}일` : "", h ? `${h}시간` : "", m && !d ? `${m}분` : ""].filter(Boolean).join(" ") || "0분";
 }
 
-/**
- * 지연 알림 기준 (/api/org/alert-rules): 유형마다 접수 지연 → 업체, 에스컬레이션 → 교육지원청 담당자(담당 유형),
- * 방문 지연 → 업체 + 교육지원청. 서버가 5분마다 확인하고, 한 건에 단계마다 한 번만 알린다.
- */
+/** 분을 숫자 + 단위(분 · 시간 · 일)로 입력한다. 저장은 분. */
+function DurInput({ value, onChange, disabled, label }: { value: number; onChange: (m: number) => void; disabled?: boolean; label: string }) {
+  const fit = (m: number) => (m > 0 && m % 1440 === 0 ? 1440 : m > 0 && m % 60 === 0 ? 60 : 1);
+  const [u, setU] = useState(() => fit(value));
+  // 고른 단위로 나누어떨어지지 않는 값(되돌리기 등)이면 맞는 단위로 보여 준다
+  const unit = value % u === 0 ? u : fit(value);
+  const shown = value / unit;
+  return (
+    <span className="svc-dur">
+      <input type="number" min={1} max={unit === 1 ? 43200 : unit === 60 ? 720 : 30} step={1} aria-label={`${label} (숫자)`} value={shown} disabled={disabled}
+        onChange={(e) => onChange(Math.max(0, Math.round(Number(e.target.value) * unit)))} />
+      <select aria-label={`${label} 단위`} value={unit} disabled={disabled} onChange={(e) => { const nu = Number(e.target.value); setU(nu); onChange(Math.max(nu, Math.round(value / nu) * nu)); }}>
+        <option value={1}>분</option>
+        <option value={60}>시간</option>
+        <option value={1440}>일</option>
+      </select>
+    </span>
+  );
+}
+
 function AlertRulesForm() {
   const toast = useToast();
   const [rules, setRules] = useState<AlertRule[] | null>(null);
   const [saved, setSaved] = useState("");
+  // 되돌리기 · 저장 뒤에는 입력 칸의 단위를 값에 맞게 다시 고른다
+  const [gen, setGen] = useState(0);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -177,12 +231,13 @@ function AlertRulesForm() {
 
   const save = async () => {
     for (const r of shown) {
+      if (r.receiveMin < 1 || r.escalateMin < 1 || r.visitGraceMin < 1) return setMsg(`${r.name}: 시간은 1분 이상이어야 합니다.`);
       if (r.escalateMin < r.receiveMin) return setMsg(`${r.name}: 에스컬레이션은 접수 지연 시간보다 같거나 길어야 합니다.`);
     }
     setBusy(true);
     try {
       const d = await api.put<{ rules: AlertRule[] }>("/api/org/alert-rules", { rules: shown });
-      setRules(d.rules); setSaved(JSON.stringify(d.rules));
+      setRules(d.rules); setSaved(JSON.stringify(d.rules)); setGen((g) => g + 1);
       toast("지연 알림 기준을 저장했습니다.");
     } catch (e) {
       setMsg((e as Error).message);
@@ -204,51 +259,62 @@ function AlertRulesForm() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 14, marginTop: 28 }}>
-      <p className="um-note">
-        <b>지연 알림 기준</b> — 처리 중인 AS를 5분마다 확인합니다. <b>시간 계산</b>이 &lsquo;근무 시간&rsquo;이면 위 근무 요일 · 시간대만 세고(휴일 제외),
-        &lsquo;24시간&rsquo;이면 밤 · 주말도 셉니다 (스쿨넷처럼 24시간 관제하는 서비스). 신청 후 <b>접수 지연</b> 시간이 지나도 접수되지 않으면 담당 업체(업체 관리자 · 배정된 기사)에,
-        <b> 에스컬레이션</b> 시간까지도 접수되지 않으면 그 유형을 맡은 관할 교육지원청 담당자에게 알립니다. 방문예정일시에서 <b>방문 지연 여유</b>가 지나도
-        처리 보고서가 없으면 업체와 교육지원청에 알립니다. 한 건에 단계마다 한 번만 알립니다.
-      </p>
-      <section className="um-card" aria-label="지연 알림 기준">
-        <div className="tw">
-          <table className="ar-tab" style={{ minWidth: 640 }}>
-            <thead><tr><th scope="col">AS 유형</th><th scope="col">알림</th><th scope="col">시간 계산</th><th scope="col">접수 지연 (분)</th><th scope="col">에스컬레이션 (분)</th><th scope="col">방문 지연 여유 (분)</th></tr></thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.rceptTy}>
-                  <th scope="row">{r.name}{r.isDefault && <small> (기본값)</small>}</th>
-                  <td><input type="checkbox" role="switch" className="um-sw" aria-label={`${r.name} 지연 알림 사용`} checked={r.enabled} onChange={(e) => set(r.rceptTy, "enabled", e.target.checked)} /></td>
-                  <td>
-                    <select aria-label={`${r.name} 시간 계산`} value={r.businessHours ? "B" : "C"} disabled={!r.enabled} onChange={(e) => set(r.rceptTy, "businessHours", e.target.value === "B")}>
-                      <option value="B">근무 시간</option>
-                      <option value="C">24시간</option>
-                    </select>
-                  </td>
-                  {(["receiveMin", "escalateMin", "visitGraceMin"] as const).map((k) => (
-                    <td key={k}>
-                      <input type="number" min={1} max={43200} aria-label={`${r.name} ${k === "receiveMin" ? "접수 지연" : k === "escalateMin" ? "에스컬레이션" : "방문 지연 여유"} (분)`}
-                        value={r[k]} disabled={!r.enabled} onChange={(e) => set(r.rceptTy, k, Number(e.target.value))} />{" "}
-                      <small>{r.businessHours ? "근무 " : ""}{dur(r[k])}</small>
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {msg && <FormMsg kind="bad" text={msg} />}
-      <div className={"um-bar" + (dirty ? " dirty" : "")}>
-        <span className="um-bar-t">{dirty ? "저장하지 않은 변경이 있습니다" : "변경 사항 없음"}</span>
-        <button type="button" className="btn sm sec" disabled={busy} onClick={runNow}>지금 확인</button>
-        <button type="button" className="btn sm sec" disabled={!dirty || busy} onClick={() => { setRules(JSON.parse(saved)); setMsg(""); }}>되돌리기</button>
-        <button type="button" className="btn sm" disabled={!dirty || busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
+    <section id="svc-3" className="svc-sec" aria-labelledby="svc-3-t">
+      <SecHead n={3} title="지연 알림 기준" sub="처리 중인 AS를 5분마다 확인해, 늦어지는 건을 단계마다 한 번씩 알립니다.">
+        <b>시간 계산</b>이 &lsquo;근무 시간&rsquo;이면 ② 근무 요일 · 시간대만 세고(휴일 제외), &lsquo;24시간&rsquo;이면 밤 · 주말도 셉니다 (스쿨넷처럼 24시간 관제하는 서비스).
+        신청 후 <b>접수 지연</b> 시간이 지나도 접수되지 않으면 담당 업체(업체 관리자 · 배정된 기사)에, <b>에스컬레이션</b> 시간까지도 접수되지 않으면
+        그 유형을 맡은 관할 교육지원청 담당자에게 알립니다. 방문예정일시에서 <b>방문 지연 여유</b>가 지나도 처리 보고서가 없으면 업체와 교육지원청에 알립니다.
+      </SecHead>
+      <div className="svc-rules">
+        {shown.map((r) => {
+          const w = r.businessHours ? "근무 " : "";
+          return (
+            <article key={r.rceptTy} className={"svc-rule" + (r.enabled ? "" : " off")} aria-label={`${r.name} 지연 알림`}>
+              <header>
+                <span className="svc-ic sm"><QuickIcon name={ICON[r.rceptTy]} /></span>
+                <b>{r.name}</b>
+                {r.isDefault && <small className="hint">기본값</small>}
+                <span className="svc-rule-sw">
+                  <small>{r.enabled ? "알림 켜짐" : "알림 꺼짐"}</small>
+                  <input type="checkbox" role="switch" className="um-sw" aria-label={`${r.name} 지연 알림 사용`} checked={r.enabled} onChange={(e) => set(r.rceptTy, "enabled", e.target.checked)} />
+                </span>
+              </header>
+              {r.enabled && (
+                <>
+                  <div className="svc-rule-f">
+                    <div>
+                      <span className="svc-fl">시간 계산</span>
+                      <div className="sla-clkpick" role="radiogroup" aria-label={`${r.name} 시간 계산`}>
+                        {([true, false] as const).map((b) => (
+                          <label key={String(b)} className={r.businessHours === b ? "on" : ""}>
+                            <input type="radio" name={`bh-${r.rceptTy}`} checked={r.businessHours === b} onChange={() => set(r.rceptTy, "businessHours", b)} /> {b ? "근무 시간" : "24시간"}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div><span className="svc-fl">접수 지연</span><DurInput key={`r${gen}`} label={`${r.name} 접수 지연`} value={r.receiveMin} onChange={(m) => set(r.rceptTy, "receiveMin", m)} /></div>
+                    <div><span className="svc-fl">에스컬레이션</span><DurInput key={`e${gen}`} label={`${r.name} 에스컬레이션`} value={r.escalateMin} onChange={(m) => set(r.rceptTy, "escalateMin", m)} /></div>
+                    <div><span className="svc-fl">방문 지연 여유</span><DurInput key={`v${gen}`} label={`${r.name} 방문 지연 여유`} value={r.visitGraceMin} onChange={(m) => set(r.rceptTy, "visitGraceMin", m)} /></div>
+                  </div>
+                  <ol className="svc-flow" aria-label="알림 순서">
+                    <li><b>신청 후 {w}{dur(r.receiveMin)}</b> 미접수 → 업체에 알림</li>
+                    <li className={r.escalateMin < r.receiveMin ? "bad" : ""}><b>{w}{dur(r.escalateMin)}</b>까지 미접수 → 교육지원청에 에스컬레이션</li>
+                    <li><b>방문예정 + {w}{dur(r.visitGraceMin)}</b> 보고서 없음 → 방문 지연 알림</li>
+                  </ol>
+                </>
+              )}
+            </article>
+          );
+        })}
       </div>
-    </div>
+      {msg && <FormMsg kind="bad" text={msg} />}
+      <SaveBar dirty={dirty} busy={busy} idle="변경 사항 없음" onReset={() => { setRules(JSON.parse(saved)); setMsg(""); setGen((g) => g + 1); }} onSave={save}
+        extra={<button type="button" className="btn sm sec" disabled={busy} onClick={runNow} title="저장된 기준으로 지금 바로 확인해 알립니다">지금 확인</button>} />
+    </section>
   );
 }
+
+/* ---------- ② 근무 시간 · 휴일 ---------- */
 
 interface WorkCal {
   workDays: number[];
@@ -266,9 +332,49 @@ const SOLAR_HOLIDAYS: [string, string][] = [
   ["08-15", "광복절"], ["10-03", "개천절"], ["10-09", "한글날"], ["12-25", "성탄절"],
 ];
 
-/** 근무 시간 · 휴일 (/api/org/alert-rules/calendar): 지연 알림을 '근무 시간'으로 셀 때 쓰는 달력. */
+/** "월~금" · "월·수·금" */
+function daysLabel(d: number[]) {
+  const s = [...d].sort((a, b) => a - b);
+  if (!s.length) return "근무 요일 없음";
+  return s.length > 2 && s[s.length - 1] - s[0] === s.length - 1 ? `${DOW[s[0]]}~${DOW[s[s.length - 1]]}` : s.map((x) => DOW[x]).join("·");
+}
+const hm = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + (m || 0); };
+
+/** 자주 쓰는 근무 시간 */
+const WORK_PRESETS: [string, string][] = [["09:00", "18:00"], ["08:30", "17:30"], ["08:00", "17:00"], ["09:00", "17:00"]];
+/** 직접 넣는 휴일 이름 (음력 · 해마다 바뀌는 날) */
+const HOLIDAY_NAMES = ["설날", "추석", "부처님오신날", "대체공휴일", "선거일", "재량휴업일"];
+/** 00:00 ~ 23:30, 30분 간격 */
+const HALF_HOURS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+
+/** 24시간제 30분 단위 시각 고르기 (저장된 값이 30분 단위가 아니면 그 값도 보인다) */
+function TimeSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const opts = HALF_HOURS.includes(value) ? HALF_HOURS : [...HALF_HOURS, value].sort();
+  return (
+    <select className="wt-sel" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+      {opts.map((t) => <option key={t} value={t}>{t}</option>)}
+    </select>
+  );
+}
+
+/** 이 달력을 쓰는 곳: 근무 시간으로 세는 지연 알림 · SLA 단계 (SLA는 권한이 있을 때만 보인다) */
+function useCalendarUsers() {
+  const [u, setU] = useState<string[] | null>(null);
+  useEffect(() => {
+    Promise.all([
+      api.get<{ rules: AlertRule[] }>("/api/org/alert-rules").then((d) => d.rules.filter((r) => r.inUse && r.enabled && r.businessHours).map((r) => `${r.name} 지연 알림`)).catch(() => [] as string[]),
+      api.get<{ targets: { receiveBiz?: boolean; visitBiz?: boolean; recoverBiz?: boolean } }>("/api/as/sla").then((d) => {
+        const st = [d.targets.receiveBiz && "접수", d.targets.visitBiz && "도착", d.targets.recoverBiz && "복구"].filter(Boolean);
+        return st.length ? [`스쿨넷 SLA (${st.join(" · ")})`] : [];
+      }).catch(() => [] as string[]),
+    ]).then(([a, s]) => setU([...a, ...s]));
+  }, []);
+  return u;
+}
+
 function WorkCalendarForm() {
   const toast = useToast();
+  const users = useCalendarUsers();
   const [c, setC] = useState<WorkCal | null>(null);
   const [saved, setSaved] = useState("");
   const [err, setErr] = useState("");
@@ -293,6 +399,7 @@ function WorkCalendarForm() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(nd)) return setMsg("휴일 날짜를 선택해 주세요.");
     if (c.holidays.some((h) => h.date === nd)) return setMsg("이미 있는 날짜입니다.");
     upd({ holidays: sortH([...c.holidays, { date: nd, name: nn.trim() || undefined }]) });
+    setYear(Number(nd.slice(0, 4)));
     setNd(""); setNn("");
   };
   const addSolar = () => {
@@ -317,114 +424,114 @@ function WorkCalendarForm() {
   };
   const thisYear = c.holidays.filter((h) => h.date.startsWith(String(year)));
   const other = c.holidays.length - thisYear.length;
+  const dayMin = Math.max(0, hm(c.endTime) - hm(c.startTime));
+  const weekH = Math.round((dayMin * c.workDays.length) / 6) / 10;
 
   return (
-    <div style={{ display: "grid", gap: 14, marginTop: 28 }}>
-      <p className="um-note">
-        <b>근무 시간 · 휴일</b> — 지연 알림의 시간 계산이 &lsquo;근무 시간&rsquo;인 서비스는 아래 근무 요일 · 시간대만 셉니다.
-        예) 금요일 17시 신청, 기준 4시간 → 금요일 1시간 + 월요일 3시간 → 월요일 12시에 지연. 휴일은 근무 요일이어도 세지 않습니다.
-        {" "}<span className={"cal-now" + (c.workingNow ? " on" : "")}>{c.workingNow ? "지금은 근무 시간입니다" : "지금은 근무 시간이 아닙니다"}</span>
+    <section id="svc-2" className="svc-sec" aria-labelledby="svc-2-t">
+      <SecHead n={2} title="근무 시간 · 휴일" sub={
+        <>
+          <b>{daysLabel(c.workDays)} {c.startTime}~{c.endTime}</b> · 주 {weekH}시간 · {year}년 휴일 {thisYear.length}일{" "}
+          <span className={"cal-now" + (c.workingNow ? " on" : "")}>{c.workingNow ? "지금은 근무 시간" : "지금은 근무 시간 아님"}</span>
+        </>
+      }>
+        &lsquo;근무 시간&rsquo;으로 세는 지연 알림 · 스쿨넷 SLA 단계는 이 근무 요일 · 시간대만 셉니다. 예) 금요일 17시 신청, 기준 4시간 → 금요일 1시간 + 월요일 3시간 → 월요일 12시에 지연.
+        휴일은 근무 요일이어도 세지 않습니다. 점심시간은 따로 빼지 않습니다.
+      </SecHead>
+      <p className="svc-users">
+        <span>이 달력을 쓰는 곳:</span>
+        {users == null ? <small className="hint">확인 중…</small> : users.length ? users.map((x) => <span key={x} className="svc-chip">{x}</span>) : <small className="hint">없음 — 모두 24시간으로 셉니다</small>}
       </p>
-      <section className="um-card cal-card" aria-label="근무 시간">
+      <div className="um-card cal-card">
         <div className="cal-row">
           <b>근무 요일</b>
           <span className="cal-days" role="group" aria-label="근무 요일">
             {[1, 2, 3, 4, 5, 6, 7].map((d) => (
-              <label key={d} className={c.workDays.includes(d) ? "on" : ""}>
+              <label key={d} className={(c.workDays.includes(d) ? "on" : "") + (d >= 6 ? " we" : "")}>
                 <input type="checkbox" checked={c.workDays.includes(d)} onChange={(e) => upd({ workDays: e.target.checked ? [...c.workDays, d].sort() : c.workDays.filter((x) => x !== d) })} />
                 {DOW[d]}
               </label>
             ))}
           </span>
         </div>
-        <div className="cal-row">
+        <div className="cal-row top">
           <b>근무 시간</b>
-          <span>
-            <input type="time" aria-label="근무 시작" value={c.startTime} onChange={(e) => upd({ startTime: e.target.value })} /> ~{" "}
-            <input type="time" aria-label="근무 종료" value={c.endTime} onChange={(e) => upd({ endTime: e.target.value })} />
-            <small className="hint"> 점심시간은 따로 빼지 않습니다.</small>
-          </span>
+          <div className="wt">
+            <div className="wt-pick">
+              <TimeSelect label="근무 시작" value={c.startTime} onChange={(v) => upd({ startTime: v })} />
+              <span className="wt-arrow" aria-hidden="true">→</span>
+              <TimeSelect label="근무 종료" value={c.endTime} onChange={(v) => upd({ endTime: v })} />
+              <span className={"wt-len" + (dayMin ? "" : " bad")}>{dayMin ? `하루 ${dur(dayMin)}` : "종료가 시작보다 늦어야 합니다"}</span>
+            </div>
+            <div className="wt-bar" aria-hidden="true">
+              <i style={{ left: `${(hm(c.startTime) / 1440) * 100}%`, width: `${(dayMin / 1440) * 100}%` }} />
+              {[0, 6, 12, 18, 24].map((h) => <span key={h} style={{ left: `${(h / 24) * 100}%` }}>{h}시</span>)}
+            </div>
+            <div className="wt-pre" role="group" aria-label="자주 쓰는 근무 시간">
+              {WORK_PRESETS.map(([s, e]) => (
+                <button key={s} type="button" className={c.startTime === s && c.endTime === e ? "on" : ""} onClick={() => upd({ startTime: s, endTime: e })}>{s}~{e}</button>
+              ))}
+              <small className="hint">점심시간은 빼지 않습니다.</small>
+            </div>
+          </div>
         </div>
         <div className="cal-row top">
           <b>휴일</b>
-          <div className="cal-hol">
-            <div className="cal-add">
-              <input type="date" aria-label="휴일 날짜" value={nd} onChange={(e) => setNd(e.target.value)} />
-              <input aria-label="휴일 이름" placeholder="이름 (예: 추석, 재량휴업일)" maxLength={50} value={nn} onChange={(e) => setNn(e.target.value)} />
-              <button type="button" className="btn sm sec" onClick={addHoliday}>추가</button>
-              <span className="cal-sep" aria-hidden="true" />
-              <select aria-label="연도" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-                {[0, 1, 2].map((i) => { const y = new Date().getFullYear() - 1 + i; return <option key={y} value={y}>{y}년</option>; })}
-              </select>
-              <button type="button" className="btn sm sec" onClick={addSolar}>양력 공휴일 넣기</button>
+          <div className="hd">
+            <div className="hd-top">
+              <div className="my-chips" role="group" aria-label="연도">
+                {[0, 1, 2].map((i) => { const y = new Date().getFullYear() - 1 + i; const n = c.holidays.filter((h) => h.date.startsWith(String(y))).length; return (
+                  <button key={y} type="button" className={y === year ? "on" : ""} aria-pressed={y === year} onClick={() => setYear(y)}>{y}년 <b>{n}</b></button>
+                ); })}
+              </div>
+              <button type="button" className="btn sm sec" onClick={addSolar}>{year}년 양력 공휴일 넣기</button>
             </div>
-            {thisYear.length ? (
-              <ul className="cal-list">
-                {thisYear.map((h) => (
-                  <li key={h.date}>
-                    <span>{h.date.slice(5).replace("-", "/")} ({DOW[((new Date(h.date + "T00:00").getDay() + 6) % 7) + 1]})</span>
-                    <b>{h.name ?? "휴일"}</b>
-                    <button type="button" className="cal-x" aria-label={`${h.date} 휴일 빼기`} onClick={() => upd({ holidays: c.holidays.filter((x) => x.date !== h.date) })}>×</button>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="hint">{year}년 휴일이 없습니다.</p>}
-            {other > 0 && <small className="hint">다른 해의 휴일 {other}일도 저장되어 있습니다 (연도를 바꿔 보세요).</small>}
+            <div className="hd-add">
+              <input type="date" aria-label="휴일 날짜" value={nd} min={`${year}-01-01`} max={`${year}-12-31`} onChange={(e) => setNd(e.target.value)} />
+              <input aria-label="휴일 이름" placeholder="이름 (선택)" maxLength={50} value={nn} onChange={(e) => setNn(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addHoliday(); } }} />
+              <button type="button" className="btn sm" onClick={addHoliday} disabled={!nd}>추가</button>
+              <span className="hd-sug" role="group" aria-label="이름 고르기">
+                {HOLIDAY_NAMES.map((x) => <button key={x} type="button" className={nn === x ? "on" : ""} onClick={() => setNn(x)}>{x}</button>)}
+              </span>
+            </div>
+            <div className="hd-grid" aria-label={`${year}년 휴일`}>
+              {Array.from({ length: 12 }, (_, i) => {
+                const mm = String(i + 1).padStart(2, "0");
+                const list = thisYear.filter((h) => h.date.slice(5, 7) === mm);
+                // 근무 요일에 걸린 휴일이 있는 달만 강조 (주말 휴일은 시간 계산에 영향이 없다)
+                const counts = list.some((h) => c.workDays.includes(((new Date(h.date + "T00:00").getDay() + 6) % 7) + 1));
+                return (
+                  <div key={mm} className={"hd-m" + (list.length ? " has" : "") + (counts ? " hit" : "")}>
+                    <span className="hd-mn">{i + 1}월</span>
+                    {list.length ? (
+                      <ul>
+                        {list.map((h) => {
+                          const dow = ((new Date(h.date + "T00:00").getDay() + 6) % 7) + 1;
+                          const off = !c.workDays.includes(dow);
+                          return (
+                            <li key={h.date} className={off ? "off" : ""} title={off ? "근무하지 않는 요일이라 시간 계산에 영향이 없습니다" : undefined}>
+                              <span className="hd-d">{Number(h.date.slice(8))}<small>({DOW[dow]})</small></span>
+                              <span className="hd-n">{h.name ?? "휴일"}</span>
+                              <button type="button" className="cal-x" aria-label={`${h.date} ${h.name ?? "휴일"} 빼기`} onClick={() => upd({ holidays: c.holidays.filter((x) => x.date !== h.date) })}>×</button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : <span className="hd-none">—</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <small className="hint">
+              {thisYear.length ? `${year}년 휴일 ${thisYear.length}일 (근무 요일에 걸린 날 ${thisYear.filter((h) => c.workDays.includes(((new Date(h.date + "T00:00").getDay() + 6) % 7) + 1)).length}일). ` : `${year}년 휴일이 없습니다. `}
+              설날 · 추석 · 부처님오신날 · 대체공휴일 · 선거일 · 재량휴업일은 날짜를 골라 직접 추가하세요.{other > 0 ? ` 다른 해의 휴일 ${other}일도 저장되어 있습니다.` : ""}
+            </small>
           </div>
         </div>
-      </section>
+      </div>
       {msg && <FormMsg kind="bad" text={msg} />}
-      <div className={"um-bar" + (dirty ? " dirty" : "")}>
-        <span className="um-bar-t">{dirty ? "저장하지 않은 변경이 있습니다" : c.isDefault ? "기본값 (월~금 09:00~18:00)" : "변경 사항 없음"}</span>
-        <button type="button" className="btn sm sec" disabled={!dirty || busy} onClick={() => { setC(JSON.parse(saved)); setMsg(""); }}>되돌리기</button>
-        <button type="button" className="btn sm" disabled={!dirty || busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
-      </div>
-    </div>
-  );
-}
-
-/** 스쿨넷 신고 접수처 (/api/org/as-services의 schoolnetRoute). */
-function SchoolnetRouteForm() {
-  const toast = useToast();
-  const [d, setD] = useState<AsServices | null>(null);
-  const [route, setRoute] = useState<"REGION" | "VENDOR">("REGION");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    api.get<AsServices>("/api/org/as-services").then((x) => { setD(x); setRoute(x.schoolnetRoute ?? "REGION"); }).catch(() => {});
-  }, []);
-  if (!d || !d.asTypes.includes("S")) return null;
-  const dirty = route !== (d.schoolnetRoute ?? "REGION");
-  const save = async () => {
-    setBusy(true);
-    try {
-      const x = await api.put<AsServices>("/api/org/as-services", { asTypes: d.asTypes, schoolnetRoute: route });
-      setD(x); setRoute(x.schoolnetRoute ?? "REGION");
-      toast("스쿨넷 신고 접수처를 저장했습니다.");
-    } catch (e) {
-      toast((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div style={{ display: "grid", gap: 14, marginTop: 28 }}>
-      <p className="um-note">
-        <b>스쿨넷 신고 접수처</b> — 학교의 스쿨넷 신고를 누가 먼저 받을지 정합니다. 교육지원청이 먼저 받으면 NMS로 확인한 뒤
-        직접 처리하거나, 통신사에 넘기거나, 교육청으로 올립니다 (AS 상세의 &lsquo;처리 담당 지정&rsquo;). 이미 들어온 신고는 바뀌지 않습니다.
-      </p>
-      <section className="um-card hd-pick" role="radiogroup" aria-label="스쿨넷 신고 접수처" style={{ padding: 12 }}>
-        {([["REGION", "교육지원청이 먼저 확인 (권장)", "그 유형을 맡은 관할 교육지원청 담당자에게 갑니다. 업체는 정해지지 않습니다."],
-           ["VENDOR", "통신사로 바로", "학교 관리에서 배정한 스쿨넷 업체(통신사)에게 바로 갑니다."]] as const).map(([k, l, h]) => (
-          <label key={k} className={route === k ? "on" : ""}>
-            <input type="radio" name="snroute" checked={route === k} onChange={() => setRoute(k)} />
-            <b>{l}</b><small>{h}</small>
-          </label>
-        ))}
-      </section>
-      <div className={"um-bar" + (dirty ? " dirty" : "")}>
-        <span className="um-bar-t">{dirty ? "저장하지 않은 변경이 있습니다" : "변경 사항 없음"}</span>
-        <button type="button" className="btn sm" disabled={!dirty || busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
-      </div>
-    </div>
+      <SaveBar dirty={dirty} busy={busy} idle={c.isDefault ? "기본값 (월~금 09:00~18:00)" : "변경 사항 없음"} onReset={() => { setC(JSON.parse(saved)); setMsg(""); }} onSave={save} />
+    </section>
   );
 }

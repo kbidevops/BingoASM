@@ -3,19 +3,18 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import AsDetailModal from "@/components/AsDetailModal";
+import { MineTab, TodoTab, useMyAsCounts } from "@/components/MyAs";
 import SubPage from "@/components/SubPage";
 import OtpSetupPanel from "@/components/OtpSetupPanel";
-import { AsBadge, ErrorBox, EvalWait, FormMsg, FormRow, Loading, Modal, NoticeBox, SubmitBar, TelInput, telValid, useToast } from "@/components/ui";
+import { ErrorBox, FormMsg, FormRow, Loading, Modal, NoticeBox, SubmitBar, TelInput, telValid, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
-import { AS_LIST_HREF } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { browserOf, fmtDate, fmtDateTime, LOGIN_METHOD } from "@/lib/format";
 import { pwLevel, pwRules } from "@/lib/password";
 import { useScraps } from "@/lib/scraps";
-import type { AsRow, AsSummary, LoginLog, Me, OtpSetup, Page } from "@/lib/types";
+import type { LoginLog, Me, OtpSetup } from "@/lib/types";
 
-const TABS = [["info", "회원정보"], ["pw", "비밀번호 변경"], ["as", "나의 AS 신청내역"], ["scrap", "스크랩한 메뉴"], ["log", "로그인 기록"]] as const;
+const TABS = [["info", "회원정보"], ["pw", "비밀번호 변경"], ["todo", "내 할 일"], ["mine", "내 신청"], ["scrap", "스크랩한 메뉴"], ["log", "로그인 기록"]] as const;
 type Tab = (typeof TABS)[number][0];
 
 export default function MyPage() {
@@ -32,9 +31,13 @@ function MyPageBody() {
   const params = useSearchParams();
   const router = useRouter();
   const { me } = useAuth();
-  const t = params.get("tab");
+  const counts = useMyAsCounts();
+  const raw = params.get("tab");
+  // 예전 링크 ?tab=as: 학교 담당자는 내 신청, 그 밖(기사 · 업체 · 교육지원청 · 교육청)은 내 할 일
+  const t = raw === "as" ? (me?.schoolId ? "mine" : "todo") : raw;
   const tab: Tab = TABS.some(([k]) => k === t) ? (t as Tab) : "info";
   if (!me) return null;
+  const badge: Partial<Record<Tab, number>> = { todo: counts?.todo, mine: counts?.open };
   const org = me.schoolName ?? me.vendorName ?? me.regionName ?? me.orgName ?? "";
   return (
     <>
@@ -44,13 +47,16 @@ function MyPageBody() {
       </div>
       <div className="tabs" role="tablist" aria-label="마이페이지 메뉴">
         {TABS.map(([k, l]) => (
-          <button key={k} type="button" role="tab" aria-controls="mppanel" aria-selected={tab === k} onClick={() => router.replace("/mypage?tab=" + k)}>{l}</button>
+          <button key={k} type="button" role="tab" aria-controls="mppanel" aria-selected={tab === k} onClick={() => router.replace("/mypage?tab=" + k)}>
+            {l}{!!badge[k] && <span className="my-tabn" aria-label={`${badge[k]}건`}>{badge[k]}</span>}
+          </button>
         ))}
       </div>
       <div id="mppanel" role="tabpanel">
         {tab === "info" && <InfoTab me={me} />}
         {tab === "pw" && <PasswordTab me={me} />}
-        {tab === "as" && <AsTab org={org} />}
+        {tab === "todo" && <TodoTab initialKey={params.get("key")} />}
+        {tab === "mine" && <MineTab initialStatus={params.get("status")} initialSchool={params.get("school") === "1"} />}
         {tab === "scrap" && <ScrapTab />}
         {tab === "log" && <LogTab />}
       </div>
@@ -258,51 +264,6 @@ function PasswordTab({ me }: { me: Me }) {
         <FormMsg kind={msg.kind} text={msg.text} />
         <SubmitBar label="비밀번호 변경" busy={busy} />
       </form>
-    </>
-  );
-}
-
-function AsTab({ org }: { org: string }) {
-  const [summary, setSummary] = useState<AsSummary | null>(null);
-  const [list, setList] = useState<AsRow[] | null>(null);
-  const [err, setErr] = useState("");
-  const [open, setOpen] = useState<number | null>(null);
-  const load = () => {
-    setErr("");
-    api.get<AsSummary>("/api/as/requests/summary").then(setSummary).catch((e) => setErr(e.message));
-    api.get<Page<AsRow>>("/api/as/requests", { size: 10 }).then((p) => setList(p.content)).catch((e) => setErr(e.message));
-  };
-  useEffect(load, []);
-  if (err) return <ErrorBox message={err} onRetry={load} />;
-  if (!summary || !list) return <Loading />;
-  const total = summary.requested + summary.received + summary.completed + summary.returned;
-  const card = (l: string, n: number, c: string) => <div className={"mpc " + c}><span>{l}</span><b>{n.toLocaleString()}</b>건</div>;
-  return (
-    <>
-      <p className="mpo"><b>{org}</b>의 AS 현황입니다.{summary.waitingEval > 0 && <> 만족도 평가를 기다리는 건이 <b>{summary.waitingEval}</b>건 있습니다.</>}</p>
-      <div className="mpcards">{card("전체", total, "")}{card("신청완료", summary.requested, "c2")}{card("접수완료", summary.received, "c3")}{card("처리완료", summary.completed, "c1")}</div>
-      <div className="tw">
-        <table className="cards">
-          <caption>최근 신청 10건</caption>
-          <thead><tr><th scope="col">구분</th><th scope="col">학교명</th><th scope="col">신청일자</th><th scope="col">상태</th><th scope="col">보고서</th></tr></thead>
-          <tbody>
-            {list.length ? list.map((r) => (
-              <tr key={r.asvcSn} className={r.canEvaluate ? "evw-row" : undefined}>
-                <td data-label="구분"><Link href={AS_LIST_HREF[r.rceptTy]}>{r.rceptTyName}</Link></td>
-                <td data-label="학교명">{r.schoolName}</td>
-                <td data-label="신청일자">{fmtDate(r.requestAt)}</td>
-                <td data-label="상태"><AsBadge status={r.status} name={r.statusName} /> <EvalWait row={r} /></td>
-                <td data-label="보고서">
-                  {r.canEvaluate
-                    ? <button className="btn sm evw-btn" type="button" onClick={() => setOpen(r.asvcSn)}>만족도 평가</button>
-                    : <button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>보고서 확인</button>}
-                </td>
-              </tr>
-            )) : <tr><td colSpan={5}>신청한 내역이 없습니다.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {open !== null && <AsDetailModal sn={open} onClose={() => setOpen(null)} onChanged={load} />}
     </>
   );
 }

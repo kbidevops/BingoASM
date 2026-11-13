@@ -165,7 +165,7 @@ function Users() {
       <ListHead total={shown.length} page={cur} pages={pages}>
         <label className="us-off"><input type="checkbox" checked={showOff} onChange={(e) => { setShowOff(e.target.checked); setPage(1); }} /> 삭제된 계정 표시</label>
         {can("USER_CREATE") && <button className="btn sm" type="button" onClick={() => setEdit("new")}>사용자 등록</button>}
-        {can("ROLE_GRANT") && can("USER_BULK") && <button className="btn sm sec" type="button" onClick={() => setBulk(true)}>일괄 등록</button>}
+        {can("USER_BULK") && (mgr.kinds ? true : can("ROLE_GRANT")) && <button className="btn sm sec" type="button" onClick={() => setBulk(true)}>일괄 등록</button>}
       </ListHead>
       <div className="tw">
         <table className="cards" style={{ minWidth: 780 }}>

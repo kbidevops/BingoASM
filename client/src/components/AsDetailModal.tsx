@@ -6,13 +6,13 @@ import { ACTION_LABEL, AS_NAME, loadCodes, useAsTypes } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { fileSize, fmtDate, fmtDateTime, won } from "@/lib/format";
 import type { AsCodes, AsDetail, CostItem, FileInfo, RceptTy } from "@/lib/types";
-import { AsBadge, DateTimeInput, ErrorBox, FilePicker, Loading, Modal, useToast } from "./ui";
+import { AsBadge, DateTimeInput, ErrorBox, FilePicker, HoldBadge, Loading, Modal, useToast, SlaBadge } from "./ui";
 
 const SCORE = ["", "매우불만족", "불만족", "보통", "만족", "매우만족"];
 /** 처리 보고서 첨부 개수. 한 번 업로드에 5개까지라(FileService) 새 파일도 그 안에 들어간다. */
 const REPORT_FILES_MAX = 5;
 /** Actions this screen offers (서버 allowedActions 중). `update`(신청 수정)는 신청 화면에서 한다. */
-const SHOWN = ["receive", "handler", "assign", "device", "engineer", "visit", "arrive", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
+const SHOWN = ["receive", "handler", "assign", "device", "engineer", "hold", "resume", "outage", "visit", "arrive", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
 function nowLocal() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -92,6 +92,10 @@ export default function AsDetailModal({ sn, onClose, onChanged, initialAction }:
                   ? r("처리 담당", d.handlerName ?? "-", "담당자", d.engineerName ?? "미지정 (담당 모두)")
                   : r("처리업체", d.vendorName ?? "미배정", "담당 기사", `${d.engineerName ?? "-"}${d.engineerTel ? ` (${d.engineerTel})` : ""}`)}
                 {r("접수일시", fmtDateTime(d.receivedAt), "방문예정일시", fmtDateTime(d.visitPlannedAt))}
+                {d.sla && wide("SLA 기한", <SlaBadge sla={d.sla} />)}
+                {d.onHold && wide("보류", <><HoldBadge row={d} /> {d.holdReason} <small className="hint">({fmtDateTime(d.holdAt)}부터 · 지연 알림 · SLA 기한이 멈춰 있습니다)</small></>)}
+                {!d.onHold && !!d.holdMinutes && wide("보류한 시간", <small className="hint">모두 {d.holdMinutes < 60 ? `${d.holdMinutes}분` : `${Math.floor(d.holdMinutes / 60)}시간 ${d.holdMinutes % 60}분`} — 지연 · SLA 기한에서 뺐습니다</small>)}
+                {(d.outageStartAt || d.outageEndAt) && wide("장애 시각 (실제)", `${d.outageStartAt ? fmtDateTime(d.outageStartAt) : "신청 시각"} ~ ${d.outageEndAt ? fmtDateTime(d.outageEndAt) : d.status === "C" ? "처리완료 시각" : "진행 중"}`)}
                 {/* 기사가 도착을 기록했고 보고서는 아직 (보고서가 있으면 아래 보고서의 방문일시) */}
                 {d.visitAt && !d.report && wide("현장 도착", fmtDateTime(d.visitAt))}
                 {d.status === "X" && wide("반려사유", d.returnReason ?? "-")}
@@ -170,6 +174,11 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     inspectContent: d.report?.inspectContent ?? "",
     processTypeCode: d.report?.processTypeCode ?? "",
     processContent: d.report?.processContent ?? "",
+    // 스쿨넷 실제 장애 시각 (비우면 신청 · 처리완료 시각으로 계산)
+    outageStartAt: d.outageStartAt?.slice(0, 16) ?? "",
+    outageEndAt: d.outageEndAt?.slice(0, 16) ?? "",
+    holdReason: "",
+    holdUntil: "",
     score: "",
     opinion: "",
     vendorId: d.vendorId ? String(d.vendorId) : "",
@@ -254,6 +263,7 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
           engineerName: v.engineerName.trim(), visitAt: v.visitAt, visitEndAt: v.visitEndAt,
           troubleSymptom: v.troubleSymptom.trim(), inspectContent: v.inspectContent.trim(),
           processTypeCode: v.processTypeCode || undefined, processContent: v.processContent.trim(),
+          ...(d.rceptTy === "S" ? { outageStartAt: v.outageStartAt || null, outageEndAt: v.outageEndAt || null } : {}),
           costItems: costs.map((l) => ({ costType: l.costType, itemName: l.itemName.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
         };
         break;
@@ -267,6 +277,13 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
         break;
       case "device":
         body = { deviceId: v.deviceId ? Number(v.deviceId) : null };
+        break;
+      case "hold":
+        if (!v.holdReason.trim()) check = "보류 사유를 입력해 주세요.";
+        body = { reason: v.holdReason.trim(), holdUntil: v.holdUntil || null };
+        break;
+      case "outage":
+        body = { outageStartAt: v.outageStartAt || null, outageEndAt: v.outageEndAt || null };
         break;
       case "handler":
         if (v.handlerType === "VENDOR" && !v.handlerVendorId) check = "넘길 통신사(업체)를 선택해 주세요.";
@@ -293,12 +310,13 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     }
   };
 
-  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete" || action === "arrive";
+  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete" || action === "arrive" || action === "resume";
   const confirmText: Record<string, string> = {
     delete: "이 AS 신청을 삭제합니다. 삭제한 내용은 되돌릴 수 없습니다.",
     cancel: "이 AS 신청을 취소합니다.",
     "return-cancel": "반려를 취소하고 신청완료 상태로 되돌립니다.",
     arrive: "지금 시각을 현장 도착으로 기록합니다 (학교에 알림이 갑니다).",
+    resume: "보류를 풀고 처리를 다시 시작합니다. 보류한 시간만큼 지연 · SLA 기한이 늦춰집니다 (학교에 알림이 갑니다).",
   };
 
   return (
@@ -336,6 +354,7 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
             <tr><th scope="row">처리 기사</th><td><input aria-label="처리 기사" value={v.engineerName} onChange={set("engineerName")} /></td></tr>
             <tr><th scope="row">방문일시</th><td><DateTimeInput label="방문일시" value={v.visitAt} onChange={(x) => setV((p) => ({ ...p, visitAt: x }))} /></td></tr>
             <tr><th scope="row">처리완료일시</th><td><DateTimeInput label="처리완료일시" value={v.visitEndAt} onChange={(x) => setV((p) => ({ ...p, visitEndAt: x }))} /></td></tr>
+            {d.rceptTy === "S" && <OutageRows v={v} setV={setV} />}
             <tr><th scope="row">장애증상</th><td><textarea className="ta" aria-label="장애증상" value={v.troubleSymptom} onChange={set("troubleSymptom")} /></td></tr>
             <tr><th scope="row">점검내용</th><td><textarea className="ta" aria-label="점검내용" value={v.inspectContent} onChange={set("inspectContent")} /></td></tr>
             <tr><th scope="row">처리유형</th><td>
@@ -421,6 +440,18 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
             </>
           );
         })()}
+        {action === "outage" && <OutageRows v={v} setV={setV} />}
+        {action === "hold" && (
+          <>
+            <tr><th scope="row"><i>*</i>보류 사유</th><td>
+              <textarea className="ta" aria-label="보류 사유" maxLength={500} placeholder="예: 교체 부품 입고 대기 (11/20 예정), 통신사 회선 공사 대기, 학교 출입 불가 (방학)" value={v.holdReason} onChange={set("holdReason")} />
+            </td></tr>
+            <tr><th scope="row">재개 예정일</th><td>
+              <input type="date" aria-label="재개 예정일" value={v.holdUntil} onChange={set("holdUntil")} />{" "}
+              <small className="hint">선택. 보류 중에는 지연 알림 · SLA 기한이 멈추고, 풀면 보류한 시간만큼 늦춰집니다.</small>
+            </td></tr>
+          </>
+        )}
         {action === "device" && (
           <tr><th scope="row">대상 장비</th><td>
             <select aria-label="대상 장비" value={v.deviceId} onChange={set("deviceId")} disabled={devices === null}>
@@ -510,5 +541,23 @@ function CostTable({ items }: { items: CostItem[] }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** 스쿨넷 실제 장애 시각 입력 (보고서 · 장애 시각 수정). 비우면 신청 · 처리완료 시각으로 계산한다. */
+function OutageRows({ v, setV }: { v: Record<string, string>; setV: React.Dispatch<React.SetStateAction<Record<string, string>>> }) {
+  const row = (k: "outageStartAt" | "outageEndAt", label: string, empty: string) => (
+    <tr><th scope="row">{label}</th><td>
+      {v[k] ? <><DateTimeInput label={label} value={v[k]} onChange={(x) => setV((p) => ({ ...p, [k]: x }))} />{" "}
+        <button type="button" className="btn sm sec" onClick={() => setV((p) => ({ ...p, [k]: "" }))}>비우기</button></>
+        : <button type="button" className="btn sm sec" onClick={() => setV((p) => ({ ...p, [k]: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) }))}>입력</button>}
+      {" "}<small className="hint">{v[k] ? "NMS 등으로 확인한 실제 시각" : empty}</small>
+    </td></tr>
+  );
+  return (
+    <>
+      {row("outageStartAt", "장애 발생 시각", "비우면 신청 시각으로 계산합니다.")}
+      {row("outageEndAt", "복구 시각", "비우면 처리완료 시각으로 계산합니다.")}
+    </>
   );
 }

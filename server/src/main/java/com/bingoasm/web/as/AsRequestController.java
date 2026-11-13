@@ -80,12 +80,20 @@ public class AsRequestController {
         return ApiResponse.ok(requests.todo(me));
     }
 
-    /** 대시보드 요약(유형별·상태별 건수, 내 처리 대기). */
-    @GetMapping("/summary")
-    public ApiResponse summary() {
+    /** 내 할 일 한 묶음의 전체 목록 (페이지). 행마다 late · allowedActions. */
+    @GetMapping("/todo/{key}")
+    public ApiResponse todoBucket(@PathVariable String key, @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         CurrentUser me = AuthContext.get();
         requireAnyView(me);
-        return ApiResponse.ok(requests.summary(me));
+        return ApiResponse.ok(requests.todo(me, key, page, size));
+    }
+
+    /** 대시보드 요약(유형별·상태별 건수, 내 처리 대기). */
+    @GetMapping("/summary")
+    public ApiResponse summary(@RequestParam(required = false) Boolean mine) {
+        CurrentUser me = AuthContext.get();
+        requireAnyView(me);
+        return ApiResponse.ok(requests.summary(me, Boolean.TRUE.equals(mine)));
     }
 
     @GetMapping("/excel")

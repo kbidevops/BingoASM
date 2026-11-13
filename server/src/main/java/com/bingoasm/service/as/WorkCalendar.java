@@ -35,6 +35,38 @@ public record WorkCalendar(Set<DayOfWeek> workDays, LocalTime start, LocalTime e
         return sec / 60;
     }
 
+    /**
+     * from부터 근무 시간으로 minutes분이 지난 시각 (SLA 기한). 근무 시간 밖에서 시작하면 다음 근무 시작부터 센다.
+     * 근무 요일이 없는 등 셀 수 없는 달력이면 그냥 minutes분 뒤.
+     */
+    public LocalDateTime plus(LocalDateTime from, long minutes) {
+        if (from == null) return null;
+        if (minutes <= 0 || workDays.isEmpty() || !end.isAfter(start)) return from.plusMinutes(Math.max(0, minutes));
+        long left = minutes * 60;
+        LocalDate d = from.toLocalDate();
+        for (int i = 0; i < MAX_DAYS * 10; i++, d = d.plusDays(1)) {
+            if (!isWorkDay(d)) continue;
+            LocalDateTime ws = d.atTime(start), we = d.atTime(end);
+            LocalDateTime a = from.isAfter(ws) ? from : ws;
+            if (!we.isAfter(a)) continue;
+            long avail = Duration.between(a, we).getSeconds();
+            if (avail >= left) return a.plusSeconds(left);
+            left -= avail;
+        }
+        return from.plusMinutes(minutes);
+    }
+
+    /** 화면용: "월~금 09:00~18:00 · 휴일 12일" */
+    public String label() {
+        String[] names = {"월", "화", "수", "목", "금", "토", "일"};
+        StringBuilder days = new StringBuilder();
+        java.util.List<DayOfWeek> l = workDays.stream().sorted().toList();
+        boolean run = !l.isEmpty() && l.get(l.size() - 1).getValue() - l.get(0).getValue() == l.size() - 1;
+        if (run && l.size() > 2) days.append(names[l.get(0).getValue() - 1]).append("~").append(names[l.get(l.size() - 1).getValue() - 1]);
+        else for (DayOfWeek x : l) days.append(days.isEmpty() ? "" : "·").append(names[x.getValue() - 1]);
+        return days + " " + start + "~" + end + (holidays.isEmpty() ? "" : " · 휴일 " + holidays.size() + "일");
+    }
+
     /** 지금이 근무 시간인가. */
     public boolean isWorkingAt(LocalDateTime t) {
         return isWorkDay(t.toLocalDate()) && !t.toLocalTime().isBefore(start) && t.toLocalTime().isBefore(end);

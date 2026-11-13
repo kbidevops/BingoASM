@@ -144,11 +144,39 @@ export function AsBadge({ status, name }: { status: AsStatus; name: string }) {
  * 처리완료인데 신청자가 아직 만족도를 평가하지 않은 건의 표시. mine = 지금 사용자가 평가할 수 있는 건(강조),
  * 아니면 관리자 등에게 ‘평가 대기’만 조용히 보여 준다. 평가했거나 처리완료가 아니면 아무것도 없다.
  */
-export function EvalWait({ row }: { row: { status: AsStatus; evalScore?: number; canEvaluate?: boolean } }) {
-  if (row.status !== "C" || row.evalScore != null) return null;
+export function EvalWait({ row }: { row: { status: AsStatus; evalScore?: number; canEvaluate?: boolean; evalOff?: boolean } }) {
+  if (row.status !== "C" || row.evalScore != null || row.evalOff) return null;
   return row.canEvaluate
     ? <span className="evw on"><span aria-hidden="true">★</span> 만족도 평가 대기</span>
     : <span className="evw">평가 대기</span>;
+}
+
+/** 보류 표시: "보류 · 재개 11/20" (마우스를 올리면 사유). */
+export function HoldBadge({ row }: { row: { onHold?: boolean; holdReason?: string; holdUntil?: string } }) {
+  if (!row.onHold) return null;
+  const until = row.holdUntil ? new Date(row.holdUntil + "T00:00") : null;
+  const late = until && until < new Date(new Date().toDateString());
+  return (
+    <span className={"hold-b" + (late ? " late" : "")} title={row.holdReason ? `보류 사유: ${row.holdReason}` : "보류"}>
+      ⏸ 보류{until ? ` · 재개 ${until.getMonth() + 1}/${until.getDate()}${late ? " 지남" : ""}` : ""}
+    </span>
+  );
+}
+
+/** 스쿨넷 SLA 기한: "복구 기한 14:30 · 2시간 남음" (20% 이하로 남으면 주황, 넘으면 빨강). */
+export function SlaBadge({ sla, compact }: { sla?: { label: string; dueAt: string; remainingMin: number; targetMin: number; biz?: boolean } | null; compact?: boolean }) {
+  if (!sla) return null;
+  const d = new Date(sla.dueAt), now = new Date();
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const when = d.toDateString() === now.toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  const m = Math.abs(sla.remainingMin);
+  const span = m < 60 ? `${m}분` : m < 1440 ? `${Math.floor(m / 60)}시간${m % 60 ? ` ${m % 60}분` : ""}` : `${Math.floor(m / 1440)}일 ${Math.floor((m % 1440) / 60)}시간`;
+  const over = sla.remainingMin < 0, near = !over && sla.remainingMin <= sla.targetMin * 0.2;
+  return (
+    <span className={"sla-b" + (over ? " over" : near ? " near" : "")} title={`스쿨넷 SLA ${sla.label} 기한 ${when}${sla.biz ? " · 근무 시간 기준 (남은 시간도 근무 시간)" : ""}`}>
+      SLA {sla.label} {compact ? "" : `${when} · `}{sla.biz ? "근무 " : ""}{over ? `${span} 초과` : `${span} 남음`}
+    </span>
+  );
 }
 
 /** AS 지연 표시 (서버의 지연 알림 기준): 접수 지연 · 에스컬레이션 · 방문 지연. */

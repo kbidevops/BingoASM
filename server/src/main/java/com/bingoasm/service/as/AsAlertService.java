@@ -57,12 +57,16 @@ public class AsAlertService {
     private final PermissionService permissions;
     private final com.bingoasm.repo.as.WorkCalendarRepository calendars;
     private final com.bingoasm.repo.as.HolidayRepository holidays;
+    private final com.bingoasm.repo.as.SlaTargetRepository slaTargets;
+    /** SLA 기한 임박: 기준 시간의 이만큼이 지나면 알린다 */
+    static final double SLA_WARN_RATIO = 0.8;
     private final TransactionTemplate tx;
 
     public AsAlertService(AsAlertRuleRepository rules, AsRequestRepository requests, AsHistoryRepository histories, OrgRepository orgs,
                           NotificationService notices, SchoolService schoolService, PermissionService permissions, PlatformTransactionManager tm,
-                          com.bingoasm.repo.as.WorkCalendarRepository calendars, com.bingoasm.repo.as.HolidayRepository holidays) {
-        this.calendars = calendars; this.holidays = holidays;
+                          com.bingoasm.repo.as.WorkCalendarRepository calendars, com.bingoasm.repo.as.HolidayRepository holidays,
+                          com.bingoasm.repo.as.SlaTargetRepository slaTargets) {
+        this.calendars = calendars; this.holidays = holidays; this.slaTargets = slaTargets;
         this.rules = rules; this.requests = requests; this.histories = histories; this.orgs = orgs;
         this.notices = notices; this.schoolService = schoolService; this.permissions = permissions;
         this.tx = new TransactionTemplate(tm);
@@ -214,9 +218,9 @@ public class AsAlertService {
      * 목록 · 할 일에서 쓴다. 알림을 보냈는지와 상관없이 지금 시각으로 판정한다.
      */
     public static String lateOf(AsRequest r, Rule rule, WorkCalendar cal, LocalDateTime now) {
-        if (rule == null || !rule.enabled() || !"Y".equals(r.useYn)) return null;
+        if (rule == null || !rule.enabled() || !"Y".equals(r.useYn) || r.onHold()) return null;
         if ("A".equals(r.status) && r.requestAt != null) {
-            long age = elapsed(rule, cal, r.requestAt, now);
+            long age = elapsed(rule, cal, r.requestAt, now) - r.pausedFor(null, now, rule.businessHours());
             if (age >= rule.escalateMin()) return "ESCALATED";
             if (age >= rule.receiveMin()) return "RECEIVE";
         }
@@ -255,8 +259,11 @@ public class AsAlertService {
         WorkCalendar cal = calendar(orgId);
         List<String> inUse = permissions.asTypes(orgId);
         Map<Long, School> schools = schoolService.schoolMap(orgId);
-        int receive = 0, escalated = 0, visit = 0;
+        int receive = 0, escalated = 0, visit = 0, slaWarn = 0;
+        SlaTarget st = slaTargets.findById(orgId).orElseGet(() -> { SlaTarget x = new SlaTarget(); x.orgId = orgId; return x; });
         for (AsRequest r : requests.findByOrgIdAndUseYnAndStatusIn(orgId, "Y", List.of("A", "R"))) {
+            if (r.onHold()) continue;   // 보류 중: 지연 알림 · SLA 임박 모두 멈춤
+            if ("S".equals(r.rceptTy) && inUse.contains("S")) slaWarn += slaWarn(r, st, st.anyBiz() ? cal : null, now, schools);
             Rule rule = rs.get(r.rceptTy);
             if (rule == null || !rule.enabled() || !inUse.contains(r.rceptTy)) continue;
             School sc = r.schoolId == null ? null : schools.get(r.schoolId);
@@ -265,7 +272,7 @@ public class AsAlertService {
             Set<Long> region = notices.regionSide(r, sc == null ? null : sc.regionId);
             int level = r.receiveAlertLevel == null ? 0 : r.receiveAlertLevel;
             if ("A".equals(r.status) && r.requestAt != null) {
-                long age = elapsed(rule, cal, r.requestAt, now);
+                long age = elapsed(rule, cal, r.requestAt, now) - r.pausedFor(null, now, rule.businessHours());
                 if (age >= rule.receiveMin() && level < 1) {
                     // 업체가 정해지지 않은 건은 배정할 교육지원청에 바로 알린다.
                     Set<Long> to = vendor.isEmpty() ? region : vendor;
@@ -293,7 +300,42 @@ public class AsAlertService {
                 r.visitAlertFor = r.visitPlannedAt; visit++;
             }
         }
-        return Json.obj().with("receive", receive).with("escalated", escalated).with("visit", visit).with("checkedAt", now);
+        return Json.obj().with("receive", receive).with("escalated", escalated).with("visit", visit).with("slaWarn", slaWarn).with("checkedAt", now);
+    }
+
+    /**
+     * 스쿨넷 SLA 기한 임박: 아직 안 끝난 단계(접수 · 도착 · 복구)마다 기준의 80%가 지나면 한 번 알린다.
+     * 시간은 SLA 기준과 같게 센다 (단계마다 24시간 또는 근무 시간, cal = 근무 시간 단계가 있을 때의 달력).
+     * 받는 사람: 처리 담당 업체(업체 관리자 + 배정 기사). 교육지원청 · 교육청이 맡았거나 업체가 없으면 담당자 · 관할 교육지원청.
+     */
+    private int slaWarn(AsRequest r, SlaTarget t, WorkCalendar cal, LocalDateTime now, Map<Long, School> schools) {
+        if (r.requestAt == null) return 0;
+        Set<String> warned = new LinkedHashSet<>(r.slaWarned == null ? List.of() : List.of(r.slaWarned.split(",")));
+        List<Object[]> stages = new ArrayList<>();
+        if (r.receivedAt == null) stages.add(new Object[]{"RECEIVE", "접수", SlaService.clockStart(r), t.receiveMin});
+        if (r.visitAt == null) stages.add(new Object[]{"VISIT", "도착", SlaService.clockStart(r), t.visitMin});
+        stages.add(new Object[]{"RECOVER", "복구", SlaService.outageFrom(r), SlaService.recoverTarget(r, t)});
+        int sent = 0;
+        for (Object[] s : stages) {
+            String stage = (String) s[0];
+            int target = (Integer) s[3];
+            LocalDateTime from = (LocalDateTime) s[2];
+            boolean biz = SlaService.biz(t, stage) && cal != null;
+            long elapsed = SlaService.span(t, cal, stage, from, now) - ("RECOVER".equals(stage) ? r.pausedFor(null, now, biz) : SlaService.paused(r, from, null, now, biz));
+            LocalDateTime dueAt = SlaService.dueOf(r, t, cal, stage, from, target, now);
+            if (warned.contains(stage) || elapsed < target * SLA_WARN_RATIO) continue;
+            School sc = r.schoolId == null ? null : schools.get(r.schoolId);
+            boolean office = "REGION".equals(r.handlerType) || "PROVINCE".equals(r.handlerType);
+            Set<Long> to = office || r.vendorId == null
+                    ? (r.engineerUserId != null ? Set.of(r.engineerUserId) : notices.regionSide(r, sc == null ? null : sc.regionId))
+                    : notices.vendorSide(r);
+            long left = SlaService.remaining(t, cal, stage, now, dueAt);
+            notices.notify(to, null, r, "AS_SLA_WARN", label(r) + " SLA " + s[1] + " 기한 " + (left >= 0 ? "임박" : "초과"),
+                    (sc == null ? "" : sc.schoolName + " · ") + s[1] + " 기한 " + when(dueAt) + (left >= 0 ? " (" + (biz ? "근무 시간 " : "") + dur(left) + " 남음)" : " (" + (biz ? "근무 시간 " : "") + dur(-left) + " 지남)"));
+            warned.add(stage); sent++;
+        }
+        if (sent > 0) r.slaWarned = String.join(",", warned);
+        return sent;
     }
 
     private void history(AsRequest r, String action, String content) {

@@ -148,6 +148,22 @@ export interface AsRow {
   evalScore?: number;
   /** 목록에서만: 지금 이 사용자가 만족도를 평가할 수 있는 건 (신청자 · 그 학교 담당자, 처리완료 · 미평가) */
   canEvaluate?: boolean;
+  applicantUserId?: number;
+  requestTypeCode?: string;
+  /** 스쿨넷: 실제 장애 발생 · 복구 시각 (NMS 등으로 확인) */
+  outageStartAt?: string;
+  outageEndAt?: string;
+  /** 처리 중인 스쿨넷 건의 가장 가까운 SLA 기한 */
+  sla?: SlaDue | null;
+  /** 보류: 상태(신청완료 · 접수완료)는 그대로, 보류 중이면 true · 사유 · 재개 예정일. holdMinutes = 지금까지 보류한 시간 */
+  onHold?: boolean;
+  holdAt?: string;
+  holdUntil?: string;
+  holdReason?: string;
+  holdMinutes?: number;
+  evaluatedAt?: string;
+  /** 처리 흐름에서 만족도 평가를 끈 유형 */
+  evalOff?: boolean;
   /** 처리 담당: VENDOR 업체 · REGION 교육지원청 · PROVINCE 교육청 (담당자는 engineerName) */
   handlerType?: "VENDOR" | "REGION" | "PROVINCE";
   /** 처리 담당 이름: 업체명 · "천안 교육지원청" · "교육청" */
@@ -173,10 +189,17 @@ export interface TodoRow {
   engineerName?: string;
   evalScore?: number;
   late?: AsRow["late"] | null;
+  sla?: SlaDue | null;
+  onHold?: boolean;
+  holdReason?: string;
 }
 export interface TodoBucket { key: string; label: string; hint: string; count: number; rows: TodoRow[] }
 export interface Todo { buckets: TodoBucket[]; total: number; dutyTypes: RceptTy[] }
 
+
+/** 처리 중인 스쿨넷 건의 가장 가까운 SLA 기한 (remainingMin이 음수면 넘김) */
+/** biz = 이 단계는 근무 시간으로 센다 (remainingMin · targetMin도 근무 시간 분) */
+export interface SlaDue { stage: "RECEIVE" | "VISIT" | "RECOVER"; label: string; dueAt: string; remainingMin: number; targetMin: number; biz?: boolean }
 
 export interface HandlerPerson { userId: number; userName: string; positionName?: string; covers?: boolean }
 /** 처리 담당 지정 (스쿨넷) 창의 선택지 */

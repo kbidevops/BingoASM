@@ -9,9 +9,9 @@ import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import type { AsRow, AsStatus, RceptTy } from "@/lib/types";
 import AsDetailModal from "./AsDetailModal";
-import { AsBadge, ErrorBox, EvalWait, Icon, LateBadge, Loading, NoticeBox, Pager, useToast } from "./ui";
+import { AsBadge, ErrorBox, EvalWait, HoldBadge, Icon, LateBadge, Loading, NoticeBox, Pager, SlaBadge, useToast } from "./ui";
 
-const STATUSES: [AsStatus | "", string][] = [["", "전체"], ["A", "신청완료"], ["R", "접수완료"], ["C", "처리완료"], ["X", "반려"]];
+const STATUSES: [AsStatus | "", string][] = [["", "전체"], ["A", "신청완료"], ["R", "접수완료"], ["C", "처리완료"], ["X", "반려"], ["HOLD" as AsStatus, "보류 중"]];
 const PAGE_SIZE = 10;
 
 interface Filter {
@@ -46,7 +46,11 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
   // 담당 AS 유형이 정해진 교육지원청 담당자는 전체 목록에서 처음부터 자기 담당 유형만 본다 (끄면 모두).
   const duty = (me?.dutyTypes ?? []).filter((t) => asTypes.includes(t));
   const hasDuty = !ty && duty.length > 0;
-  const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: "", unassigned: false, myTypes: hasDuty };
+  const sp = useSearchParams();
+  // ?status=A (홈의 상태 숫자): 그 상태로 거른 채 연다.
+  const urlStatus = sp.get("status") ?? "";
+  const initStatus = STATUSES.some(([k]) => k === urlStatus) ? urlStatus : "";
+  const empty: Filter = { rceptTy: ty ?? "", searchType: "", keyword: "", fromDate: "", toDate: "", status: initStatus, unassigned: false, myTypes: hasDuty };
   const [page, setPage] = useState(1);
   const [draft, setDraft] = useState<Filter>(empty);
   const [filter, setFilter] = useState<Filter>(empty);
@@ -54,7 +58,6 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
   const [data, setData] = useState<Page<AsRow> | null>(null);
   const [err, setErr] = useState("");
   // ?open=123 (from a notification) opens that request's detail; a later link with another number re-opens.
-  const sp = useSearchParams();
   const urlOpen = Number(sp.get("open")) || null;
   // ?act=report (장비 라벨 QR의 "처리 보고서 작성"): 그 건을 열면서 그 처리를 바로 펼친다.
   const urlAct = sp.get("act");
@@ -175,8 +178,13 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
                   return (
                     <tr key={r.asvcSn} className={r.canEvaluate ? "evw-row" : undefined}>
                       {cells.map((c, j) => <td key={j} data-label={head[j]}>{c ?? "-"}</td>)}
-                      <td data-label="상태">
-                        <AsBadge status={r.status} name={r.statusName} /> <EvalWait row={r} /> <LateBadge late={r.late} />
+                      <td data-label="상태" className="stc-td">
+                        <div className="stc">
+                          <AsBadge status={r.status} name={r.statusName} />
+                          {(r.onHold || r.late || r.sla || (r.status === "C" && r.evalScore == null && !r.evalOff)) && (
+                            <div className="stc-f"><HoldBadge row={r} /><EvalWait row={r} /><LateBadge late={r.late} /><SlaBadge sla={r.sla} compact /></div>
+                          )}
+                        </div>
                       </td>
                       <td data-label="보고서">
                         {r.canEvaluate

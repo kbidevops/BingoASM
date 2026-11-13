@@ -85,6 +85,22 @@ export default function AsRequestForm({ ty }: { ty: RceptTy }) {
       .catch(() => setDevices([]));
   }, [ty, listDevices, f.schoolId]);
 
+  // 마이페이지 '다시 신청' (?copy=123): 예전 신청의 학교 · 고장유형 · 요청내용 · 증상 · 장소 · 장비를 채워 둔다.
+  useEffect(() => {
+    const sn = Number(new URLSearchParams(window.location.search).get("copy")) || null;
+    if (!sn) return;
+    api.get<{ rceptTy: string; schoolId?: number; faultTypeCode?: string; requestTypeCode?: string; symptom?: string; installPlace?: string; deviceId?: number }>(`/api/as/requests/${sn}`).then((d) => {
+      if (d.rceptTy !== ty) return;
+      setF((p) => ({
+        ...p, schoolId: p.schoolId || (d.schoolId ? String(d.schoolId) : ""), faultTypeCode: d.faultTypeCode ?? p.faultTypeCode,
+        requestTypeCode: d.requestTypeCode ?? p.requestTypeCode, symptom: `[AS-${sn} 재신청] ${d.symptom ?? ""}`.trim(),
+        installPlace: d.installPlace ?? p.installPlace, deviceId: pickDevice && d.deviceId ? String(d.deviceId) : p.deviceId,
+      }));
+      toast(`AS-${sn}의 내용을 채워 두었습니다. 확인 후 신청하세요.`);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 장비 라벨 QR → "이 장비로 AS 신청" (?device=123): 학교·대상장비·설치장소를 채워 둔다.
   useEffect(() => {
     const id = Number(new URLSearchParams(window.location.search).get("device")) || null;
