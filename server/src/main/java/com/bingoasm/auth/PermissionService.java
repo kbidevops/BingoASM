@@ -123,6 +123,8 @@ public class PermissionService {
                 if ("T".equals(ty)) { typed.add("SMART_REQUEST"); continue; }
                 typed.add("AS_" + ty + "_REQUEST");
                 typed.add("AS_" + ty + "_VIEW");
+                // 스쿨넷 서비스 제공 업체(업체 관리자 · 기사)는 SLA 결과를 올리고 본다
+                if ("S".equals(ty)) typed.add("BOARD_SLA");
             }
             // 역할 권한 관리에서 업체 역할에 끈 신청·조회 메뉴는 업체 담당 유형이어도 열지 않는다.
             for (String p : typed)

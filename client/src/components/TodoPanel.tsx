@@ -5,12 +5,10 @@ import { AS_LIST_HREF, AS_NAME } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
 import type { Todo, TodoBucket, TodoRow } from "@/lib/types";
-import { HoldBadge, LateBadge, SlaBadge } from "./ui";
+import { HoldBadge } from "./ui";
 
 /** 카드 위 띠 색 */
-const TONE: Record<string, string> = { "receive-late": "red", "visit-late": "orange", "low-score": "red", evaluate: "amber", hold: "violet" };
-/** 카드 제목이 이미 말해 주는 지연 표시 — 그 카드 안에서는 다시 붙이지 않는다 */
-const SAME_AS_TITLE: Record<string, string[]> = { "receive-late": ["RECEIVE", "ESCALATED"], "visit-late": ["VISIT"] };
+const TONE: Record<string, string> = { "low-score": "red", evaluate: "amber", hold: "violet" };
 const ROWS = 4;
 
 /** "3분" · "5시간" · "2일 3시간" */
@@ -27,12 +25,8 @@ const minsSince = (iso?: string) => (iso ? (Date.now() - new Date(iso).getTime()
 function When({ b, r }: { b: TodoBucket; r: TodoRow }) {
   if (b.key === "low-score") return <span className="td-when bad">{r.evalScore}점</span>;
   if (b.key === "visit-soon") return <span className="td-when">{fmtDateTime(r.visitPlannedAt)}</span>;
-  if (b.key === "visit-late") {
-    const m = minsSince(r.visitPlannedAt);
-    return <span className="td-when bad" title={`방문예정 ${fmtDateTime(r.visitPlannedAt)}`}>{m == null ? "-" : `${span(m)} 지남`}</span>;
-  }
   const m = minsSince(r.requestAt);
-  return <span className={"td-when" + (b.key === "receive-late" ? " bad" : "")} title={`신청 ${fmtDateTime(r.requestAt)}`}>{m == null ? "-" : `${span(m)} 경과`}</span>;
+  return <span className="td-when" title={`신청 ${fmtDateTime(r.requestAt)}`}>{m == null ? "-" : `${span(m)} 경과`}</span>;
 }
 
 /**
@@ -66,18 +60,14 @@ export default function TodoPanel({ todo }: { todo: Todo | null }) {
               <p className="td-hint">{b.hint}</p>
               <ul>
                 {b.rows.slice(0, ROWS).map((r) => {
-                  const esc = r.late === "ESCALATED";
-                  // 에스컬레이션은 아래 작은 표시로, 카드 제목과 같은 지연은 빼고 나머지 지연만 배지로
-                  const late = esc || SAME_AS_TITLE[b.key]?.includes(r.late ?? "") ? null : r.late;
                   return (
-                    <li key={r.asvcSn} className={esc ? "esc" : undefined}>
-                      <Link href={href(r)} title={esc ? "미접수 에스컬레이션 — 상급 담당자에게도 알렸습니다" : undefined}>
+                    <li key={r.asvcSn}>
+                      <Link href={href(r)}>
                         <span className="td-ty">{r.rceptTyName}</span>
                         <span className="td-main">
                           <span className="td-line">
                             <b>{r.schoolName ?? "-"}</b>
-                            {esc && <span className="td-esc">에스컬레이션</span>}
-                            <HoldBadge row={r} /><LateBadge late={late} /><SlaBadge sla={r.sla} compact />
+                            <HoldBadge row={r} />
                           </span>
                           <small>{r.symptom}</small>
                         </span>

@@ -92,6 +92,7 @@ function Users() {
   const [edit, setEdit] = useState<UserRow | "new" | null>(null);
   const [del, setDel] = useState<UserRow | null>(null);
   const [otpReset, setOtpReset] = useState<UserRow | null>(null);
+  const [otpSwitch, setOtpSwitch] = useState<UserRow | null>(null);
   const [bulk, setBulk] = useState(false);
   const [otpBusy, setOtpBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -130,6 +131,23 @@ function Users() {
     } catch (e) {
       setMsg((e as Error).message);
       setOtpReset(null);
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  // 2단계 인증 켜기 · 끄기 (끄면 인증 앱 등록도 지워진다)
+  const switchOtp = async (u: UserRow) => {
+    const on = !u.otpEnabled;
+    setOtpBusy(true);
+    try {
+      await api.post(`/api/users/${u.userId}/otp`, { enabled: on });
+      toast(on ? `${u.userName}의 2단계 인증을 켰습니다. 다음 로그인 때 인증 앱을 등록합니다.` : `${u.userName}의 2단계 인증을 껐습니다. 이제 비밀번호만으로 로그인합니다.`);
+      setOtpSwitch(null);
+      load();
+    } catch (e) {
+      setMsg((e as Error).message);
+      setOtpSwitch(null);
     } finally {
       setOtpBusy(false);
     }
@@ -193,7 +211,8 @@ function Users() {
                     {editable ? (
                       <>
                         {u.locked && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => unlock(u)}>잠금 해제</button>{" "}</>}
-                        {u.otpRegistered && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => setOtpReset(u)}>OTP 초기화</button>{" "}</>}
+                        {u.otpEnabled && u.otpRegistered && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => setOtpReset(u)}>OTP 초기화</button>{" "}</>}
+                        {u.status !== "DISABLED" && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => setOtpSwitch(u)}>{u.otpEnabled ? "OTP 끄기" : "OTP 켜기"}</button>{" "}</>}
                         {can("USER_EDIT") && <button className="btn sm sec" type="button" onClick={() => setEdit(u)}>수정</button>}
                         {!self && u.status !== "DISABLED" && can("USER_DELETE") && <>{" "}<button className="btn sm sec" type="button" onClick={() => setDel(u)}>삭제</button></>}
                       </>
@@ -212,6 +231,14 @@ function Users() {
       )}
       {bulk && <UserBulkModal onClose={() => setBulk(false)} onDone={(m) => { toast(m); load(); }} />}
       {del && <DeleteUser user={del} onClose={() => setDel(null)} onDeleted={(m) => { setDel(null); toast(m); load(); }} />}
+      {otpSwitch && (
+        <Modal title={otpSwitch.otpEnabled ? "OTP 끄기" : "OTP 켜기"} onClose={() => setOtpSwitch(null)}>
+          <Confirm text={otpSwitch.otpEnabled
+            ? `${otpSwitch.userName}(${otpSwitch.loginId})의 2단계 인증을 끌까요? 등록된 인증 앱도 지워지고, 다음 로그인부터 비밀번호만으로 로그인합니다.`
+            : `${otpSwitch.userName}(${otpSwitch.loginId})의 2단계 인증을 켤까요? 다음 로그인 때 휴대폰 인증 앱(Google OTP 등)을 QR로 등록하고, 그 뒤로는 앱의 6자리 번호가 필요합니다.`}
+            busy={otpBusy} onNo={() => setOtpSwitch(null)} onYes={() => switchOtp(otpSwitch)} />
+        </Modal>
+      )}
       {otpReset && (
         <Modal title="OTP 초기화" onClose={() => setOtpReset(null)}>
           <Confirm text={`${otpReset.userName}(${otpReset.loginId})의 인증 앱 등록을 지울까요? 휴대폰을 잃어버렸거나 바꾼 경우에 씁니다. 2단계 인증은 계속 켜져 있어, 다음 로그인 때 새 휴대폰으로 다시 등록합니다.`}

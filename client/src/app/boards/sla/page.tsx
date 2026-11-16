@@ -1,14 +1,14 @@
 "use client";
 
-import SlaDashboard from "@/components/SlaDashboard";
+import SlaReports from "@/components/SlaReports";
 import SubPage from "@/components/SubPage";
 import { BOARD_PERM } from "@/lib/boards";
 
-/** 스쿨넷 SLA 공유: 스쿨넷 AS로 계산한 SLA 현황 (기준 · 충족률 · 회선 가용률 · 위반 내역 · 월간 보고서). */
+/** 스쿨넷 SLA 결과 업로드: 통신사가 월별 SLA 결과 파일(한글 · 엑셀)을 올리고 교육청이 승인한다. */
 export default function Page() {
   return (
     <SubPage perm={BOARD_PERM.sla}>
-      <SlaDashboard />
+      <SlaReports />
     </SubPage>
   );
 }

@@ -2329,3 +2329,57 @@ td.stc-td{text-align:left;min-width:190px}
 .sla-prior{display:block;margin-top:2px;font-size:.6875rem;font-weight:700;color:var(--err);white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .sla-fw li.warn{color:#f0b060}}
 :root[data-theme="dark"] .sla-fw li.warn{color:#f0b060}
+
+/* ---------- 스쿨넷 SLA 결과 업로드 (2026-11) ---------- */
+.slr{display:grid;gap:14px}
+.slr .nbox{margin:0}
+.slr-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.slr-bar select{height:34px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);padding:0 8px;font:inherit}
+.slr-bar>.btn{margin-left:auto}
+.slr-t tr.slr-wait>td{background:color-mix(in srgb,#f5a623 7%,transparent)}
+.slr-files{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.slr-files li{display:flex;align-items:center;gap:6px;min-width:0}
+.slr-files .linkbtn{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:320px}
+.slr-ext{flex:none;padding:1px 6px;border-radius:5px;font-size:.6875rem;font-weight:800;color:#fff}
+.slr-ext.hwp{background:#1f6fd1}
+.slr-ext.xls{background:#1e7b45}
+.slr-note{margin:6px 0 0;font-size:.8125rem;color:var(--muted);white-space:pre-wrap}
+.slr-why{display:block;margin-top:4px;font-size:.75rem;color:var(--err)}
+.slr-by{display:block;margin-top:2px}
+.slr-act{white-space:nowrap}
+.slr-act .btn+.btn,.slr-act .btn+.linkbtn{margin-left:4px}
+/* 통신사 × 월 현황 */
+.slr-mx{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:10px 12px}
+.slr-mx table{width:100%;border-collapse:collapse;font-size:.8125rem}
+.slr-mx th,.slr-mx td{padding:6px 4px;text-align:center;border-bottom:1px solid var(--line)}
+.slr-mx thead th{color:var(--muted);font-weight:700}
+.slr-mx tbody th{text-align:left;font-weight:700;white-space:nowrap}
+.slr-c{font-weight:800}
+.slr-c.approved{color:var(--ok)}
+.slr-c.submitted{color:#d97706}
+.slr-c.rejected{color:var(--err)}
+.slr-c.none{color:var(--muted)}
+.slr-c.fut{background:var(--head)}
+.slr-lg{margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 12px}
+/* 올리기 · 반려 창 */
+.slr-form{display:grid;gap:12px}
+.slr-form label,.slr-form>div{display:flex;flex-direction:column;gap:5px}
+.slr-form label>span,.slr-fl{font-size:.8125rem;font-weight:700;color:var(--muted)}
+.slr-form i{color:var(--err);font-style:normal}
+.slr-form input[type=month]{height:36px;max-width:200px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
+.slr-form textarea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--text);resize:vertical}
+.slr-form-act{flex-direction:row!important;justify-content:flex-end;gap:8px}
+.slr-exist{margin:0;padding:8px 10px;border-radius:8px;font-size:.8125rem;background:var(--head)}
+.slr-exist.rejected{color:var(--err);background:color-mix(in srgb,var(--err) 8%,transparent)}
+.slr-exist.approved{color:var(--ok)}
+.slr-form input:not([type]),.slr-form input[type=date]{height:36px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
+.slr-period{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.slr-cf{display:grid;gap:12px}
+.slr-cf-sum{margin:0;display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.slr-cf-sum>div{display:grid;grid-template-columns:84px minmax(0,1fr);gap:10px;padding:8px 12px;font-size:.875rem}
+.slr-cf-sum>div+div{border-top:1px solid var(--line)}
+.slr-cf-sum dt{color:var(--muted);font-weight:700;font-size:.8125rem}
+.slr-cf-sum dd{margin:0;min-width:0}
+.slr-cf-what{margin:0;padding:10px 12px 10px 28px;border-radius:10px;background:color-mix(in srgb,var(--pri) 7%,transparent);font-size:.8125rem;line-height:1.7}
+.slr-cf-warn{margin:0;padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--err) 8%,transparent);color:var(--err);font-size:.8125rem;font-weight:600}
+.slr-cf .slr-form-act{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}

@@ -109,7 +109,7 @@ public class AsDataSeeder implements CommandLineRunner {
         AppUser school02 = user("school02", "오세준", "교무행정사", "school02@example.go.kr", "010-2000-0002", List.of("SCHOOL_USER"), oncheon.schoolId, null, false);
         AppUser netEng = user("netengineer", "강민재", "기술과장", "net@hanbit.example.com", "010-3000-0001", List.of("AS_ENGINEER"), null, hanbit.vendorId, false);
         AppUser vendorAdmin = user("vendoradmin", "서정우", "대표", "ceo@hanbit.example.com", "010-3000-0009", List.of("VENDOR_ADMIN"), null, hanbit.vendorId, false);
-        AppUser eduAdmin = user("eduadmin", "신현아", "주무관", "edu@example.go.kr", "010-4000-0001", List.of("EDU_ADMIN"), null, null, true);
+        AppUser eduAdmin = user("eduadmin", "신현아", "주무관", "edu@example.go.kr", "010-4000-0001", List.of("EDU_ADMIN"), null, null, false);
         // 교육지원청 담당자: 천안교육지원청 관내 학교(봉황초·미래중·푸른고·새봄초)만 다룬다
         AppUser regionAdmin = user("regionadmin", "문가온", "정보지원팀 주무관", "region@example.go.kr", "010-4000-0002", List.of("REGION_ADMIN"), null, null, false);
         regionAdmin.regionId = rCheonan.regionId; users.save(regionAdmin);

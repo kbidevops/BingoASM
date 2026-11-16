@@ -28,6 +28,8 @@ export const ACTION_LABEL: Record<string, string> = {
   visit: "방문일 변경",
   report: "처리 보고서",
   evaluate: "만족도 평가",
+  reopen: "재요청",
+  REOPEN: "재요청",
   delete: "삭제",
   assign: "업체 배정",
   ASSIGN: "업체 배정",
@@ -35,11 +37,7 @@ export const ACTION_LABEL: Record<string, string> = {
   DEVICE: "대상 장비 지정",
   engineer: "기사 배정",
   ENGINEER: "기사 배정",
-  // 처리 이력의 자동 기록 (지연 알림)
-  ALERT: "지연 알림",
-  arrive: "도착 기록",
   handler: "처리 담당 지정",
-  outage: "장애 시각 수정",
   hold: "보류",
   HOLD: "보류",
   resume: "보류 해제",
@@ -47,7 +45,6 @@ export const ACTION_LABEL: Record<string, string> = {
   OUTAGE: "장애 시각 수정",
   HANDLER: "처리 담당 지정",
   ARRIVE: "현장 도착",
-  ESCALATE: "에스컬레이션",
 };
 
 let codesCache: Promise<AsCodes> | null = null;

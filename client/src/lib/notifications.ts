@@ -27,6 +27,8 @@ export function noticeTone(type: string): "new" | "done" | "warn" | "info" {
  * (장애접수관리 for managers, the type's 결과조회 otherwise).
  */
 export function noticeHref(n: AppNotice, can: (perm?: string) => boolean): string {
+  // 스쿨넷 SLA 결과 올림 · 승인 · 반려 → SLA 결과 업로드 화면
+  if (n.type?.startsWith("SLA_REPORT")) return "/boards/sla";
   if (!n.asvcSn || !n.rceptTy) return "/notifications";
   if (can("AS_MANAGE")) return `/admin/requests?open=${n.asvcSn}`;
   if (can(AS_VIEW_PERM[n.rceptTy])) return `${AS_LIST_HREF[n.rceptTy]}?open=${n.asvcSn}`;

@@ -16,10 +16,10 @@ const STEPS: [string, string, string, IconName, string][] = [
 
 /** Who uses the system and for what (matches the role permissions in the server's Roles). */
 const ROLES: [string, string][] = [
-  ["학교 담당자", "AS 신청 · 처리 결과 확인 · 만족도 평가 · 학교 자산·공간 관리"],
-  ["AS 기사 (유지보수 업체)", "배정된 AS 접수 · 방문 일정 · 처리 보고서(처리 비용·첨부) 등록"],
-  ["교육지원청 담당자", "관내 학교의 AS 현황 관리 · 업체 배정 · 학교 정보 관리 · 관내 통계"],
-  ["도교육청 담당자", "전체 AS 관리 · 업체·지역·사용자 관리 · AS 통계"],
+  ["학교 담당자", "AS 신청 · 처리 결과 확인 · 만족도 평가 · 해결되지 않으면 재요청 · 학교 자산·공간 관리"],
+  ["유지보수 업체 (업체 관리자 · AS 기사)", "자기 업체 AS 접수 · 방문 일정 · 처리 보고서(처리 비용·첨부) 등록 — 업체의 기사 누구나 처리"],
+  ["교육지원청 담당자", "관내 학교의 AS 현황 보기 · 학교 정보 관리 · 관내 통계"],
+  ["도교육청 담당자", "전체 AS 현황 보기 · 업체·지역·사용자 관리 · AS 통계"],
 ];
 
 /** What each AS 서비스 covers. Only the services the 교육청 uses (AS 서비스 설정) are shown. */

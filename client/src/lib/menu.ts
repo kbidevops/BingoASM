@@ -52,7 +52,7 @@ export const MENU: MenuGroup[] = [
       { title: "무선망 AS결과조회", href: "/as/wireless/list", perm: "AS_M_VIEW" },
       { title: "스쿨넷 AS신청", href: "/as/schoolnet", perm: "AS_S_REQUEST" },
       { title: "스쿨넷 AS결과조회", href: "/as/schoolnet/list", perm: "AS_S_VIEW" },
-      { title: "스쿨넷 SLA 공유", href: "/boards/sla", perm: "BOARD_SLA", sideOnly: true },
+      { title: "스쿨넷 SLA 결과 업로드", href: "/boards/sla", perm: "BOARD_SLA", sideOnly: true },
     ],
   },
   {
@@ -87,7 +87,6 @@ export const MENU: MenuGroup[] = [
       { title: "역할 권한 관리", href: "/admin/roles", perm: "ORG_WRITE" },
       { title: "사용자 메뉴 권한", href: "/admin/user-menus", perm: "ROLE_GRANT" },
       { title: "AS 서비스 설정", href: "/admin/services", perm: "ORG_WRITE" },
-      { title: "AS 처리 흐름", href: "/admin/workflow", perm: "ORG_WRITE" },
     ],
   },
 ];

@@ -72,7 +72,7 @@ public class AsRequestController {
         return ApiResponse.ok(requests.list(me, filter(rceptTy, keyword, searchType, fromDate, toDate, status, schoolId, regionId, vendorId, engineerUserId, mine, unassigned, sort), page, size));
     }
 
-    /** 내 할 일: 지금 이 사용자가 처리할 AS 묶음 (접수 지연 · 방문 지연 · 대상 장비 지정 · 기사 미배정 · 평가 대기 …). */
+    /** 내 할 일: 지금 이 사용자가 처리할 AS 묶음 (업체: 재요청 · 접수 대기 · 보류 · 방문 / 학교: 평가 대기 / 교육청 · 교육지원청: 낮은 만족도). */
     @GetMapping("/todo")
     public ApiResponse todo() {
         CurrentUser me = AuthContext.get();
@@ -161,8 +161,8 @@ public class AsRequestController {
         }
     }
 
+    /** 삭제: 신청자 본인(접수 전) 또는 시스템 관리자 — 권한은 allowedActions가 판단한다. */
     @DeleteMapping("/{sn}")
-    @RequirePerm("AS_MANAGE")
     public ApiResponse delete(@PathVariable Long sn) {
         requests.act(AuthContext.get(), sn, "delete", Map.of());
         return ApiResponse.ok(null);

@@ -150,11 +150,6 @@ export interface AsRow {
   canEvaluate?: boolean;
   applicantUserId?: number;
   requestTypeCode?: string;
-  /** 스쿨넷: 실제 장애 발생 · 복구 시각 (NMS 등으로 확인) */
-  outageStartAt?: string;
-  outageEndAt?: string;
-  /** 처리 중인 스쿨넷 건의 가장 가까운 SLA 기한 */
-  sla?: SlaDue | null;
   /** 보류: 상태(신청완료 · 접수완료)는 그대로, 보류 중이면 true · 사유 · 재개 예정일. holdMinutes = 지금까지 보류한 시간 */
   onHold?: boolean;
   holdAt?: string;
@@ -162,16 +157,18 @@ export interface AsRow {
   holdReason?: string;
   holdMinutes?: number;
   evaluatedAt?: string;
-  /** 처리 흐름에서 만족도 평가를 끈 유형 */
+  /** 처리 흐름에서 만족도 평가를 끈 유형 (예전 값, 지금은 늘 평가한다) */
   evalOff?: boolean;
+  /** 재요청: 학교가 처리완료 뒤 해결되지 않았다고 다시 요청한 횟수 · 마지막 사유 · 시각 */
+  reopenCount?: number;
+  reopenReason?: string;
+  reopenedAt?: string;
   /** 처리 담당: VENDOR 업체 · REGION 교육지원청 · PROVINCE 교육청 (담당자는 engineerName) */
   handlerType?: "VENDOR" | "REGION" | "PROVINCE";
   /** 처리 담당 이름: 업체명 · "천안 교육지원청" · "교육청" */
   handlerName?: string;
-  /** 현장 도착 시각 (기사의 도착 기록 또는 보고서의 방문일시) */
+  /** 방문일시 (처리 보고서) */
   visitAt?: string;
-  /** 목록에서만: 지연 (지연 알림 기준) — RECEIVE 접수 지연 · ESCALATED 에스컬레이션 · VISIT 방문 지연 */
-  late?: "RECEIVE" | "ESCALATED" | "VISIT";
 }
 
 /** GET /api/as/requests/todo: 내 할 일 */
@@ -188,8 +185,6 @@ export interface TodoRow {
   vendorName?: string;
   engineerName?: string;
   evalScore?: number;
-  late?: AsRow["late"] | null;
-  sla?: SlaDue | null;
   onHold?: boolean;
   holdReason?: string;
 }
@@ -197,9 +192,6 @@ export interface TodoBucket { key: string; label: string; hint: string; count: n
 export interface Todo { buckets: TodoBucket[]; total: number; dutyTypes: RceptTy[] }
 
 
-/** 처리 중인 스쿨넷 건의 가장 가까운 SLA 기한 (remainingMin이 음수면 넘김) */
-/** biz = 이 단계는 근무 시간으로 센다 (remainingMin · targetMin도 근무 시간 분) */
-export interface SlaDue { stage: "RECEIVE" | "VISIT" | "RECOVER"; label: string; dueAt: string; remainingMin: number; targetMin: number; biz?: boolean }
 
 export interface HandlerPerson { userId: number; userName: string; positionName?: string; covers?: boolean }
 /** 처리 담당 지정 (스쿨넷) 창의 선택지 */

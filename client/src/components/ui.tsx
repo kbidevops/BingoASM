@@ -140,17 +140,6 @@ export function AsBadge({ status, name }: { status: AsStatus; name: string }) {
   return <b className={"st " + ST_CLASS[status]}>{name}</b>;
 }
 
-/**
- * 처리완료인데 신청자가 아직 만족도를 평가하지 않은 건의 표시. mine = 지금 사용자가 평가할 수 있는 건(강조),
- * 아니면 관리자 등에게 ‘평가 대기’만 조용히 보여 준다. 평가했거나 처리완료가 아니면 아무것도 없다.
- */
-export function EvalWait({ row }: { row: { status: AsStatus; evalScore?: number; canEvaluate?: boolean; evalOff?: boolean } }) {
-  if (row.status !== "C" || row.evalScore != null || row.evalOff) return null;
-  return row.canEvaluate
-    ? <span className="evw on"><span aria-hidden="true">★</span> 만족도 평가 대기</span>
-    : <span className="evw">평가 대기</span>;
-}
-
 /** 보류 표시: "보류 · 재개 11/20" (마우스를 올리면 사유). */
 export function HoldBadge({ row }: { row: { onHold?: boolean; holdReason?: string; holdUntil?: string } }) {
   if (!row.onHold) return null;
@@ -161,29 +150,6 @@ export function HoldBadge({ row }: { row: { onHold?: boolean; holdReason?: strin
       ⏸ 보류{until ? ` · 재개 ${until.getMonth() + 1}/${until.getDate()}${late ? " 지남" : ""}` : ""}
     </span>
   );
-}
-
-/** 스쿨넷 SLA 기한: "복구 기한 14:30 · 2시간 남음" (20% 이하로 남으면 주황, 넘으면 빨강). */
-export function SlaBadge({ sla, compact }: { sla?: { label: string; dueAt: string; remainingMin: number; targetMin: number; biz?: boolean } | null; compact?: boolean }) {
-  if (!sla) return null;
-  const d = new Date(sla.dueAt), now = new Date();
-  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  const when = d.toDateString() === now.toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
-  const m = Math.abs(sla.remainingMin);
-  const span = m < 60 ? `${m}분` : m < 1440 ? `${Math.floor(m / 60)}시간${m % 60 ? ` ${m % 60}분` : ""}` : `${Math.floor(m / 1440)}일 ${Math.floor((m % 1440) / 60)}시간`;
-  const over = sla.remainingMin < 0, near = !over && sla.remainingMin <= sla.targetMin * 0.2;
-  return (
-    <span className={"sla-b" + (over ? " over" : near ? " near" : "")} title={`스쿨넷 SLA ${sla.label} 기한 ${when}${sla.biz ? " · 근무 시간 기준 (남은 시간도 근무 시간)" : ""}`}>
-      SLA {sla.label} {compact ? "" : `${when} · `}{sla.biz ? "근무 " : ""}{over ? `${span} 초과` : `${span} 남음`}
-    </span>
-  );
-}
-
-/** AS 지연 표시 (서버의 지연 알림 기준): 접수 지연 · 에스컬레이션 · 방문 지연. */
-export const LATE_LABEL: Record<string, string> = { RECEIVE: "접수 지연", ESCALATED: "미접수 에스컬레이션", VISIT: "방문 지연" };
-export function LateBadge({ late }: { late?: string | null }) {
-  if (!late || !LATE_LABEL[late]) return null;
-  return <span className={"late-b" + (late === "ESCALATED" ? " hi" : "")}><span aria-hidden="true">⏱</span> {LATE_LABEL[late]}</span>;
 }
 
 export function PostBadge({ status, name }: { status?: string; name?: string }) {
@@ -298,18 +264,22 @@ export function telValid(v: string) {
 }
 
 /** File picker with the clone's drop zone look. */
-export function FilePicker({ files, onChange, max = 2 }: { files: File[]; onChange: (f: File[]) => void; max?: number }) {
+/** accept = 받을 확장자 (예: [".hwp", ".xlsx"]). 다른 파일은 고르지 않고 알린다. */
+export function FilePicker({ files, onChange, max = 2, accept }: { files: File[]; onChange: (f: File[]) => void; max?: number; accept?: string[] }) {
   const input = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState("");
   // Copy the bytes right away: once the input is cleared (so the same file can be picked again) the browser may
   // refuse to read the original File at upload time (net::ERR_ACCESS_DENIED), and the file could change on disk.
   const add = async (list: FileList | null) => {
     if (!list?.length) return;
-    const picked = Array.from(list);
+    const all = Array.from(list);
+    const ok = (f: File) => !accept || accept.some((x) => f.name.toLowerCase().endsWith(x));
+    const picked = all.filter(ok);
+    const bad = all.filter((f) => !ok(f));
     try {
       const copies = await Promise.all(picked.map(async (f) => new File([await f.arrayBuffer()], f.name, { type: f.type, lastModified: f.lastModified })));
-      setErr("");
-      onChange([...files, ...copies].slice(0, max));
+      setErr(bad.length ? `${accept?.join(" · ")} 파일만 올릴 수 있습니다: ${bad.map((f) => f.name).join(", ")}` : "");
+      if (copies.length) onChange([...files, ...copies].slice(0, max));
     } catch {
       setErr("파일을 읽지 못했습니다. 다시 선택해 주세요.");
     }
@@ -318,7 +288,7 @@ export function FilePicker({ files, onChange, max = 2 }: { files: File[]; onChan
     <div className="drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); add(e.dataTransfer.files); }}>
       파일을 여기에 끌어 놓거나 [파일선택]을 누르세요. (최대 {max}개){" "}
       <button className="btn sm dk" type="button" onClick={() => input.current?.click()}>파일선택</button>
-      <input ref={input} type="file" multiple hidden onChange={(e) => { const el = e.target; add(el.files).finally(() => { el.value = ""; }); }} />
+      <input ref={input} type="file" multiple hidden accept={accept?.join(",")} onChange={(e) => { const el = e.target; add(el.files).finally(() => { el.value = ""; }); }} />
       {err && <p className="err" role="alert">{err}</p>}
       {files.length > 0 && (
         <ul style={{ margin: "8px 0 0", paddingLeft: 18, textAlign: "left" }}>

@@ -55,13 +55,13 @@ type Adjust = Record<string, { granted: Set<string>; denied: Set<string> }>;
 
 /** 역할마다 다루는 데이터 범위 (Scope) — 역할 카드에 한 줄로 */
 const ROLE_SCOPE: Record<string, string> = {
-  SCHOOL_USER: "자기 학교", AS_ENGINEER: "소속 업체에 배정된 AS · 학교", VENDOR_ADMIN: "소속 업체 전체",
+  SCHOOL_USER: "자기 학교", AS_ENGINEER: "소속 업체의 AS 전체", VENDOR_ADMIN: "소속 업체 전체",
   EDU_ADMIN: "교육청 전체", REGION_ADMIN: "관할 교육지원청 학교", SYS_ADMIN: "시스템 전체",
 };
 const ACTIONS: [string, string][] = [
-  ["AS_RECEIVE", "접수"], ["AS_ASSIGN", "업체 배정"], ["AS_DEVICE", "대상 장비 지정"], ["AS_ENGINEER_ASSIGN", "기사 배정"], ["AS_VISIT", "방문일 변경"], ["AS_HOLD", "보류"], ["AS_REPORT", "처리 보고서 작성 · 수정"],
+  ["AS_RECEIVE", "접수"], ["AS_VISIT", "방문일 변경"], ["AS_HOLD", "보류"], ["AS_REPORT", "처리 보고서 작성 · 수정"],
   ["AS_RETURN", "반려 · 반려 취소"], ["AS_TRANSFER", "이관"], ["AS_CANCEL", "신청 취소"], ["AS_DELETE", "삭제"],
-  ["AS_EVALUATE", "만족도 평가"],
+  ["AS_EVALUATE", "만족도 평가"], ["AS_REOPEN", "재요청"],
 ];
 const FIXED_NOTE: Record<string, string> = { ORG_WRITE: "통합 관리자 계정만" };
 /** "무선장비 등록" → "등록" (메뉴 이름 밑에 붙으니 앞말은 뺀다) */

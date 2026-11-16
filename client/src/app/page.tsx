@@ -101,9 +101,6 @@ const QUICK = [
   { href: "/boards/qna", title: "질문 및 건의하기", icon: "chat", perm: "BOARD_QNA" },
 ] as const;
 
-/** 지연으로 세는 내 할 일 묶음 */
-const LATE_KEYS = ["receive-late", "visit-late"];
-
 /** Contacts shown on the home page: the first rows of 도교육청 in 문의처 안내, so the two never disagree. */
 const HOME_CONTACTS = 4;
 
@@ -163,14 +160,10 @@ function HomeAuthed() {
   const statusHref = (s: string) =>
     can("AS_MANAGE") ? `/admin/requests?status=${s}`
       : me.schoolId ? `/mypage?tab=mine&school=1&status=${s === "C" ? "C" : "A,R"}` : null;
-  const lateBuckets = todo?.buckets.filter((b) => LATE_KEYS.includes(b.key)) ?? [];
-  const lateN = lateBuckets.reduce((n, b) => n + b.count, 0);
-  const lateKey = lateBuckets.find((b) => b.count > 0)?.key ?? "receive-late";
   const tiles: { label: string; n?: number; href: string | null; cls: string }[] = [
     { label: "신청완료", n: summary?.requested, href: statusHref("A"), cls: "" },
     { label: "접수완료", n: summary?.received, href: statusHref("R"), cls: "" },
     { label: "처리완료", n: summary?.completed, href: statusHref("C"), cls: "" },
-    ...(lateBuckets.length ? [{ label: "지연", n: lateN, href: `/mypage?tab=todo&key=${lateKey}`, cls: lateN > 0 ? " late" : " ok" }] : []),
   ];
   // 기사 · 업체는 QR 찍기를 맨 앞에, 학교는 AS 신청이 먼저 (QUICK 순서 그대로).
   const qrFirst = !!me.vendorId;

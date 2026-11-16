@@ -39,17 +39,12 @@ public class NotificationService {
         return out;
     }
 
-    /** 담당 업체 쪽: 지정된 기사 + 업체 관리자. 기사가 없으면 그 업체의 기사 모두. */
+    /** 담당 업체 쪽: 그 업체의 업체 관리자 · 기사 모두 (누구나 접수 · 처리한다). */
     public Set<Long> vendorSide(AsRequest r) {
         Set<Long> out = new LinkedHashSet<>();
         if (r.vendorId == null) return out;
-        for (AppUser u : users.findByOrgIdOrderByUserIdAsc(r.orgId)) {
-            if (!r.vendorId.equals(u.vendorId)) continue;
-            boolean admin = u.roles.contains("VENDOR_ADMIN");
-            // 기사는 자기에게 배정된 건만 본다 — 아직 기사가 없으면 업체 관리자에게만 알린다.
-            boolean engineer = u.userId.equals(r.engineerUserId);
-            if (admin || engineer) out.add(u.userId);
-        }
+        for (AppUser u : users.findByOrgIdOrderByUserIdAsc(r.orgId))
+            if (r.vendorId.equals(u.vendorId) && (u.roles.contains("VENDOR_ADMIN") || u.roles.contains("AS_ENGINEER"))) out.add(u.userId);
         return out;
     }
 
@@ -68,7 +63,7 @@ public class NotificationService {
         return out;
     }
 
-    /** 교육청(도교육청) 쪽: 학교 · 업체 · 교육지원청 소속이 아닌 교육청 관리자 (에스컬레이션 · 교육청으로 올린 건). */
+    /** 교육청(도교육청) 쪽: 학교 · 업체 · 교육지원청 소속이 아닌 교육청 관리자 (SLA 결과 올림 알림). */
     public Set<Long> provinceSide(Long orgId) {
         Set<Long> out = new LinkedHashSet<>();
         for (AppUser u : users.findByOrgIdOrderByUserIdAsc(orgId))
@@ -93,6 +88,31 @@ public class NotificationService {
             n.asvcSn = r.asvcSn; n.rceptTy = r.rceptTy; n.createdAt = now;
             notifications.save(n);
         }
+    }
+
+    /** AS 건이 아닌 알림 (스쿨넷 SLA 결과 등). type으로 화면이 갈 곳을 정한다. */
+    public void notifyOrg(Collection<Long> to, Long actor, Long orgId, String type, String title, String body) {
+        Set<Long> ids = new LinkedHashSet<>(to);
+        ids.remove(actor);
+        ids.remove(null);
+        if (ids.isEmpty()) return;
+        var now = Times.now();
+        for (AppUser u : users.findAllById(ids)) {
+            if (!"ACTIVE".equals(u.status) || !Objects.equals(u.orgId, orgId)) continue;
+            AppNotification n = new AppNotification();
+            n.orgId = orgId; n.userId = u.userId; n.type = type;
+            n.title = cut(title, 200); n.body = cut(body, 500);
+            n.createdAt = now;
+            notifications.save(n);
+        }
+    }
+
+    /** 그 업체의 업체 관리자들 */
+    public Set<Long> vendorAdmins(Long orgId, Long vendorId) {
+        Set<Long> out = new LinkedHashSet<>();
+        for (AppUser u : users.findByOrgIdOrderByUserIdAsc(orgId))
+            if (vendorId != null && vendorId.equals(u.vendorId) && u.roles.contains("VENDOR_ADMIN")) out.add(u.userId);
+        return out;
     }
 
     private static String cut(String s, int max) { return s == null || s.length() <= max ? s : s.substring(0, max - 1) + "…"; }

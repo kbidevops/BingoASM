@@ -50,6 +50,15 @@ public class UserController {
         return ApiResponse.ok(null);
     }
 
+    /** 2단계 인증(OTP) 켜기 · 끄기 {enabled}. 끄면 인증 앱 등록도 지워져 다음 로그인은 비밀번호만. */
+    @PostMapping("/api/users/{id}/otp")
+    @RequirePerm("USER_UNLOCK")
+    public ApiResponse setOtp(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        Object v = body == null ? null : body.get("enabled");
+        if (!(v instanceof Boolean on)) throw com.bingoasm.common.ApiException.badRequest("enabled(true/false)를 보내 주세요.");
+        return ApiResponse.ok(users.setOtp(AuthContext.get(), id, on));
+    }
+
     /** 인증 앱(OTP) 등록 초기화: 휴대폰 분실·교체 때. 다음 로그인 때 새로 등록한다. */
     @PostMapping("/api/users/{id}/otp-reset")
     @RequirePerm("USER_UNLOCK")

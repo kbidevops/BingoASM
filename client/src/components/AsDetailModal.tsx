@@ -4,15 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadFiles } from "@/lib/api";
 import { ACTION_LABEL, AS_NAME, loadCodes, useAsTypes } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
-import { fileSize, fmtDate, fmtDateTime, won } from "@/lib/format";
+import { fileSize, fmtDateTime, won } from "@/lib/format";
 import type { AsCodes, AsDetail, CostItem, FileInfo, RceptTy } from "@/lib/types";
-import { AsBadge, DateTimeInput, ErrorBox, FilePicker, HoldBadge, Loading, Modal, useToast, SlaBadge } from "./ui";
+import { AsBadge, DateTimeInput, ErrorBox, FilePicker, HoldBadge, Loading, Modal, useToast } from "./ui";
 
 const SCORE = ["", "매우불만족", "불만족", "보통", "만족", "매우만족"];
 /** 처리 보고서 첨부 개수. 한 번 업로드에 5개까지라(FileService) 새 파일도 그 안에 들어간다. */
 const REPORT_FILES_MAX = 5;
 /** Actions this screen offers (서버 allowedActions 중). `update`(신청 수정)는 신청 화면에서 한다. */
-const SHOWN = ["receive", "handler", "assign", "device", "engineer", "hold", "resume", "outage", "visit", "arrive", "report", "return", "return-cancel", "transfer", "evaluate", "cancel", "delete"];
+const SHOWN = ["receive", "hold", "resume", "visit", "report", "return", "return-cancel", "evaluate", "reopen", "cancel", "delete"];
 function nowLocal() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -92,13 +92,10 @@ export default function AsDetailModal({ sn, onClose, onChanged, initialAction }:
                   ? r("처리 담당", d.handlerName ?? "-", "담당자", d.engineerName ?? "미지정 (담당 모두)")
                   : r("처리업체", d.vendorName ?? "미배정", "담당 기사", `${d.engineerName ?? "-"}${d.engineerTel ? ` (${d.engineerTel})` : ""}`)}
                 {r("접수일시", fmtDateTime(d.receivedAt), "방문예정일시", fmtDateTime(d.visitPlannedAt))}
-                {d.sla && wide("SLA 기한", <SlaBadge sla={d.sla} />)}
-                {d.onHold && wide("보류", <><HoldBadge row={d} /> {d.holdReason} <small className="hint">({fmtDateTime(d.holdAt)}부터 · 지연 알림 · SLA 기한이 멈춰 있습니다)</small></>)}
-                {!d.onHold && !!d.holdMinutes && wide("보류한 시간", <small className="hint">모두 {d.holdMinutes < 60 ? `${d.holdMinutes}분` : `${Math.floor(d.holdMinutes / 60)}시간 ${d.holdMinutes % 60}분`} — 지연 · SLA 기한에서 뺐습니다</small>)}
-                {(d.outageStartAt || d.outageEndAt) && wide("장애 시각 (실제)", `${d.outageStartAt ? fmtDateTime(d.outageStartAt) : "신청 시각"} ~ ${d.outageEndAt ? fmtDateTime(d.outageEndAt) : d.status === "C" ? "처리완료 시각" : "진행 중"}`)}
-                {/* 기사가 도착을 기록했고 보고서는 아직 (보고서가 있으면 아래 보고서의 방문일시) */}
-                {d.visitAt && !d.report && wide("현장 도착", fmtDateTime(d.visitAt))}
+                {d.onHold && wide("보류", <><HoldBadge row={d} /> {d.holdReason} <small className="hint">({fmtDateTime(d.holdAt)}부터)</small></>)}
+                {!d.onHold && !!d.holdMinutes && wide("보류한 시간", <small className="hint">모두 {d.holdMinutes < 60 ? `${d.holdMinutes}분` : `${Math.floor(d.holdMinutes / 60)}시간 ${d.holdMinutes % 60}분`}</small>)}
                 {d.status === "X" && wide("반려사유", d.returnReason ?? "-")}
+                {!!d.reopenCount && wide("재요청", <><b className="st s4">재요청 {d.reopenCount}회</b> {d.reopenReason} <small className="hint">({fmtDateTime(d.reopenedAt)})</small></>)}
                 {d.transferFromTy && wide("이관", `${AS_NAME[d.transferFromTy as RceptTy] ?? d.transferFromTy}에서 이관 — ${d.transferContent ?? ""}`)}
                 {d.report && (
                   <>
@@ -144,7 +141,6 @@ export default function AsDetailModal({ sn, onClose, onChanged, initialAction }:
                 {ACTION_LABEL[a]}
               </button>
             ))}
-            <button type="button" className="btn bl sm" onClick={() => window.print()}>인쇄</button>
             <button type="button" className="btn dk sm" onClick={onClose}>닫기</button>
           </div>
         </>
@@ -167,56 +163,18 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     rceptTy: "",
     content: "",
     engineerName: d.report?.engineerName ?? d.engineerName ?? me?.userName ?? "",
-    // 도착 기록이 있으면 그 시각, 없으면 방문예정일시
+    // 방문일시: 기본은 방문예정일시
     visitAt: d.report?.visitAt?.slice(0, 16) ?? d.visitAt?.slice(0, 16) ?? d.visitPlannedAt?.slice(0, 16) ?? nowLocal(),
     visitEndAt: d.report?.visitEndAt?.slice(0, 16) ?? nowLocal(),
     troubleSymptom: d.report?.troubleSymptom ?? "",
     inspectContent: d.report?.inspectContent ?? "",
     processTypeCode: d.report?.processTypeCode ?? "",
     processContent: d.report?.processContent ?? "",
-    // 스쿨넷 실제 장애 시각 (비우면 신청 · 처리완료 시각으로 계산)
-    outageStartAt: d.outageStartAt?.slice(0, 16) ?? "",
-    outageEndAt: d.outageEndAt?.slice(0, 16) ?? "",
     holdReason: "",
     holdUntil: "",
     score: "",
     opinion: "",
-    vendorId: d.vendorId ? String(d.vendorId) : "",
-    // 기사 배정: 아직 기사가 없으면 학교의 기본 담당 기사를 먼저 골라 둔다 (추천)
-    engineerUserId: d.engineerUserId ? String(d.engineerUserId) : action === "engineer" && d.suggestedEngineerUserId ? String(d.suggestedEngineerUserId) : "",
-    deviceId: d.deviceId ? String(d.deviceId) : "",
-    // 처리 담당 지정 (스쿨넷): 지금 담당이 교육지원청이면 기본은 '통신사에 넘김'
-    handlerType: d.handlerOptions?.current.handlerType === "VENDOR" ? "REGION" : "VENDOR",
-    handlerVendorId: d.handlerOptions?.suggestedVendorId ? String(d.handlerOptions.suggestedVendorId) : "",
-    handlerUserId: "",
   });
-  // 대상 장비 지정: 이 학교의 무선장비(무선망 AS) · 스쿨넷 장비(스쿨넷 AS)
-  const [devices, setDevices] = useState<{ deviceId: number; deviceCode: string; deviceName: string; location?: string }[] | null>(null);
-  useEffect(() => {
-    if (action !== "device" || !d.schoolId) return;
-    api.get<{ content?: NonNullable<typeof devices> } | NonNullable<typeof devices>>(d.rceptTy === "S" ? "/api/as/schoolnet-devices" : "/api/as/wireless-devices", { schoolId: d.schoolId, size: 200 })
-      .then((x) => setDevices(Array.isArray(x) ? x : x.content ?? []))
-      .catch(() => setDevices([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action]);
-  // 업체 배정: 이 AS 유형을 맡는 업체 (학교 지역을 맡는 업체가 먼저) · 고른 업체의 기사
-  const [vendors, setVendors] = useState<{ vendorId: number; vendorName: string; allRegions?: boolean; regions?: { regionId: number }[] }[]>([]);
-  const [engineers, setEngineers] = useState<{ userId: number; userName: string; mobile?: string }[]>([]);
-  useEffect(() => {
-    if (action !== "assign") return;
-    api.get<typeof vendors>("/api/as/vendors", { rceptTy: d.rceptTy }).then((list) => {
-      const serves = (x: (typeof list)[number]) => !!x.allRegions || !!x.regions?.some((g) => g.regionId === d.regionId);
-      setVendors([...list.filter(serves), ...list.filter((x) => !serves(x))]);
-    }).catch(() => setVendors([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action]);
-  // 기사 목록: 업체 배정은 고른 업체, 기사 배정은 이 신청의 업체
-  const engVendor = action === "engineer" ? (d.vendorId ? String(d.vendorId) : "") : v.vendorId;
-  useEffect(() => {
-    if ((action !== "assign" && action !== "engineer") || !engVendor) { setEngineers([]); return; }
-    api.get<typeof engineers>(`/api/as/vendors/${engVendor}/engineers`).then(setEngineers).catch(() => setEngineers([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action, engVendor]);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV((p) => ({ ...p, [k]: e.target.value }));
   // 비용 항목. 예전 보고서의 단일 금액은 "기타" 한 줄로 보여 준다.
   const [lines, setLines] = useState<CostLine[]>(() =>
@@ -263,7 +221,6 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
           engineerName: v.engineerName.trim(), visitAt: v.visitAt, visitEndAt: v.visitEndAt,
           troubleSymptom: v.troubleSymptom.trim(), inspectContent: v.inspectContent.trim(),
           processTypeCode: v.processTypeCode || undefined, processContent: v.processContent.trim(),
-          ...(d.rceptTy === "S" ? { outageStartAt: v.outageStartAt || null, outageEndAt: v.outageEndAt || null } : {}),
           costItems: costs.map((l) => ({ costType: l.costType, itemName: l.itemName.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
         };
         break;
@@ -271,29 +228,13 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
         if (!v.score) check = "만족도를 선택해 주세요.";
         body = { score: Number(v.score), opinion: v.opinion.trim() };
         break;
-      case "assign":
-        if (!v.vendorId) check = "배정할 업체를 선택해 주세요.";
-        body = { vendorId: Number(v.vendorId), engineerUserId: v.engineerUserId ? Number(v.engineerUserId) : null };
-        break;
-      case "device":
-        body = { deviceId: v.deviceId ? Number(v.deviceId) : null };
+      case "reopen":
+        if (!v.reason.trim()) check = "재요청 사유를 입력해 주세요.";
+        body = { reason: v.reason.trim() };
         break;
       case "hold":
         if (!v.holdReason.trim()) check = "보류 사유를 입력해 주세요.";
         body = { reason: v.holdReason.trim(), holdUntil: v.holdUntil || null };
-        break;
-      case "outage":
-        body = { outageStartAt: v.outageStartAt || null, outageEndAt: v.outageEndAt || null };
-        break;
-      case "handler":
-        if (v.handlerType === "VENDOR" && !v.handlerVendorId) check = "넘길 통신사(업체)를 선택해 주세요.";
-        if (v.handlerType === "PROVINCE" && !v.handlerUserId) check = "교육청 담당자를 선택해 주세요.";
-        body = { handlerType: v.handlerType, vendorId: v.handlerType === "VENDOR" ? Number(v.handlerVendorId) : null,
-          userId: v.handlerType !== "VENDOR" && v.handlerUserId ? Number(v.handlerUserId) : null };
-        break;
-      case "engineer":
-        if (!v.engineerUserId) check = "담당 기사를 선택해 주세요.";
-        body = { engineerUserId: Number(v.engineerUserId) };
         break;
     }
     if (check) return setMsg(check);
@@ -310,20 +251,19 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
     }
   };
 
-  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete" || action === "arrive" || action === "resume";
+  const confirmOnly = action === "cancel" || action === "return-cancel" || action === "delete" || action === "resume";
   const confirmText: Record<string, string> = {
     delete: "이 AS 신청을 삭제합니다. 삭제한 내용은 되돌릴 수 없습니다.",
     cancel: "이 AS 신청을 취소합니다.",
     "return-cancel": "반려를 취소하고 신청완료 상태로 되돌립니다.",
-    arrive: "지금 시각을 현장 도착으로 기록합니다 (학교에 알림이 갑니다).",
-    resume: "보류를 풀고 처리를 다시 시작합니다. 보류한 시간만큼 지연 · SLA 기한이 늦춰집니다 (학교에 알림이 갑니다).",
+    resume: "보류를 풀고 처리를 다시 시작합니다 (학교에 알림이 갑니다).",
   };
 
   return (
     <form ref={box} className="as-act" onSubmit={send} noValidate aria-labelledby="as-act-t">
       <div className="as-act-h">
         <h5 id="as-act-t">{ACTION_LABEL[action]}</h5>
-        {d.status === "C" && action === "report" && <small>처리 완료 건의 보고서를 수정합니다 · 처리일 {fmtDate(d.completedAt)}</small>}
+        {action === "report" && <small>처리완료는 한 번만 등록합니다. 등록한 뒤에는 고칠 수 없으니 내용을 확인하고 저장하세요.</small>}
       </div>
       <div className="as-act-b">
       {confirmOnly && (
@@ -354,7 +294,6 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
             <tr><th scope="row">처리 기사</th><td><input aria-label="처리 기사" value={v.engineerName} onChange={set("engineerName")} /></td></tr>
             <tr><th scope="row">방문일시</th><td><DateTimeInput label="방문일시" value={v.visitAt} onChange={(x) => setV((p) => ({ ...p, visitAt: x }))} /></td></tr>
             <tr><th scope="row">처리완료일시</th><td><DateTimeInput label="처리완료일시" value={v.visitEndAt} onChange={(x) => setV((p) => ({ ...p, visitEndAt: x }))} /></td></tr>
-            {d.rceptTy === "S" && <OutageRows v={v} setV={setV} />}
             <tr><th scope="row">장애증상</th><td><textarea className="ta" aria-label="장애증상" value={v.troubleSymptom} onChange={set("troubleSymptom")} /></td></tr>
             <tr><th scope="row">점검내용</th><td><textarea className="ta" aria-label="점검내용" value={v.inspectContent} onChange={set("inspectContent")} /></td></tr>
             <tr><th scope="row">처리유형</th><td>
@@ -385,62 +324,6 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
             </td></tr>
           </>
         )}
-        {action === "assign" && (
-          <>
-            <tr><th scope="row"><i>*</i>업체</th><td>
-              <select aria-label="배정할 업체" value={v.vendorId} onChange={(e) => setV((p) => ({ ...p, vendorId: e.target.value, engineerUserId: "" }))}>
-                <option value="">-- 선택 --</option>
-                {vendors.map((x) => {
-                  const serves = !!x.allRegions || !!x.regions?.some((g) => g.regionId === d.regionId);
-                  return <option key={x.vendorId} value={x.vendorId}>{x.vendorName}{serves ? "" : " (다른 지역 담당)"}</option>;
-                })}
-              </select>{" "}
-              <small className="hint">{AS_NAME[d.rceptTy]} 유지관리 업체만 보입니다.</small>
-            </td></tr>
-            <tr><th scope="row">담당 기사</th><td>
-              <select aria-label="담당 기사" value={v.engineerUserId} disabled={!v.vendorId} onChange={set("engineerUserId")}>
-                <option value="">-- 기사 지정 안 함 --</option>
-                {engineers.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.mobile ? ` (${x.mobile})` : ""}</option>)}
-              </select>
-            </td></tr>
-          </>
-        )}
-        {action === "handler" && d.handlerOptions && (() => {
-          const o = d.handlerOptions;
-          const people = v.handlerType === "REGION" ? o.regionUsers : o.provinceUsers;
-          return (
-            <>
-              <tr><th scope="row"><i>*</i>처리 담당</th><td>
-                <span className="hd-pick" role="radiogroup" aria-label="처리 담당">
-                  {([["VENDOR", "통신사에 넘김", "회선 · 통신사 장비 문제"], ["REGION", "교육지원청 직접 처리", "학교 쪽 · 설정 문제 (원격 조치 등)"], ["PROVINCE", "교육청으로 올림", "여러 학교 동시 장애 등 큰 장애"]] as const).map(([k, l, h]) => (
-                    <label key={k} className={v.handlerType === k ? "on" : ""}>
-                      <input type="radio" name="handlerType" value={k} checked={v.handlerType === k} onChange={() => setV((p) => ({ ...p, handlerType: k, handlerUserId: "" }))} />
-                      <b>{l}</b><small>{h}</small>
-                    </label>
-                  ))}
-                </span>
-              </td></tr>
-              {v.handlerType === "VENDOR" ? (
-                <tr><th scope="row"><i>*</i>통신사</th><td>
-                  <select aria-label="통신사" value={v.handlerVendorId} onChange={set("handlerVendorId")}>
-                    <option value="">-- 선택 --</option>
-                    {o.vendors.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.vendorName}{x.vendorId === o.suggestedVendorId ? " — 이 학교 · 회선 업체" : ""}</option>)}
-                  </select>{" "}
-                  <small className="hint">업체 관리자가 기사를 정합니다.</small>
-                </td></tr>
-              ) : (
-                <tr><th scope="row">{v.handlerType === "PROVINCE" && <i>*</i>}담당자</th><td>
-                  <select aria-label="담당자" value={v.handlerUserId} onChange={set("handlerUserId")}>
-                    <option value="">{v.handlerType === "REGION" ? "-- 지정 안 함 (스쿨넷 담당 모두) --" : "-- 선택 --"}</option>
-                    {people.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.positionName ? ` · ${x.positionName}` : ""}{v.handlerType === "REGION" && x.covers ? " (스쿨넷 담당)" : ""}</option>)}
-                  </select>{" "}
-                  <small className="hint">{v.handlerType === "REGION" ? "담당자가 접수하면 그 사람이 맡습니다." : "교육청 담당자에게 알림이 갑니다."}</small>
-                </td></tr>
-              )}
-            </>
-          );
-        })()}
-        {action === "outage" && <OutageRows v={v} setV={setV} />}
         {action === "hold" && (
           <>
             <tr><th scope="row"><i>*</i>보류 사유</th><td>
@@ -448,26 +331,14 @@ function ActionForm({ d, action, onCancel, onDone }: { d: AsDetail; action: stri
             </td></tr>
             <tr><th scope="row">재개 예정일</th><td>
               <input type="date" aria-label="재개 예정일" value={v.holdUntil} onChange={set("holdUntil")} />{" "}
-              <small className="hint">선택. 보류 중에는 지연 알림 · SLA 기한이 멈추고, 풀면 보류한 시간만큼 늦춰집니다.</small>
+              <small className="hint">선택. 이 날짜가 지나면 보류 표시에 &lsquo;지남&rsquo;이 붙습니다.</small>
             </td></tr>
           </>
         )}
-        {action === "device" && (
-          <tr><th scope="row">대상 장비</th><td>
-            <select aria-label="대상 장비" value={v.deviceId} onChange={set("deviceId")} disabled={devices === null}>
-              <option value="">{devices === null ? "불러오는 중…" : devices.length ? "-- 지정 안 함 --" : `이 학교에 등록된 ${d.rceptTy === "S" ? "스쿨넷 장비" : "무선장비"}가 없습니다`}</option>
-              {(devices ?? []).map((x) => <option key={x.deviceId} value={x.deviceId}>{x.deviceCode} {x.deviceName}{x.location ? ` (${x.location})` : ""}</option>)}
-            </select>{" "}
-            <small className="hint">{d.rceptTy === "S" ? "스쿨넷은 선택입니다 — 연결하면 회선 가용률에 들어갑니다." : "학교가 신고한 증상 · 장소를 보고 장애 장비를 연결합니다. 장비의 유지보수 업체가 이 AS를 맡게 됩니다."}</small>
-          </td></tr>
-        )}
-        {action === "engineer" && (
-          <tr><th scope="row"><i>*</i>담당 기사</th><td>
-            <select aria-label="담당 기사" value={v.engineerUserId} onChange={set("engineerUserId")}>
-              <option value="">-- 선택 --</option>
-              {engineers.map((x) => <option key={x.userId} value={x.userId}>{x.userName}{x.mobile ? ` (${x.mobile})` : ""}{x.userId === d.suggestedEngineerUserId ? " — 학교 기본 담당" : ""}</option>)}
-            </select>{" "}
-            <small className="hint">배정된 기사만 이 신청을 보고 처리합니다.{d.suggestedEngineerName && !d.engineerUserId ? ` 학교 기본 담당 기사(${d.suggestedEngineerName})를 먼저 골라 두었습니다.` : ""}</small>
+        {action === "reopen" && (
+          <tr><th scope="row"><i>*</i>재요청 사유</th><td>
+            <textarea className="ta" aria-label="재요청 사유" maxLength={1000} placeholder="예: 처리 후에도 3층 교실 무선이 계속 끊깁니다." value={v.reason} onChange={set("reason")} />
+            <small className="hint">처리완료 뒤 30일 안에 할 수 있습니다. 신청완료로 돌아가 같은 업체가 다시 접수하고, 만족도 평가는 지워집니다.</small>
           </td></tr>
         )}
         {action === "evaluate" && (
@@ -544,20 +415,3 @@ function CostTable({ items }: { items: CostItem[] }) {
   );
 }
 
-/** 스쿨넷 실제 장애 시각 입력 (보고서 · 장애 시각 수정). 비우면 신청 · 처리완료 시각으로 계산한다. */
-function OutageRows({ v, setV }: { v: Record<string, string>; setV: React.Dispatch<React.SetStateAction<Record<string, string>>> }) {
-  const row = (k: "outageStartAt" | "outageEndAt", label: string, empty: string) => (
-    <tr><th scope="row">{label}</th><td>
-      {v[k] ? <><DateTimeInput label={label} value={v[k]} onChange={(x) => setV((p) => ({ ...p, [k]: x }))} />{" "}
-        <button type="button" className="btn sm sec" onClick={() => setV((p) => ({ ...p, [k]: "" }))}>비우기</button></>
-        : <button type="button" className="btn sm sec" onClick={() => setV((p) => ({ ...p, [k]: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) }))}>입력</button>}
-      {" "}<small className="hint">{v[k] ? "NMS 등으로 확인한 실제 시각" : empty}</small>
-    </td></tr>
-  );
-  return (
-    <>
-      {row("outageStartAt", "장애 발생 시각", "비우면 신청 시각으로 계산합니다.")}
-      {row("outageEndAt", "복구 시각", "비우면 처리완료 시각으로 계산합니다.")}
-    </>
-  );
-}

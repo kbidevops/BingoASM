@@ -52,7 +52,7 @@ public final class AsCodes {
         BOARDS.put("CONSULT", new Board("CONSULT", "컨설팅 신청", "BOARD_CONSULT", null, true, List.of(), false, true, true));
         BOARDS.put("DISPOSAL", new Board("DISPOSAL", "불용PC수거신청", "BOARD_DISPOSAL", null, true, List.of(), false, true, true));
         BOARDS.put("VENDOR", new Board("VENDOR", "유지관리업체(정보공유)", "BOARD_VENDOR", null, false, List.of("의견사항", "업무질의"), false, true, false));
-        BOARDS.put("SLA", new Board("SLA", "스쿨넷 SLA 공유", "BOARD_SLA", "BOARD_ADMIN", false, List.of(), false, false, false));
+        BOARDS.put("SLA", new Board("SLA", "스쿨넷 SLA 결과 업로드", "BOARD_SLA", "BOARD_ADMIN", false, List.of(), false, false, false));
     }
     public static final Map<String, String> POST_STATUS_NAME = Map.of("WAIT", "대기", "RECEIVED", "접수", "DONE", "완료");
     public static final Map<String, String> FIELD_NAME = Map.of("WIRELESS", "무선", "DEVICE", "정보기기", "SCHOOLNET", "스쿨넷", "ETC", "기타");

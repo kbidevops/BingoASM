@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import AsDetailModal from "./AsDetailModal";
-import { AsBadge, ErrorBox, HoldBadge, LateBadge, Loading, Pager, SlaBadge } from "./ui";
+import { AsBadge, ErrorBox, HoldBadge, Loading, Pager } from "./ui";
 import { api } from "@/lib/api";
 import { ACTION_LABEL, AS_REQUEST_HREF, AS_REQUEST_PERM } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
@@ -11,7 +11,7 @@ import { fmtDate, fmtDateTime } from "@/lib/format";
 import type { AsRow, AsSummary, Page, Todo } from "@/lib/types";
 
 /** 할 일 행에서 바로 펼칠 처리 (보이는 순서) */
-const QUICK = ["receive", "handler", "assign", "engineer", "device", "arrive", "report", "evaluate"];
+const QUICK = ["receive", "report", "evaluate", "reopen"];
 const PAGE = 10;
 
 /** 마이페이지 탭 배지: 내 할 일 건수 · 내 신청 중 진행 중 건수. */
@@ -32,7 +32,7 @@ interface TodoPage { key: string; label: string; hint: string; list: Page<AsRow 
 
 /**
  * 내 할 일: 지금 내가 처리할 AS (GET /api/as/requests/todo). 묶음 칩을 고르면 그 묶음의 전체 목록 (페이지).
- * 행마다 할 수 있는 처리(접수 · 기사 지정 · 도착 기록 · 보고서 · 평가 …)를 바로 펼친다.
+ * 행마다 할 수 있는 처리(접수 · 보고서 · 평가 · 재요청 …)를 바로 펼친다.
  */
 export function TodoTab({ initialKey }: { initialKey?: string | null } = {}) {
   const [todo, setTodo] = useState<Todo | null>(null);
@@ -86,7 +86,7 @@ export function TodoTab({ initialKey }: { initialKey?: string | null } = {}) {
                       <div className="my-t">
                         <span className="td-ty">{r.rceptTyName}</span>
                         <button type="button" className="my-sn" onClick={() => setWork({ sn: r.asvcSn })}>AS-{r.asvcSn}</button>
-                        <b>{r.schoolName}</b> <AsBadge status={r.status} name={r.statusName} /> <HoldBadge row={r} /> <LateBadge late={r.late} /> <SlaBadge sla={r.sla} />
+                        <b>{r.schoolName}</b> <AsBadge status={r.status} name={r.statusName} /> <HoldBadge row={r} />
                       </div>
                       <p className="my-sym">{r.symptom}</p>
                       <small className="my-meta">
@@ -167,6 +167,8 @@ export function MineTab({ initialStatus, initialSchool }: { initialStatus?: stri
             const own = r.applicantUserId === me?.userId;
             const canCancel = own && (r.status === "A" || r.status === "X");
             const again = (r.status === "C" || r.status === "X") && can(AS_REQUEST_PERM[r.rceptTy]);
+            // 재요청: 처리완료 뒤 30일 안 (서버가 다시 확인한다)
+            const reopen = r.status === "C" && can("AS_REOPEN") && !!r.completedAt && Date.now() - new Date(r.completedAt).getTime() < 30 * 86400000;
             return (
               <li key={r.asvcSn} className={"my-row" + (r.canEvaluate ? " evw-row" : "")}>
                 <div className="my-main">
@@ -175,7 +177,7 @@ export function MineTab({ initialStatus, initialSchool }: { initialStatus?: stri
                     <button type="button" className="my-sn" onClick={() => setWork({ sn: r.asvcSn })}>AS-{r.asvcSn}</button>
                     <b className="my-sym-t">{r.symptom}</b>
                     {!own && r.applicantName && <small className="my-who"> · {r.applicantName}</small>}
-                    <HoldBadge row={r} /> <SlaBadge sla={r.sla} />
+                    <HoldBadge row={r} />
                   </div>
                   <Stepper r={r} />
                   <small className="my-meta">
@@ -193,6 +195,7 @@ export function MineTab({ initialStatus, initialSchool }: { initialStatus?: stri
                   {r.canEvaluate && <button type="button" className="btn sm evw-btn" onClick={() => setWork({ sn: r.asvcSn, action: "evaluate" })}>만족도 평가</button>}
                   <button type="button" className="btn sm sec" onClick={() => setWork({ sn: r.asvcSn })}>{r.hasReport ? "보고서 보기" : "상세 보기"}</button>
                   {canCancel && <button type="button" className="btn sm sec" onClick={() => setWork({ sn: r.asvcSn, action: "cancel" })}>취소</button>}
+                  {reopen && <button type="button" className="btn sm sec" title="처리 후에도 해결되지 않았으면 다시 요청합니다" onClick={() => setWork({ sn: r.asvcSn, action: "reopen" })}>재요청</button>}
                   {again && <Link className="btn sm sec" href={`${AS_REQUEST_HREF[r.rceptTy]}?copy=${r.asvcSn}`}>다시 신청</Link>}
                 </div>
               </li>
@@ -206,16 +209,15 @@ export function MineTab({ initialStatus, initialSchool }: { initialStatus?: stri
   );
 }
 
-/** 진행 단계: 신청 → 접수 → 도착 → 완료 → 평가 (평가를 쓰지 않는 유형은 평가 없이). */
+/** 진행 단계: 신청 → 접수 → 완료 → 평가. */
 function Stepper({ r }: { r: AsRow }) {
   if (r.status === "X") return null;
   const steps: [string, string | undefined | null, boolean][] = [
     ["신청", r.requestAt, true],
     ["접수", r.receivedAt, !!r.receivedAt || r.status === "R" || r.status === "C"],
-    ["도착", r.visitAt, !!r.visitAt],
     ["완료", r.completedAt, r.status === "C"],
   ];
-  if (!r.evalOff) steps.push(["평가", r.evaluatedAt, r.evalScore != null]);
+  steps.push(["평가", r.evaluatedAt, r.evalScore != null]);
   const cur = steps.findIndex(([, , done]) => !done);
   return (
     <ol className="my-step" aria-label="진행 단계">

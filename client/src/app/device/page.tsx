@@ -7,7 +7,7 @@ import { StatusDot } from "@/components/admin/common";
 import { HistoryList } from "@/components/admin/NetDevices";
 import AsDetailModal from "@/components/AsDetailModal";
 import SubPage from "@/components/SubPage";
-import { ErrorBox, HoldBadge, Loading, SlaBadge, useToast } from "@/components/ui";
+import { ErrorBox, HoldBadge, Loading, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { AS_LIST_HREF } from "@/lib/as";
 import { useAuth } from "@/lib/auth";
@@ -38,11 +38,9 @@ interface OpenAs {
   visitAt?: string;
   engineerName?: string;
   assignedToMe?: boolean;
-  sla?: { stage: string; label: string; dueAt: string; remainingMin: number; targetMin: number } | null;
   onHold?: boolean;
   holdReason?: string;
   holdUntil?: string;
-  canArrive?: boolean;
   canReport?: boolean;
   canReceive?: boolean;
 }
@@ -119,21 +117,9 @@ function DeviceView() {
   const as = d.as;
   const open = as?.open ?? [];
   // 장애접수관리를 가진 계정은 전체 목록에서, 아니면 그 유형의 결과조회에서 연다.
-  // 장비 화면을 떠나지 않고 그 건을 연다 (기사가 현장에서 접수 · 도착 · 보고서까지). 목록 메뉴가 없는 계정도 된다.
+  // 장비 화면을 떠나지 않고 그 건을 연다 (기사가 현장에서 라벨 QR로 접수 · 처리 보고서까지). 목록 메뉴가 없는 계정도 된다.
   const asHref = (sn: number) => `${can("AS_MANAGE") ? "/admin/requests" : AS_LIST_HREF[d.rceptTy ?? "M"]}?open=${sn}`;
   const openAs = (sn: number, action?: string) => (e?: React.MouseEvent) => { e?.preventDefault(); setWork({ sn, action }); };
-  const arrive = async (sn: number) => {
-    setBusy(true);
-    try {
-      await api.post(`/api/as/requests/${sn}/arrive`, { byQr: true });
-      toast(`AS-${sn} 현장 도착을 기록했습니다.`);
-      load();
-    } catch (e) {
-      toast((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <div className="dvs">
       <header className="dvs-h">
@@ -167,20 +153,18 @@ function DeviceView() {
                 <div className="dvs-open-b">
                   <b className={"st " + (o.status === "A" ? "s2" : "s3")}>{o.statusName}</b>{" "}
                   {o.canOpen ? <a href={asHref(o.asvcSn)} onClick={openAs(o.asvcSn)}>AS-{o.asvcSn}</a> : <span>AS-{o.asvcSn}</span>}
-                  {o.assignedToMe && <span className="dvs-me">내 담당</span>} <HoldBadge row={o} /> <SlaBadge sla={o.sla} />
+                  {o.assignedToMe && <span className="dvs-me">내 담당</span>} <HoldBadge row={o} />
                   <small>
                     신청 {fmtDate(o.requestAt)}
                     {o.visitPlannedAt && <> · 방문예정 {fmtDateTime(o.visitPlannedAt)}</>}
-                    {o.visitAt && <> · 도착 {fmtDateTime(o.visitAt)}</>}
                     {o.engineerName && <> · 담당 {o.engineerName}</>}
                   </small>
                   {o.canOpen ? (o.symptom ? <p>{o.symptom}</p> : null) : <p className="hint">다른 담당자가 처리 중인 건입니다.</p>}
                 </div>
-                {o.canOpen && (o.canArrive || o.canReport || o.canReceive) && (
+                {o.canOpen && (o.canReport || o.canReceive) && (
                   <div className="dvs-open-a">
                     {o.canReceive && <button type="button" className="btn sm" onClick={openAs(o.asvcSn, "receive")}>접수</button>}
-                    {o.canArrive && <button type="button" className="btn sm" disabled={busy} onClick={() => arrive(o.asvcSn)}>도착 기록</button>}
-                    {o.canReport && <button type="button" className={"btn sm" + (o.canArrive ? " sec" : "")} onClick={openAs(o.asvcSn, "report")}>처리 보고서 작성</button>}
+                    {o.canReport && <button type="button" className="btn sm" onClick={openAs(o.asvcSn, "report")}>처리 보고서 작성</button>}
                   </div>
                 )}
               </li>

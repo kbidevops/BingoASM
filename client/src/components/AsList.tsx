@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import type { AsRow, AsStatus, RceptTy } from "@/lib/types";
 import AsDetailModal from "./AsDetailModal";
-import { AsBadge, ErrorBox, EvalWait, HoldBadge, Icon, LateBadge, Loading, NoticeBox, Pager, SlaBadge, useToast } from "./ui";
+import { AsBadge, ErrorBox, HoldBadge, Icon, Loading, NoticeBox, Pager, useToast } from "./ui";
 
 const STATUSES: [AsStatus | "", string][] = [["", "전체"], ["A", "신청완료"], ["R", "접수완료"], ["C", "처리완료"], ["X", "반려"], ["HOLD" as AsStatus, "보류 중"]];
 const PAGE_SIZE = 10;
@@ -176,20 +176,16 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
                     ? [no, r.schoolName, r.deviceName ?? "-", fmtDate(r.requestAt), r.applicantName, fmtDate(r.visitRequestAt)]
                     : [no, ...(ty ? [] : [r.rceptTyName]), r.schoolName, r.applicantName, fmtDate(r.requestAt), r.status === "C" ? fmtDate(r.completedAt) : "-", r.handlerType && r.handlerType !== "VENDOR" ? r.handlerName : r.vendorName ?? "-"];
                   return (
-                    <tr key={r.asvcSn} className={r.canEvaluate ? "evw-row" : undefined}>
+                    <tr key={r.asvcSn}>
                       {cells.map((c, j) => <td key={j} data-label={head[j]}>{c ?? "-"}</td>)}
                       <td data-label="상태" className="stc-td">
                         <div className="stc">
                           <AsBadge status={r.status} name={r.statusName} />
-                          {(r.onHold || r.late || r.sla || (r.status === "C" && r.evalScore == null && !r.evalOff)) && (
-                            <div className="stc-f"><HoldBadge row={r} /><EvalWait row={r} /><LateBadge late={r.late} /><SlaBadge sla={r.sla} compact /></div>
-                          )}
+                          {r.onHold && <div className="stc-f"><HoldBadge row={r} /></div>}
                         </div>
                       </td>
                       <td data-label="보고서">
-                        {r.canEvaluate
-                          ? <button className="btn sm evw-btn" type="button" onClick={() => setOpen(r.asvcSn)}>만족도 평가</button>
-                          : <button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>{r.hasReport ? "보고서 확인" : "상세 보기"}</button>}
+                        <button className="btn bl sm" type="button" onClick={() => setOpen(r.asvcSn)}>{r.hasReport ? "보고서 확인" : "상세 보기"}</button>
                       </td>
                     </tr>
                   );

@@ -364,6 +364,20 @@ public class UserService {
         u.status = "DISABLED";
     }
 
+    /**
+     * 관리자가 2단계 인증(OTP)을 켜거나 끈다.
+     * 켜기: 다음 로그인 때 인증 앱을 등록하게 한다 (이미 등록돼 있으면 그대로 쓴다).
+     * 끄기: 인증 앱 등록도 지운다 — 다음 로그인은 비밀번호만. 다시 켜면 새로 등록한다.
+     */
+    public Json setOtp(CurrentUser me, Long id, boolean on) {
+        requireUserAdmin(me);
+        AppUser u = load(me, id);
+        guardTarget(me, u);
+        u.otpEnabled = on;
+        if (!on) { u.totpSecret = null; u.totpLastStep = null; }
+        return view(u, deptNames(me.orgId()), orgName(me.orgId()));
+    }
+
     /** 휴대폰을 잃어버렸을 때: 인증 앱 등록을 지운다. 2단계 인증은 그대로 켜져 있어 다음 로그인 때 새로 등록한다. */
     public Json resetOtp(CurrentUser me, Long id) {
         requireUserAdmin(me);

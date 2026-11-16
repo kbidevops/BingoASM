@@ -72,7 +72,7 @@ function Login() {
           {process.env.NODE_ENV === "development" && (
             <p className="lg-demo">
               <b>개발용 데모 계정</b> (README 5절)<br />
-              학교 <code>school01</code> · 기사 <code>netengineer</code> · 교육청 <code>eduadmin</code>(OTP) · 교육지원청 <code>regionadmin</code><br />
+              학교 <code>school01</code> · 기사 <code>netengineer</code> · 교육청 <code>eduadmin</code> · 교육지원청 <code>regionadmin</code><br />
               비밀번호 <code>user1234!</code> · 관리자 <code>admin</code> / <code>admin1234!</code>
             </p>
           )}

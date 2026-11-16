@@ -12,7 +12,32 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# 무선망 · 스쿨넷 AS는 학교가 대상 장비를 꼭 고른다. 시험 신청에 장비가 없으면 그 학교의 첫 장비를 붙인다
+# (장비 없이 보내 보는 시험은 body에 "_noDevice": True).
+_me_school, _first_dev = {}, {}
 def call(method, path, body=None, token=None, raw=False, files=None, follow=True):
+    if method == "POST" and path == "/api/as/requests" and isinstance(body, dict) and body.get("rceptTy") in ("M", "S"):
+        body = dict(body)
+        if body.pop("_noDevice", False) or "deviceId" in body:
+            pass
+        else:
+            sid = body.get("schoolId")
+            if sid is None and token:
+                if token not in _me_school:
+                    st_, j_, _ = _call("GET", "/api/auth/me", token=token)
+                    _me_school[token] = ((j_ or {}).get("data") or {}).get("schoolId")
+                sid = _me_school[token]
+            key = (sid, body["rceptTy"])
+            if sid is not None and key not in _first_dev:
+                st_, j_, _ = _call("GET", ("/api/as/wireless-devices" if body["rceptTy"] == "M" else "/api/as/schoolnet-devices") + f"?schoolId={sid}&size=500", token=token)
+                d_ = (j_ or {}).get("data") or {}
+                lst_ = d_.get("content", d_) if isinstance(d_, dict) else d_
+                _first_dev[key] = lst_[0]["deviceId"] if lst_ else None
+            if _first_dev.get(key):
+                body["deviceId"] = _first_dev[key]
+    return _call(method, path, body, token, raw, files, follow)
+
+def _call(method, path, body=None, token=None, raw=False, files=None, follow=True):
     url = BASE + urllib.parse.quote(path, safe="/?=&%._-")
     data = None
     headers = {}
@@ -129,29 +154,29 @@ S = login("school01", "user1234!")
 S2 = login("school02", "user1234!")
 N = login("netengineer", "user1234!")
 
-# 새 신청에는 기사가 없다 (업체 관리자가 정한다): 시험에서 기사(netengineer)가 처리해야 하는 건은 관리자가 먼저 배정한다.
-_nid = None
+# 기사 배정은 없다: 업체의 기사 누구나 그 업체 건을 접수 · 처리한다 (V22). 예전 시험의 to_eng는 아무 일도 하지 않는다.
 def to_eng(sn):
-    global _nid
-    if _nid is None:
-        _nid = next(u["userId"] for u in data(call("GET", "/api/users?keyword=netengineer", token=A))["content"] if u["loginId"] == "netengineer")
-    st, j, _ = call("POST", f"/api/as/requests/{sn}/engineer", {"engineerUserId": _nid}, token=A)
-    assert st == 200, ("to_eng", sn, j)
+    return None
 V = login("vendoradmin", "user1234!")
 A = login("admin", "admin1234!")
 
+# 스쿨넷 첫 접수처 설정은 없어졌다 (V22): 모든 신고는 학교 · 장비의 담당 업체로 바로 간다.
 def set_route(route):
-    svc = data(call("GET", "/api/org/as-services", token=A))
-    st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": svc["asTypes"], "schoolnetRoute": route}, token=A)
-    assert st == 200 and data((st, j, None))["schoolnetRoute"] == route, ("set_route", j)
-check("route: default 스쿨넷 접수처 = 교육지원청", data(call("GET", "/api/org/as-services", token=A)).get("schoolnetRoute") == "REGION")
-set_route("VENDOR")
+    return None
+check("route: no 스쿨넷 접수처 setting any more", "schoolnetRoute" not in data(call("GET", "/api/org/as-services", token=A)))
 check("login: 5 accounts", all([S, S2, N, V, A]))
 # 권한표 검사는 네 서비스(정보기기·무선망·스쿨넷·스마트기기)를 모두 쓰는 교육청 기준. 끄고 켜기는 맨 끝에서 따로 본다.
 st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": ["C", "M", "S", "T"]}, token=A)
 check("as-services: all four on for the permission-table checks", st == 200 and data((st, j, None))["asTypes"] == ["C", "M", "S", "T"], j)
 
-# eduadmin: 2단계 인증 사용, 인증 앱은 아직 미등록 → 첫 로그인에서 등록(QR + 첫 번호)
+# eduadmin: 데모 계정은 2단계 인증 없이 시작한다 → 관리자가 켜면 첫 로그인에서 인증 앱 등록(QR + 첫 번호)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"})
+check("OTP: demo eduadmin starts without OTP (password only)", st == 200 and (j.get("data") or {}).get("accessToken"), j)
+eid = next(u["userId"] for u in data(call("GET", "/api/users?keyword=eduadmin", token=A))["content"] if u["loginId"] == "eduadmin")
+st, j, _ = call("POST", f"/api/users/{eid}/otp", {"enabled": True}, token=S); check("OTP switch: school user → 403", st == 403, j)
+st, j, _ = call("POST", f"/api/users/{eid}/otp", {}, token=A); check("OTP switch: missing enabled → 400", st == 400, j)
+st, j, _ = call("POST", f"/api/users/{eid}/otp", {"enabled": True}, token=A); ou = data((st, j, None)) or {}
+check("OTP switch on (admin): enabled, app not yet registered", st == 200 and ou.get("otpEnabled") is True and ou.get("otpRegistered") is False, ou)
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"})
 d = j["data"]
 check("OTP: unregistered account → otp-setup with QR + secret, no echoed code",
@@ -194,8 +219,6 @@ st, j, _ = call("POST", "/api/auth/me/otp/disable", {"code": app_code("school02"
 check("my OTP disable: app code → off, registration removed", st == 200 and not data((st, j, None))["otpEnabled"] and not data((st, j, None))["otpRegistered"], j)
 
 # 관리자: 휴대폰 분실 → 인증 앱 등록 초기화 → 다음 로그인에서 다시 등록
-st, j, _ = call("GET", "/api/users?keyword=eduadmin", token=A)
-eid = next(u["userId"] for u in data((st, j, None))["content"] if u["loginId"] == "eduadmin")
 st, j, _ = call("POST", f"/api/users/{eid}/otp-reset", {}, token=S); check("OTP reset: school user → 403", st == 403, j)
 st, j, _ = call("POST", f"/api/users/{eid}/otp-reset", {}, token=A); ru = data((st, j, None)) or {}
 check("OTP reset: registration cleared, 2단계 인증 still on", st == 200 and ru.get("otpEnabled") is True and ru.get("otpRegistered") is False, ru)
@@ -203,6 +226,12 @@ st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "
 check("OTP reset: next login registers again", st == 200 and data((st, j, None)).get("step") == "otp-setup", j)
 E = login("eduadmin", "user1234!")
 check("OTP reset: re-registered login works", bool(E))
+# 관리자: 2단계 인증 끄기 → 등록도 지워지고 비밀번호만으로 로그인
+st, j, _ = call("POST", f"/api/users/{eid}/otp", {"enabled": False}, token=A); ou = data((st, j, None)) or {}
+check("OTP switch off (admin): disabled + registration removed", st == 200 and ou.get("otpEnabled") is False and ou.get("otpRegistered") is False, ou)
+st, j, _ = call("POST", "/api/auth/login", {"loginId": "eduadmin", "password": "user1234!"})
+check("OTP switch off: next login is password only", st == 200 and (j.get("data") or {}).get("accessToken") and not (j.get("data") or {}).get("step"), j)
+E = (j.get("data") or {}).get("accessToken") or E
 
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "school02", "password": "wrong"})
 check("login: wrong password → 401 with counter", st == 401 and "(1/" in (msg((st, j, None)) or ""), j)
@@ -215,9 +244,9 @@ me = data((st, j, None))
 check("me: school01 has AS_M_REQUEST, AS_C_REQUEST, SMART_REQUEST, schoolId", st == 200 and all(p in me["permissions"] for p in ["AS_M_REQUEST", "AS_C_REQUEST", "AS_S_REQUEST", "SMART_REQUEST"]) and me.get("schoolId"), j)
 st, j, _ = call("GET", "/api/auth/me", token=N)
 men = data((st, j, None))
-check("me: netengineer perms per 접근권한표 (M/S request+view, C view only, AS_PROCESS, no NOTICE/SMART/C_REQUEST/SLA)",
-      st == 200 and {"AS_PROCESS", "AS_M_REQUEST", "AS_M_VIEW", "AS_S_REQUEST", "AS_S_VIEW", "AS_C_VIEW"} <= set(men["permissions"])
-      and not ({"BOARD_NOTICE", "SMART_REQUEST", "AS_C_REQUEST", "BOARD_SLA", "INVENTORY", "ASSET_BULK"} & set(men["permissions"])), men.get("permissions"))
+check("me: netengineer perms (M/S request+view, C view only, AS_PROCESS, 스쿨넷 업체라 SLA 결과 업로드, no NOTICE/SMART/C_REQUEST)",
+      st == 200 and {"AS_PROCESS", "AS_M_REQUEST", "AS_M_VIEW", "AS_S_REQUEST", "AS_S_VIEW", "AS_C_VIEW", "BOARD_SLA"} <= set(men["permissions"])
+      and not ({"BOARD_NOTICE", "SMART_REQUEST", "AS_C_REQUEST", "INVENTORY", "ASSET_BULK"} & set(men["permissions"])), men.get("permissions"))
 st, j, _ = call("GET", "/api/auth/me/logins", token=S)
 check("me: login history masked ip", st == 200 and len(data((st, j, None))) >= 1 and "*" in str(data((st, j, None))[0].get("ip", "*")), j)
 st, j, _ = call("POST", "/api/auth/me/scraps", {"menuKey": "as.m.request", "groupName": "무선망", "title": "무선망 AS신청"}, token=S)
@@ -253,7 +282,7 @@ st, j, _ = call("GET", "/api/as/boards/CONSULT", token=N); check("권한표: 기
 st, j, _ = call("GET", "/api/as/contacts", token=N); check("권한표: 기사 문의처안내 있음", st == 200, j)
 st, j, _ = call("GET", "/api/as/boards/DISPOSAL", token=N); check("권한표: 기사 불용PC수거 있음", st == 200, j)
 st, j, _ = call("GET", "/api/as/boards/VENDOR", token=N); check("권한표: 기사 유지관리업체 있음", st == 200, j)
-st, j, _ = call("GET", "/api/as/boards/SLA", token=N); check("권한표: 기사 스쿨넷 SLA 없음", st == 403, j)
+st, j, _ = call("GET", "/api/as/sla-reports", token=N); check("권한표: 스쿨넷 업체 기사는 SLA 결과 업로드를 본다", st == 200, j)
 st, j, _ = call("GET", "/api/as/stats/monthly", token=N); check("권한표: 기사 통합관리(통계) 없음", st == 403, j)
 st, j, _ = call("POST", "/api/as/schools", {"schoolName": "x"}, token=N); check("권한표: 기사 학교관리 없음", st == 403, j)
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "C", "symptom": "x"}, token=N); check("권한표: 기사 정보기기 AS신청 없음", st == 403, j)
@@ -262,7 +291,7 @@ st, j, _ = call("GET", "/api/as/requests?rceptTy=C", token=N); check("권한표:
 st, j, _ = call("GET", "/api/as/requests?rceptTy=M", token=N); check("권한표: 기사 무선망 AS결과조회 있음", st == 200, j)
 st, j, _ = call("GET", "/api/as/boards", token=N)
 codes = [b["code"] for b in data((st, j, None))]
-check("권한표: 기사 게시판 메뉴 = QNA/CONSULT/DISPOSAL/VENDOR", sorted(codes) == sorted(["QNA", "CONSULT", "DISPOSAL", "VENDOR"]), codes)
+check("권한표: 기사 게시판 메뉴 = QNA/CONSULT/DISPOSAL/VENDOR (+ SLA: 스쿨넷 업체)", sorted(codes) == sorted(["QNA", "CONSULT", "DISPOSAL", "VENDOR", "SLA"]), codes)
 st, j, _ = call("GET", "/api/as/stats/monthly", token=S); check("권한표: 학교 통계 없음", st == 403, j)
 st, j, _ = call("GET", "/api/as/stats/monthly", token=V); check("권한표: 업체관리자 통계 있음(자기 업체)", st == 200, j)
 st, j, _ = call("POST", "/api/as/inventory", {"schoolId": 1}, token=N); check("권한표: 기사 재물조사 없음", st == 403, j)
@@ -327,16 +356,17 @@ st, j, _ = call("POST", "/api/as/requests", body, token=S); r = data((st, j, Non
 check("AS create (M): status A, vendor from 학교 배정, no 기사 yet, applicant from account",
       st == 200 and r["status"] == "A" and r["vendorName"] == "한빛네트웍스" and not r.get("engineerUserId") and r["applicantName"] == "한보람" and apB2["deviceCode"] in r["deviceName"], j)
 sn = r["asvcSn"]
-check("AS create: allowed actions for owner = update/cancel", set(r["allowedActions"]) == {"update", "cancel"}, r.get("allowedActions"))
+check("AS create: allowed actions for 신청자 = update/cancel/delete", set(r["allowedActions"]) == {"update", "cancel", "delete"}, r.get("allowedActions"))
 check("AS create: 학교 gets no 기사 suggestion", "suggestedEngineerUserId" not in r, r.get("suggestedEngineerUserId"))
-# 기사는 업체 관리자가 정한다: 학교 기본 담당 기사(강민재)가 추천으로 온다
+# 기사 배정은 없다 (V22): 업체 관리자 · 기사 누구나 바로 접수 · 처리한다
 VA0 = login("vendoradmin", "user1234!")
 dva = data(call("GET", f"/api/as/requests/{sn}", token=VA0))
-check("AS create: 업체 관리자 sees the 학교 기본 담당 기사 as suggestion", dva.get("suggestedEngineerName") == "강민재" and "engineer" in dva["allowedActions"], (dva.get("suggestedEngineerName"), dva.get("allowedActions")))
-st, j, _ = call("GET", f"/api/as/requests/{sn}", token=N); check("AS create: 기사 cannot see it before 배정 → 404", st == 404, j)
-st, j, _ = call("POST", f"/api/as/requests/{sn}/engineer", {"engineerUserId": dva["suggestedEngineerUserId"]}, token=VA0)
-check("AS 기사 배정 by 업체 관리자 (suggested 기사)", st == 200 and data((st, j, None))["engineerName"] == "강민재", j)
-check("AS create: suggestion gone once a 기사 is set", "suggestedEngineerUserId" not in data(call("GET", f"/api/as/requests/{sn}", token=VA0)))
+check("AS create: 업체 관리자 can 접수 at once, no 기사 배정", "receive" in dva["allowedActions"] and "engineer" not in dva["allowedActions"], dva.get("allowedActions"))
+st, j, _ = call("GET", f"/api/as/requests/{sn}", token=N)
+check("AS create: any 기사 of the 업체 sees it and can 접수", st == 200 and "receive" in data((st, j, None))["allowedActions"], j)
+dE = data(call("GET", f"/api/as/requests/{sn}", token=E))
+check("AS create: 교육청 views only (no 접수 · 배정 · 장비 지정)", not ({"receive", "assign", "device", "engineer", "handler", "update", "cancel"} & set(dE["allowedActions"])), dE.get("allowedActions"))
+st, j, _ = call("POST", f"/api/as/requests/{sn}/engineer", {"engineerUserId": 1}, token=VA0); check("AS 기사 배정 action gone → 404", st == 404, j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/receive", {"visitPlannedAt": "2026-10-29T10:00"}, token=S)
 check("AS receive by school user → 409", st == 409, j)
 st, j, _ = call("GET", "/api/as/requests?rceptTy=M&status=A", token=N); lst = data((st, j, None))
@@ -353,11 +383,26 @@ st, j, _ = call("POST", f"/api/as/requests/{sn}/receive", {"visitPlannedAt": "20
 check("AS receive → R, receivedAt set, actions visit/report/transfer", st == 200 and r["status"] == "R" and r["receivedAt"] and {"visit", "report", "transfer"} <= set(r["allowedActions"]), j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/visit", {"visitPlannedAt": "2026-10-30T14:00"}, token=N); r = data((st, j, None))
 check("AS visit (reschedule)", st == 200 and r["visitPlannedAt"].startswith("2026-10-30T14:00"), j)
+_d = data(call("GET", f"/api/as/requests/{sn}", token=S))
+check("AS 접수 후: 신청자 has no cancel · delete", not ({"cancel", "delete"} & set(_d["allowedActions"])), _d["allowedActions"])
+st, j, _ = call("POST", f"/api/as/requests/{sn}/delete", {}, token=S); check("AS 접수 후: 신청자 delete → 409", st == 409, j)
+check("AS 접수 후: 시스템 관리자 still has delete", "delete" in data(call("GET", f"/api/as/requests/{sn}", token=A))["allowedActions"])
 st, j, _ = call("POST", f"/api/as/requests/{sn}/report", {"troubleSymptom": "AP 행업", "inspectContent": "재부팅"}, token=N)
 check("AS report without processContent → 400", st == 400, j)
 st, j, _ = call("POST", f"/api/as/requests/{sn}/report", {"visitAt": "2026-10-30T14:00", "visitEndAt": "2026-10-30T15:00", "troubleSymptom": "AP 행업", "inspectContent": "AP 재부팅 및 펌웨어 업데이트", "processTypeCode": "2", "processContent": "장비행업 — 재부팅 후 정상", "processAmount": 0}, token=N)
 r = data((st, j, None))
 check("AS report → C with completedAt and processTypeName", st == 200 and r["status"] == "C" and r["completedAt"] and r["processTypeName"] == "장비행업", j)
+check("처리완료 once: no report action on C (기사 · 업체 관리자)", "report" not in r["allowedActions"] and "report" not in data(call("GET", f"/api/as/requests/{sn}", token=VA0))["allowedActions"], r.get("allowedActions"))
+st, j, _ = call("POST", f"/api/as/requests/{sn}/report", {"processContent": "다시 처리완료"}, token=N); check("처리완료 once: 기사 again → 409", st == 409, j)
+st, j, _ = call("POST", f"/api/as/requests/{sn}/report", {"processContent": "다시 처리완료"}, token=VA0); check("처리완료 once: 업체 관리자 again → 409", st == 409, j)
+check("처리완료 once: report unchanged", data(call("GET", f"/api/as/requests/{sn}", token=N))["report"]["processContent"] == "장비행업 — 재부팅 후 정상")
+def fresh_r():
+    """접수완료(R) 상태의 새 무선망 신청 — 처리완료는 한 번만이므로 보고서 시험마다 새 건을 쓴다."""
+    st_, j_, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "보고서 시험", "visitRequestAt": "2026-11-26T10:00"}, token=S)
+    assert st_ == 200, ("fresh_r", j_)
+    x = data((st_, j_, None))["asvcSn"]
+    assert call("POST", f"/api/as/requests/{x}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=N)[0] == 200
+    return x
 def eval_flag(tok):
     rows_ = data(call("GET", "/api/as/requests?size=500", token=tok))["content"]
     return next((x.get("canEvaluate") for x in rows_ if x["asvcSn"] == sn), "missing")
@@ -389,13 +434,20 @@ check("AS update by owner while A", st == 200 and r["symptom"] == "별관 인터
 st, j, _ = call("POST", f"/api/as/requests/{sn3}/cancel", {}, token=S)
 st2, j2, _ = call("GET", f"/api/as/requests/{sn3}", token=S)
 check("AS cancel → gone (404)", st == 200 and st2 == 404, (j, j2))
-# admin assign
+# 업체 배정은 없다: 교육청은 보기만, 삭제는 시스템 관리자만
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "본관 와이파이 불가(테스트)", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S)
 sn4 = data((st, j, None))["asvcSn"]
-st, j, _ = call("POST", f"/api/as/requests/{sn4}/assign", {"vendorId": hanbit["vendorId"]}, token=E); r = data((st, j, None))
-check("AS assign by admin", st == 200 and r["vendorName"] == hanbit["vendorName"], j)
-st, j, _ = call("DELETE", f"/api/as/requests/{sn4}", token=S); check("AS delete: school user forbidden", st == 403, j)
-st, j, _ = call("DELETE", f"/api/as/requests/{sn4}", token=E); check("AS delete: admin ok", st == 200, j)
+check("AS create: 업체 set automatically (학교 담당 업체)", data((st, j, None))["vendorName"] == hanbit["vendorName"], j)
+st, j, _ = call("POST", f"/api/as/requests/{sn4}/assign", {"vendorId": hanbit["vendorId"]}, token=E); check("AS 업체 배정 action gone → 404", st == 404, j)
+st, j, _ = call("POST", f"/api/as/requests/{sn4}/receive", {"visitPlannedAt": "2026-10-30T10:00"}, token=E); check("AS 교육청 cannot 접수 → 409", st == 409, j)
+def _notes(token):
+    d = data(call("GET", "/api/notifications?size=50", token=token))
+    return d["list"]["content"] if isinstance(d, dict) and "list" in d else (d.get("content", []) if isinstance(d, dict) else d)
+st, j, _ = call("DELETE", f"/api/as/requests/{sn4}", token=E); check("AS delete: 교육청 view-only → 409", st == 409, j)
+st, j, _ = call("DELETE", f"/api/as/requests/{sn4}", token=N); check("AS delete: 업체 기사 → 409", st == 409, j)
+st, j, _ = call("DELETE", f"/api/as/requests/{sn4}", token=S); check("AS delete: 신청자 before 접수 ok", st == 200, j)
+check("AS delete: gone + 업체 notified (신청 삭제)", call("GET", f"/api/as/requests/{sn4}", token=S)[0] == 404
+      and any(x.get("asvcSn") == sn4 and "신청 삭제" in (x.get("title") or "") for x in _notes(N)), [x.get("title") for x in _notes(N)[:5]])
 st, j, _ = call("GET", "/api/as/requests?rceptTy=M", token=S2)
 check("AS list: school02 cannot see 봉황초 M requests", st == 200 and all(x["schoolName"] == "온천중학교" for x in data((st, j, None))["content"]), j)
 
@@ -475,7 +527,7 @@ st, j, _ = pos(apB2, {"floorId": fl2["floorId"], "x": 30, "y": 40}); check("devi
 st, j, _ = call("GET", f"/api/as/requests/{mvr.get('asvcSn')}", token=S); check("AS detail: current place = 건물 층 (설치위치)", data((st, j, None)).get("deviceCurrentPlace") == "본관 2층 (교무실 천장)", j)
 st, j, _ = call("PUT", f"/api/as/wireless-devices/{apB2['deviceId']}", {"location": "본관 2층 복도"}, token=E); check("device location restored", st == 200, j)
 st, j, _ = call("GET", f"/api/as/requests/{mvr.get('asvcSn')}", token=S); check("AS detail: current place same as installPlace", data((st, j, None)).get("deviceCurrentPlace") == "본관 2층 복도", j)
-st, j, _ = call("DELETE", f"/api/as/requests/{mvr.get('asvcSn')}", token=E); check("cleanup: AS deleted", st == 200, j)
+st, j, _ = call("DELETE", f"/api/as/requests/{mvr.get('asvcSn')}", token=A); check("cleanup: AS deleted", st == 200, j)
 
 # 설치위치 = 건물 · 층 · 상세 위치(실): 고르기 목록, 도면 층 고정, 다른 층으로 옮기기, 위치 변경 기록
 D2 = f"/api/as/wireless-devices/{apB2['deviceId']}"
@@ -671,8 +723,8 @@ st, j, _ = call("POST", "/api/files", files=[("files", ("evil.exe", b"MZ", "appl
 st, j, _ = call("POST", "/api/files", files=[("files", ("x.txt", b"x", "text/plain"))]); check("file upload needs auth", st == 401, j)
 st, j, _ = call("POST", "/api/as/boards/QNA", {"title": "첨부 질문", "content": "첨부 참조", "categoryCode": "질문", "fieldCode": "DEVICE", "attachFileIds": [up[0]["fileId"]]}, token=S); ap = data((st, j, None))
 check("post with attachment", st == 200 and len(ap["attachments"]) == 1 and ap["attachments"][0]["name"] == "증상.txt", j)
-st, j, _ = call("POST", f"/api/as/requests/{sn}/report", {"processContent": "보고서 수정 + 첨부", "fileIds": [up[0]["fileId"]]}, token=N); rr = data((st, j, None))
-check("report update with attachment", st == 200 and len(rr.get("reportFiles", [])) == 1, j)
+st, j, _ = call("POST", f"/api/as/requests/{fresh_r()}/report", {"processContent": "보고서 + 첨부", "fileIds": [up[0]["fileId"]]}, token=N); rr = data((st, j, None))
+check("report with attachment", st == 200 and len(rr.get("reportFiles", [])) == 1, j)
 
 # ---------- 13. 기존 BingoASM 기능 회귀 ----------
 st, j, _ = call("GET", "/api/assets/summary", token=A); check("legacy: asset summary (admin)", st == 200, j)
@@ -704,7 +756,7 @@ st, j, _ = call("GET", "/api/as/vendors", token=R); check("region admin: can rea
 check("region admin: shared (all-region) 업체 not editable", all(v.get("editable") is not True for v in data(call("GET", "/api/as/vendors", token=R)) if v["allRegions"]))
 own = rl["content"][0]
 st, j, _ = call("GET", f"/api/as/requests/{own['asvcSn']}", token=R); acts = data((st, j, None))["allowedActions"] if st == 200 else []
-check("region admin: may assign/cancel, not delete", st == 200 and "delete" not in acts and ("assign" in acts or "handler" in acts or own["status"] == "C"), j)
+check("region admin: views only (no 접수 · 배정 · 처리 · 삭제)", st == 200 and not ({"delete", "assign", "handler", "receive", "report", "device", "engineer"} & set(acts)), acts)
 st, j, _ = call("GET", "/api/assets?size=1", token=S2); sa = data((st, j, None))
 st2, j2, _ = call("GET", f"/api/assets/{ad['assetId']}", token=S2); check("school user: other school's asset by id → 403/404", st2 in (403, 404), j2)
 
@@ -785,23 +837,25 @@ st, j, _ = call("PUT", f"/api/users/{mx['userId']}/roles", {"roles": ["SCHOOL_US
 print("\n== 17. AS 처리 비용 (선택)")
 st, j, _ = call("GET", "/api/as/requests/codes", token=N); cd = data((st, j, None))
 check("codes: costTypes, no chargeTypes", st == 200 and list(cd["costTypes"]) == ["PART", "LABOR", "TRAVEL", "ETC"] and "chargeTypes" not in cd, j)
-rep = lambda body: call("POST", f"/api/as/requests/{sn}/report", {"processContent": "비용 항목 테스트", **body}, token=N)
-st, j, _ = rep({"costItems": [{"costType": "PART", "itemName": "SSD 512GB", "quantity": 2, "unitPrice": 15000},
-                                     {"costType": "LABOR", "itemName": "", "quantity": 1, "unitPrice": 30000}]})
-st, j, _ = call("GET", f"/api/as/requests/{sn}", token=N); dt = data((st, j, None)) or {}; rp = dt.get("report", {})
-check("report: amount = sum of lines (2×15,000 + 30,000)", st == 200 and rp.get("processAmount") == 60000 and len(rp.get("costItems", [])) == 2, rp)
-check("report: line amount, default name", rp.get("costItems", [{}])[0].get("amount") == 30000 and rp["costItems"][1]["itemName"] == "공임", rp)
-check("report: no 유상·무상 or 청구", "chargeType" not in rp and "bill" not in dt and not any(a.startswith("bill-") for a in dt.get("allowedActions", [])), dt.get("allowedActions"))
-st, j, _ = call("POST", f"/api/as/requests/{sn}/bill-confirm", {}, token=E); check("bill actions gone → 404", st == 404, (st, j))
+csn = fresh_r()
+rep = lambda body, s=None: call("POST", f"/api/as/requests/{s or csn}/report", {"processContent": "비용 항목 테스트", **body}, token=N)
 for name, body in [("unknown cost type", {"costItems": [{"costType": "X", "unitPrice": 1}]}),
                    ("negative unit price", {"costItems": [{"costType": "PART", "unitPrice": -1}]}),
                    ("quantity 0", {"costItems": [{"costType": "PART", "quantity": 0, "unitPrice": 1000}]}),
                    ("21 lines", {"costItems": [{"costType": "ETC", "unitPrice": 1}] * 21})]:
     st, j, _ = rep(body); check(f"report rejects {name} → 400", st == 400, j)
-st, j, _ = call("GET", f"/api/as/requests/{sn}", token=N); check("rejected edits left lines unchanged", data((st, j, None))["report"]["processAmount"] == 60000, j)
-st, j, _ = rep({"costItems": []}); st, j, _ = call("GET", f"/api/as/requests/{sn}", token=N); rp = data((st, j, None))["report"]
+st, j, _ = call("GET", f"/api/as/requests/{csn}", token=N); check("rejected reports left it 접수완료 without cost", data((st, j, None))["status"] == "R" and not data((st, j, None)).get("report"), j)
+st, j, _ = rep({"costItems": [{"costType": "PART", "itemName": "SSD 512GB", "quantity": 2, "unitPrice": 15000},
+                                     {"costType": "LABOR", "itemName": "", "quantity": 1, "unitPrice": 30000}]})
+st, j, _ = call("GET", f"/api/as/requests/{csn}", token=N); dt = data((st, j, None)) or {}; rp = dt.get("report", {})
+check("report: amount = sum of lines (2×15,000 + 30,000)", st == 200 and rp.get("processAmount") == 60000 and len(rp.get("costItems", [])) == 2, rp)
+check("report: line amount, default name", rp.get("costItems", [{}])[0].get("amount") == 30000 and rp["costItems"][1]["itemName"] == "공임", rp)
+check("report: no 유상·무상 or 청구", "chargeType" not in rp and "bill" not in dt and not any(a.startswith("bill-") for a in dt.get("allowedActions", [])), dt.get("allowedActions"))
+st, j, _ = call("POST", f"/api/as/requests/{sn}/bill-confirm", {}, token=E); check("bill actions gone → 404", st == 404, (st, j))
+st, j, _ = rep({"costItems": []}); check("cost: completed request cannot be reported again → 409", st == 409, j)
+c2 = fresh_r(); st, j, _ = rep({"costItems": []}, c2); st, j, _ = call("GET", f"/api/as/requests/{c2}", token=N); rp = data((st, j, None))["report"]
 check("no cost is fine (optional)", rp["processAmount"] == 0 and rp.get("costItems") == [], rp)
-st, j, _ = rep({"processAmount": 5000}); st, j, _ = call("GET", f"/api/as/requests/{sn}", token=N)
+c3 = fresh_r(); st, j, _ = rep({"processAmount": 5000}, c3); st, j, _ = call("GET", f"/api/as/requests/{c3}", token=N)
 check("single amount without lines still accepted", data((st, j, None))["report"]["processAmount"] == 5000, j)
 
 # ---------- 사용자 메뉴 권한 (보이기·숨기기) ----------
@@ -1067,8 +1121,6 @@ st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "C
 st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); um_map = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
 st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", [{**m, "engineerUserId": um["userId"]} if m["rceptTy"] == "M" else m for m in um_map], token=A); check("users: assigned as school's engineer", st == 200, j)
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "사용자 삭제 시험", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S); ureq = data((st, j, None)); check("users: open AS for that engineer", st == 200, j)
-st, j, _ = call("POST", f"/api/as/requests/{ureq['asvcSn']}/engineer", {"engineerUserId": um["userId"]}, token=A); check("users: 업체 관리자 role assigns that 기사", st == 200, j)
-st, j, _ = call("DELETE", f"/api/users/{um['userId']}", token=E); check("users: delete refused with open AS → 409", st == 409, j)
 st, j, _ = call("POST", f"/api/as/requests/{ureq['asvcSn']}/cancel", {}, token=S); check("users: AS cancelled", st == 200, j)
 st, j, _ = call("DELETE", f"/api/users/{um['userId']}", token=E); check("users: delete", st == 200, j)
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "umcrud1", "password": "Changed!2026xy"}); check("users: deleted cannot log in", st != 200, j)
@@ -1107,10 +1159,11 @@ st, j, _ = call("DELETE", f"/api/as/vendors/{cv['vendorId']}", token=A); check("
 # ----- 업체 삭제 -----
 st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "삭제기능시험업체", "tel": "043-1", "serviceTypes": ["M", "S"], "allRegions": False, "regions": [{"regionId": cj_id}]}, token=A); dx = data((st, j, None))
 st, j, _ = call("GET", f"/api/as/schools/{bh['schoolId']}", token=A); dx_map = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
-st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", [m for m in dx_map if m["rceptTy"] != "M"] + [{"rceptTy": "M", "vendorId": dx["vendorId"]}], token=A); check("vendor delete: school assigned", st == 200, j)
+st, j, _ = call("PUT", f"/api/as/schools/{bh['schoolId']}/vendors", [m for m in dx_map if m["rceptTy"] != "S"] + [{"rceptTy": "S", "vendorId": dx["vendorId"]}], token=A); check("vendor delete: school assigned", st == 200, j)
 st, j, _ = call("POST", "/api/users", {"loginId": "delvendor01", "userName": "삭제시험기사", "password": "Delete!2026xy", "roles": ["AS_ENGINEER"], "vendorId": dx["vendorId"]}, token=A); check("vendor delete: engineer created", st == 200, j)
 st, j, _ = call("POST", "/api/auth/login", {"loginId": "delvendor01", "password": "Delete!2026xy"}); check("vendor delete: engineer can log in before", st == 200, j)
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "업체 삭제 시험", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S); dreq = data((st, j, None)); check("vendor delete: open request", st == 200 and dreq.get("asvcSn"), j)
+# 스쿨넷은 학교의 담당 업체가 맡는다 (무선망은 대상 장비의 업체를 따른다)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "업체 삭제 시험", "installPlace": "본관", "visitRequestAt": "2026-10-30T10:00"}, token=S); dreq = data((st, j, None)); check("vendor delete: open request", st == 200 and dreq.get("asvcSn"), j)
 st, j, _ = call("GET", f"/api/as/vendors/{dx['vendorId']}/usage", token=A); u0 = data((st, j, None)); check("vendor delete: usage", st == 200 and u0["schools"] == 1 and u0["users"] == 1 and u0["openRequests"] == 1, u0)
 st, j, _ = call("GET", f"/api/as/vendors/{dx['vendorId']}/usage", token=R); check("vendor delete: 교육지원청 sees usage of own-district 업체", st == 200 and data((st, j, None))["openRequests"] == 1, j)
 st, j, _ = call("DELETE", f"/api/as/vendors/{dx['vendorId']}", token=R); check("vendor delete: 교육지원청 blocked by open AS → 409", st == 409, j)
@@ -1309,7 +1362,7 @@ check("school+AS_MANAGE: AS list = own school only", st == 200 and rows and all(
 st, rows_all = all_rows("/api/as/requests?size=500", E)
 other_req = next(x for x in rows_all if x["schoolId"] != s2school and x["status"] != "C")
 st, j, _ = call("GET", f"/api/as/requests/{other_req['asvcSn']}", token=S2); check("school+AS_MANAGE: other school's AS → 404", st == 404, j)
-own_req = rows[0]
+own_req = next((x for x in rows if x["status"] in ("R", "C")), rows[0])
 acts = data(call("GET", f"/api/as/requests/{own_req['asvcSn']}", token=S2))["allowedActions"]
 check("school+AS_MANAGE: no 배정 · 삭제 · 접수 buttons", not ({"assign", "delete", "receive", "return", "transfer"} & set(acts)), acts)
 st, j, _ = call("DELETE", f"/api/as/requests/{own_req['asvcSn']}", token=S2); check("school+AS_MANAGE: delete → refused", st in (403, 409), j)
@@ -1427,9 +1480,10 @@ st, j, _ = call("POST", "/api/as/wireless-devices", {"schoolId": s1school, "devi
 rpd = data(call("GET", "/api/org/role-perms", token=A))
 fcodes = {f["code"]: f["parent"] for f in rpd.get("features", [])}
 check("features: listed with parent menu", fcodes.get("WDEVICE_CREATE") == "WDEVICE_MANAGE" and fcodes.get("USER_BULK") == "USER_WRITE" and len(fcodes) >= 20, rpd.get("features"))
-check("features: 업체 배정 is an AS 처리 기능", "AS_ASSIGN" in rpd["actionPerms"], rpd["actionPerms"])
+check("features: 업체 배정 · 기사 배정 · 대상 장비 지정 are gone, 재요청 is an AS 처리 기능", not ({"AS_ASSIGN", "AS_ENGINEER_ASSIGN", "AS_DEVICE"} & set(rpd["actionPerms"])) and "AS_REOPEN" in rpd["actionPerms"], rpd["actionPerms"])
 rrd = {r["role"]: r for r in rpd["roles"]}
-check("features: 교육청 · 교육지원청 · 관리자 have 업체 배정, 학교 doesn't", all("AS_ASSIGN" in rrd[x]["defaults"] for x in ("EDU_ADMIN", "REGION_ADMIN", "SYS_ADMIN")) and "AS_ASSIGN" not in rrd["SCHOOL_USER"]["defaults"], rrd)
+check("features: 교육청 · 교육지원청 have no 접수 · 처리 (view only)", all(not ({"AS_RECEIVE", "AS_REPORT", "AS_VISIT", "AS_RETURN"} & set(rrd[x]["defaults"])) for x in ("EDU_ADMIN", "REGION_ADMIN")), {x: rrd[x]["defaults"] for x in ("EDU_ADMIN", "REGION_ADMIN")})
+check("features: 학교 has 재요청", "AS_REOPEN" in rrd["SCHOOL_USER"]["defaults"], rrd["SCHOOL_USER"]["defaults"])
 pe = perms_of(E); pr = perms_of(R); ps = perms_of(S)
 check("features: follow the menu (교육청 has device · user features)", {"WDEVICE_CREATE", "WDEVICE_DELETE", "SDEVICE_LABEL", "USER_BULK", "SCHOOL_VENDOR"} <= pe, pe)
 check("features: no menu → no feature (학교 has no device features)", not ({"WDEVICE_CREATE", "WDEVICE_EDIT"} & ps) and {"SPACE_BUILDING_CREATE", "SPACE_BUILDING_DELETE", "SPACE_FLOOR_CREATE", "SPACE_FLOOR_DELETE"} <= ps and "SPACE_BUILDING" not in ps, ps)
@@ -1473,23 +1527,11 @@ psx = perms_of(S)
 check("features: granted menu brings features, minus the one turned off", st == 200 and "WDEVICE_CREATE" in psx and "WDEVICE_DELETE" not in psx and sm_["denied"] == ["WDEVICE_DELETE"], (psx, j))
 call("PUT", f"/api/users/{s1u_}/menu-perms", {}, token=A)
 
-# 업체 배정 끄기 (교육청 역할)
-st, rows_e = all_rows("/api/as/requests?size=500", E)
-open_req = next(x for x in rows_e if x["status"] in ("A", "R") and x["rceptTy"] != "S")
-acts_e = data(call("GET", f"/api/as/requests/{open_req['asvcSn']}", token=E))["allowedActions"]
-check("features: 교육청 sees 배정 button", "assign" in acts_e, acts_e)
-call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["AS_ASSIGN"]}}}, token=A)
-acts_e2 = data(call("GET", f"/api/as/requests/{open_req['asvcSn']}", token=E))["allowedActions"]
-st, j, _ = call("POST", f"/api/as/requests/{open_req['asvcSn']}/assign", {"vendorId": 1}, token=E)
-check("features: 업체 배정 off → no button, action refused", "assign" not in acts_e2 and st in (403, 409), (acts_e2, j))
-call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {}}}, token=A)
-check("features: 업체 배정 restored", "assign" in data(call("GET", f"/api/as/requests/{open_req['asvcSn']}", token=E))["allowedActions"])
-
 # ---------- 장애접수관리 기능: 엑셀 다운로드 · 방문일 변경 · 처리 보고서 · 업체 배정 ----------
 pe = perms_of(E); pn = perms_of(N); pr = perms_of(R); ps = perms_of(S)
-check("as-manage: 교육청 has excel · visit · report · assign", {"AS_EXCEL", "AS_VISIT", "AS_REPORT", "AS_ASSIGN"} <= pe, pe)
+check("as-manage: 교육청 has excel, no processing", "AS_EXCEL" in pe and not ({"AS_VISIT", "AS_REPORT", "AS_ASSIGN", "AS_RECEIVE"} & pe), pe)
 check("as-manage: 기사 has visit · report, no excel", {"AS_VISIT", "AS_REPORT"} <= pn and "AS_EXCEL" not in pn, pn)
-check("as-manage: 교육지원청 has excel · assign + 스쿨넷 직접 처리 (접수 · 방문 · 보고서 · 반려)", {"AS_EXCEL", "AS_ASSIGN", "AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN"} <= pr, pr)
+check("as-manage: 교육지원청 has excel, no processing", "AS_EXCEL" in pr and not ({"AS_ASSIGN", "AS_RECEIVE", "AS_VISIT", "AS_REPORT", "AS_RETURN"} & pr), pr)
 check("as-manage: 학교 has none of them", not ({"AS_EXCEL", "AS_VISIT", "AS_REPORT", "AS_ASSIGN"} & ps), ps)
 st, j, _ = call("GET", "/api/as/requests/excel", token=E, raw=True); check("as-manage: 교육청 excel → 200", st == 200, st)
 call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["AS_EXCEL"]}}}, token=A)
@@ -1513,17 +1555,6 @@ st, j, _ = call("POST", f"/api/as/requests/{recv['asvcSn']}/report", {"processCo
 check("as-manage: 처리 보고서 off → no button, refused", "report" not in acts_n2 and "visit" in acts_n2 and st == 409, (acts_n2, j))
 check("as-manage: 업체 관리자 (own role) keeps 처리 보고서", "AS_REPORT" in perms_of(V))
 call("PUT", "/api/org/role-perms", {"roles": {"AS_ENGINEER": {}}}, token=A)
-
-# 업체 배정
-st, rows_e = all_rows("/api/as/requests?size=500", E)
-tgt = next(x for x in rows_e if x["status"] in ("A", "R") and x["rceptTy"] == "M")
-vlist = data(call("GET", f"/api/as/vendors?rceptTy={tgt['rceptTy']}", token=E))
-v0 = vlist[0]; engs = data(call("GET", f"/api/as/vendors/{v0['vendorId']}/engineers", token=E))
-body = {"vendorId": v0["vendorId"], "engineerUserId": engs[0]["userId"] if engs else None}
-st, j, _ = call("POST", f"/api/as/requests/{tgt['asvcSn']}/assign", body, token=E); check("as-manage: 업체 배정 → 200", st == 200, j)
-dd = data(call("GET", f"/api/as/requests/{tgt['asvcSn']}", token=E))
-check("as-manage: 배정 saved with history", dd["vendorId"] == v0["vendorId"] and any(h["action"] == "ASSIGN" for h in dd["histories"]), dd.get("histories"))
-st, j, _ = call("POST", f"/api/as/requests/{tgt['asvcSn']}/assign", {"vendorId": v0["vendorId"]}, token=S); check("as-manage: school cannot assign", st in (403, 404, 409), j)
 
 # ---------- 임시 비밀번호 (V9 must_change_password) ----------
 check("temp-pw: seeded accounts are not temporary", data(call("GET", "/api/auth/me", token=S)).get("mustChangePassword") is False)
@@ -1576,76 +1607,7 @@ st, j, _ = call("DELETE", "/api/as/spaces/floors/999999", token=E); check("floor
 call("DELETE", f"/api/as/spaces/buildings/{fb['buildingId']}", token=E); call("DELETE", f"/api/as/spaces/buildings/{ob2['buildingId']}", token=E)
 call("DELETE", f"/api/as/wireless-devices/{fd['deviceId']}", token=E)
 
-# ---------- 스쿨넷 SLA (/api/as/sla, V10 sla_targets) ----------
 import datetime as _dt
-st, j, _ = call("GET", "/api/as/sla", token=N); check("sla: 기사 (no SLA board) → 403", st == 403, j)
-st, j, _ = call("GET", "/api/as/sla", token=E); sd = data((st, j, None))
-check("sla: 교육청 sees dashboard with default targets", st == 200 and sd["targets"]["receiveMin"] == 30 and sd["targets"].get("isDefault") is True and sd["canEdit"] is True, j)
-check("sla: 12-month trend", st == 200 and len(sd["trend"]) == 12, sd.get("trend"))
-st, j, _ = call("GET", "/api/as/sla?year=2026&month=13", token=E); check("sla: bad month → 400", st == 400, j)
-for who, tok in (("교육지원청", R), ("학교", S)):
-    st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 60, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=tok)
-    check(f"sla: {who} cannot set targets → 403", st == 403, j)
-st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 0, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=E)
-check("sla: target 0분 → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 80}, token=E)
-check("sla: availability 80% → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 45, "visitMin": 180, "recoverFullMin": 360, "recoverPartialMin": 1440, "availabilityPct": 99.8}, token=E)
-check("sla: 교육청 saves targets", st == 200 and data((st, j, None))["receiveMin"] == 45 and not data((st, j, None)).get("isDefault"), j)
-check("sla: targets visible to schools", data(call("GET", "/api/as/sla", token=S))["targets"]["visitMin"] == 180)
-
-# 오래 열린 스쿨넷 신청(시드)은 위반으로 잡힌다
-old = [x for x in data(call("GET", "/api/as/requests?rceptTy=S&size=200", token=E))["content"] if x["status"] in ("A", "R")]
-if old:
-    o = min(old, key=lambda x: x["requestAt"]); oy, om = int(o["requestAt"][:4]), int(o["requestAt"][5:7])
-    so = data(call("GET", f"/api/as/sla?year={oy}&month={om}", token=E))
-    check("sla: long-open request counted as a violation", any(v["asvcSn"] == o["asvcSn"] and "접수" in v["missed"] for v in so["violations"]), so["violations"])
-    check("sla: open steps not in averages", so["summary"].get("avgReceiveMin") is None or so["summary"]["avgReceiveMin"] < 20000, so["summary"])
-
-# 장비(회선)를 골라 신청 → 바로 접수 · 처리 → 충족, 회선별에 잡힌다
-snd = next(x for x in data(call("GET", "/api/as/schoolnet-devices?size=200", token=S))["content"])
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "71", "symptom": "SLA 시험 전체 장애", "installPlace": "본관",
-                                              "deviceId": snd["deviceId"], "visitRequestAt": "2026-12-01T10:00", "contactTel": "010-2000-0001"}, token=S)
-sr_ = data((st, j, None)) or {}
-check("sla: schoolnet AS with line", st == 200, j)
-to_eng(sr_.get('asvcSn'))
-call("POST", f"/api/as/requests/{sr_.get('asvcSn')}/receive", {"visitPlannedAt": "2026-12-01T10:00"}, token=N)
-st, j, _ = call("POST", f"/api/as/requests/{sr_.get('asvcSn')}/report", {"processContent": "회선 복구 (SLA 시험)"}, token=N); check("sla: completed", st == 200, j)
-now_ = _dt.date.today()
-sn_ = data(call("GET", f"/api/as/sla?year={now_.year}&month={now_.month}", token=E))
-check("sla: this month counts it as met", sn_["summary"]["total"] >= 1 and sn_["summary"]["met"] >= 1 and not any(v["asvcSn"] == sr_.get("asvcSn") for v in sn_["violations"]), sn_["summary"])
-ln = next((l for l in sn_["lines"] if l["deviceId"] == snd["deviceId"]), None)
-check("sla: the line shows up with failures and availability", ln is not None and ln["failures"] >= 1 and 0 < ln["availability"] <= 100, sn_["lines"])
-check("sla: by-vendor row", any(v["total"] >= 1 for v in sn_["byVendor"]), sn_["byVendor"])
-ss_ = data(call("GET", f"/api/as/sla?year={now_.year}&month={now_.month}", token=S))
-check("sla: school sees only its own school", all(l["schoolName"] == "봉황초등학교" for l in ss_["lines"]) and ss_["canEdit"] is False, ss_["lines"])
-OR_ = next(x["regionId"] for x in (lambda d: d.get("content", d) if isinstance(d, dict) else d)(data(call("GET", "/api/as/schools?size=500", token=E))) if x["schoolName"] == "솔빛고등학교")
-sr2 = data(call("GET", f"/api/as/sla?year={now_.year}&month={now_.month}&regionId={OR_}", token=R))
-check("sla: 교육지원청 asking another district gets nothing", sr2["summary"]["total"] == 0 and not sr2["lines"], sr2["summary"])
-st, xb, h = call("GET", f"/api/as/sla/excel?year={now_.year}&month={now_.month}", token=E, raw=True)
-check("sla: monthly Excel report", st == 200 and xb[:2] == b"PK" and "filename*=UTF-8''" in h.get("Content-Disposition", ""), st)
-# 단계별 시간 세는 법 (V19): 기본은 모두 24시간, 단계마다 근무 시간으로 바꿀 수 있다 (가용률은 늘 24시간)
-t0 = data(call("GET", "/api/as/sla", token=E))["targets"]
-check("sla clock: default is 24시간 for every stage", t0.get("receiveBiz") is False and t0.get("visitBiz") is False and t0.get("recoverBiz") is False, t0)
-check("sla clock: calendar label is sent", bool(t0.get("calendar")), t0)
-st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5,
-                                               "receiveBiz": True, "visitBiz": True, "recoverBiz": False}, token=E)
-tb = data((st, j, None)) or {}
-check("sla clock: save 접수 · 도착 = 근무 시간, 복구 = 24시간", st == 200 and tb.get("receiveBiz") is True and tb.get("visitBiz") is True and tb.get("recoverBiz") is False, j)
-st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5}, token=E)
-check("sla clock: leaving the switches out keeps them", st == 200 and data((st, j, None)).get("receiveBiz") is True, j)
-check("sla clock: schools see the clock per stage", data(call("GET", "/api/as/sla", token=S))["targets"].get("visitBiz") is True)
-if old:
-    so = data(call("GET", f"/api/as/sla?year={oy}&month={om}", token=E))
-    check("sla clock: long-open request still a 접수 violation in 근무 시간", any(v["asvcSn"] == o["asvcSn"] and "접수" in v["missed"] for v in so["violations"]), so["violations"])
-# 접수 대기 중인 스쿨넷 건의 남은 시간: 접수 단계면 근무 시간 표시
-opn = [x for x in data(call("GET", "/api/as/requests?rceptTy=S&size=200", token=E))["content"] if x.get("sla") and x["sla"]["stage"] in ("RECEIVE", "VISIT")]
-check("sla clock: list deadline marked 근무 시간", all(x["sla"].get("biz") is True for x in opn), [x["sla"] for x in opn][:3])
-st, j, _ = call("PUT", "/api/as/sla/targets", {"receiveMin": 30, "visitMin": 240, "recoverFullMin": 480, "recoverPartialMin": 1440, "availabilityPct": 99.5,
-                                               "receiveBiz": False, "visitBiz": False, "recoverBiz": False}, token=E)
-check("sla clock: back to 24시간", st == 200 and data((st, j, None)).get("receiveBiz") is False, j)
-opn = [x for x in data(call("GET", "/api/as/requests?rceptTy=S&size=200", token=E))["content"] if x.get("sla")]
-check("sla clock: 24시간 deadlines carry no biz mark", all(not x["sla"].get("biz") for x in opn), [x["sla"] for x in opn][:3])
 
 # ---------- 기관자산관리 (ASSET_READ): 메뉴 밖 화면도 권한으로 끈다 ----------
 check("asset-read: school has it by default", "ASSET_READ" in perms_of(S) and "ASSET_WRITE" in perms_of(S))
@@ -1702,9 +1664,8 @@ call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"denied": ["VENDO
 st, j, _ = call("POST", "/api/as/vendors", {"vendorName": "x", "serviceTypes": ["M"]}, token=R); check("region vendor: 업체 등록 switch off → 403", st == 403, j)
 call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {}}}, token=A)
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "schoolId": sch1, "faultTypeCode": "72", "symptom": "배정 범위 시험", "installPlace": "본관", "visitRequestAt": "2026-11-20T10:00"}, token=S); asn_ = data((st, j, None))["asvcSn"]
-# 스쿨넷은 처리 담당 지정 (통신사에 넘김)으로 — 같은 관할 지역 규칙
-st, j, _ = call("POST", f"/api/as/requests/{asn_}/handler", {"handlerType": "VENDOR", "vendorId": ov2["vendorId"]}, token=R); check("region assign: other district's 업체 → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{asn_}/handler", {"handlerType": "VENDOR", "vendorId": mv2["vendorId"]}, token=R); check("region assign: 업체 covering the district → 200", st == 200, j)
+# 처리 담당 지정 · 업체 배정은 없다 (V22): 교육지원청은 보기만
+st, j, _ = call("POST", f"/api/as/requests/{asn_}/handler", {"handlerType": "VENDOR", "vendorId": mv2["vendorId"]}, token=R); check("region assign: 처리 담당 지정 gone → 404", st == 404, j)
 call("POST", f"/api/as/requests/{asn_}/cancel", {}, token=S)
 call("DELETE", f"/api/as/vendors/{ov2['vendorId']}", token=A); call("DELETE", f"/api/as/vendors/{mv2['vendorId']}", token=A)
 
@@ -1743,27 +1704,14 @@ call("DELETE", f"/api/as/vendors/{dv_['vendorId']}", token=A); call("DELETE", f"
 
 # ---------- 사용자별 AS 처리 기능: 계정 종류에 맞는 것은 모두 켜고 끈다 ----------
 mp_s = data(call("GET", f"/api/users/{s1id}/menu-perms", token=A))
-check("user actions: school → 신청 취소 · 만족도 평가만", mp_s["applicableActions"] == ["AS_CANCEL", "AS_EVALUATE"], mp_s["applicableActions"])
+check("user actions: school → 신청 취소 · 만족도 평가 · 재요청", mp_s["applicableActions"] == ["AS_CANCEL", "AS_EVALUATE", "AS_REOPEN"], mp_s["applicableActions"])
 mp_r = data(call("GET", f"/api/users/{rid_u}/menu-perms", token=A))
-check("user actions: 교육지원청 → 삭제 빼고 전부", "AS_DELETE" not in mp_r["applicableActions"] and {"AS_RECEIVE", "AS_REPORT", "AS_ASSIGN"} <= set(mp_r["applicableActions"]), mp_r["applicableActions"])
+check("user actions: 교육지원청 → 처리 기능 없음 (취소 · 평가 · 재요청만, 자기 신청 건)", set(mp_r["applicableActions"]) == {"AS_CANCEL", "AS_EVALUATE", "AS_REOPEN"}, mp_r["applicableActions"])
 st, j, _ = call("PUT", f"/api/users/{rid_u}/menu-perms", {"granted": ["AS_DELETE"]}, token=A); check("user actions: 교육지원청 삭제 locked → 400", st == 400, j)
-# 교육지원청은 스쿨넷 직접 처리 기능(접수 · 보고서 · 반려)이 기본으로 켜져 있다 — 사용자별로 끈다
-set_route("REGION")
-st, j, _ = call("PUT", f"/api/users/{rid_u}/menu-perms", {"denied": ["AS_RETURN", "AS_REPORT"]}, token=A)
-check("user actions: 교육지원청 반려 · 보고서 off for one user", st == 200 and set(data((st, j, None))["denied"]) == {"AS_RETURN", "AS_REPORT"}, j)
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "지원청 직접 처리 시험", "installPlace": "본관", "visitRequestAt": "2026-11-20T10:00"}, token=S); ua_ = data((st, j, None))["asvcSn"]
-acts = data(call("GET", f"/api/as/requests/{ua_}", token=R))["allowedActions"]
-check("user actions: 교육지원청 sees 접수 (not 반려 — turned off)", "receive" in acts and "return" not in acts, acts)
-st, j, _ = call("POST", f"/api/as/requests/{ua_}/receive", {"visitPlannedAt": "2026-11-20T10:00"}, token=R); check("user actions: 교육지원청 receives", st == 200 and data((st, j, None))["status"] == "R", j)
-st, j, _ = call("POST", f"/api/as/requests/{ua_}/report", {"processContent": "x"}, token=R); check("user actions: 보고서 off → 409", st == 409, j)
-call("PUT", f"/api/users/{rid_u}/menu-perms", {}, token=A)
-st, j, _ = call("POST", f"/api/as/requests/{ua_}/report", {"visitAt": "2026-11-20T10:00", "visitEndAt": "2026-11-20T11:00", "troubleSymptom": "x", "inspectContent": "x", "processTypeCode": "2", "processContent": "지원청 직접 처리", "processAmount": 0}, token=R)
-check("user actions: 교육지원청 completes with 보고서", st == 200 and data((st, j, None))["status"] == "C", j)
-check("user actions: switched back on = role default", {"AS_RECEIVE", "AS_REPORT", "AS_RETURN"} <= perms_of(R))
-set_route("VENDOR")
+st, j, _ = call("PUT", f"/api/users/{rid_u}/menu-perms", {"granted": ["AS_RECEIVE"]}, token=A); check("user actions: 교육지원청 접수 locked → 400", st == 400, j)
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "통신사 건", "installPlace": "본관", "visitRequestAt": "2026-11-20T10:00"}, token=S); ub_ = data((st, j, None))["asvcSn"]
 acts = data(call("GET", f"/api/as/requests/{ub_}", token=R))["allowedActions"]
-check("user actions: 교육지원청 does not process a 통신사-handled 건", not ({"receive", "report", "return"} & set(acts)), acts)
+check("user actions: 교육지원청 does not process", not ({"receive", "report", "return", "handler"} & set(acts)), acts)
 call("POST", f"/api/as/requests/{ub_}/cancel", {}, token=S)
 st, j, _ = call("PUT", f"/api/users/{nid}/menu-perms", {"granted": ["AS_CANCEL"], "denied": ["AS_REPORT"]}, token=A)
 check("user actions: engineer gets 신청 취소, loses 보고서", st == 200 and data((st, j, None))["granted"] == ["AS_CANCEL"] and data((st, j, None))["denied"] == ["AS_REPORT"], j)
@@ -1806,11 +1754,12 @@ check("scope: 학교 bulk — blank 소속 → own school ok, other school · �
 # 잠긴 권한은 역할에서도 켤 수 없다 · AS통계는 켤 수 있다
 st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"SCHOOL_USER": {"granted": ["AS_RECEIVE"]}}}, token=A); check("locks: 학교 접수 → 400", st == 400, j)
 st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"AS_ENGINEER": {"granted": ["ORG_WRITE"]}}}, token=A); check("locks: 기사 역할 권한 관리 → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"granted": ["AS_STATS", "AS_RECEIVE"]}}}, token=A)
-check("locks: 교육지원청 AS통계 · 접수 can be turned on", st == 200 and {"AS_STATS", "AS_RECEIVE"} <= perms_of(R), j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"granted": ["AS_STATS", "AS_RECEIVE"]}}}, token=A); check("locks: 교육지원청 접수 → 400 (보기만)", st == 400, j)
+st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {"granted": ["AS_STATS"]}}}, token=A)
+check("locks: 교육지원청 AS통계 can be turned on", st == 200 and "AS_STATS" in perms_of(R), j)
 st, j, _ = call("GET", "/api/as/stats/monthly", token=R); check("locks: 교육지원청 stats open once on", st == 200, j)
 rp_ = {r["role"]: r for r in data(call("GET", "/api/org/role-perms", token=A))["roles"]}
-check("locks: role view has reasons", "AS_DELETE" in rp_["REGION_ADMIN"]["lockedReasons"] and "AS_RECEIVE" in rp_["SCHOOL_USER"]["lockedReasons"] and not rp_["EDU_ADMIN"]["lockedReasons"], rp_["REGION_ADMIN"]["lockedReasons"])
+check("locks: role view has reasons", "AS_DELETE" in rp_["REGION_ADMIN"]["lockedReasons"] and "AS_RECEIVE" in rp_["REGION_ADMIN"]["lockedReasons"] and "AS_RECEIVE" in rp_["SCHOOL_USER"]["lockedReasons"] and not rp_["EDU_ADMIN"]["lockedReasons"], rp_["REGION_ADMIN"]["lockedReasons"])
 call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {}}}, token=A)
 st, j, _ = call("PUT", "/api/org/role-perms", {"roles": {"EDU_ADMIN": {"denied": ["USER_WRITE"]}}}, token=A)
 check("menus: 사용자 관리 can be turned off for 교육청", st == 200 and "USER_WRITE" not in perms_of(E) and "USER_READ" not in perms_of(E), j)
@@ -1825,60 +1774,14 @@ call("DELETE", f"/api/as/vendors/{lv_['vendorId']}", token=A)
 def rows_of(d):
     return d.get("content", d) if isinstance(d, dict) else d
 
-# ---------- 배정 흐름: 학교 신고 → 교육지원청 대상 장비 지정 → 업체 관리자 기사 배정 → 기사는 자기 건만 ----------
-VA2 = login("vendoradmin", "user1234!")
-st, j, _ = call("GET", f"/api/as/schools/{sch1}", token=A); map0 = [{"rceptTy": v["rceptTy"], "vendorId": v["vendorId"], "engineerUserId": v.get("engineerUserId")} for v in data((st, j, None))["vendors"] if v.get("vendorId")]
-call("PUT", f"/api/as/schools/{sch1}/vendors", [dict(m, engineerUserId=None) if m["rceptTy"] == "S" else m for m in map0], token=A)
-st, j, _ = call("POST", "/api/users", {"loginId": "dispeng2", "userName": "두번째기사", "password": "Disp!2026xy", "roles": ["AS_ENGINEER"], "vendorId": 1}, token=A); e2 = data((st, j, None))
-E2 = login("dispeng2", "Disp!2026xy")
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "배정 흐름 시험 — 인터넷 끊김", "installPlace": "본관", "visitRequestAt": "2026-11-20T10:00"}, token=S); dsn = data((st, j, None))["asvcSn"]
-d0 = data(call("GET", f"/api/as/requests/{dsn}", token=A))
-check("dispatch: 학교 신고 — no 기사 yet", d0.get("engineerUserId") is None and d0.get("deviceId") is None, d0)
-check("dispatch: 학교 has no 장비 · 기사 buttons", not ({"device", "engineer", "assign"} & set(data(call("GET", f"/api/as/requests/{dsn}", token=S))["allowedActions"])))
-st, j, _ = call("GET", f"/api/as/requests/{dsn}", token=N); check("dispatch: 기사 cannot see an unassigned request → 404", st == 404, j)
-check("dispatch: 기사 list excludes it", dsn not in [x["asvcSn"] for x in all_rows("/api/as/requests?size=500", N)[1]])
-nts = data(call("GET", "/api/notifications?size=50", token=N)); nts = nts["list"]["content"]
-check("dispatch: 기사 not notified of the unassigned request", not any(x.get("asvcSn") == dsn for x in nts), nts[:3])
-# 교육지원청: 대상 장비 지정
-sdev = [x for x in rows_of(data(call("GET", f"/api/as/schoolnet-devices?schoolId={sch1}&size=200", token=A)))]
-odev = [x for x in rows_of(data(call("GET", "/api/as/schoolnet-devices?size=500", token=A))) if x["schoolId"] != sch1]
-acts = data(call("GET", f"/api/as/requests/{dsn}", token=R))["allowedActions"]
-check("dispatch: 교육지원청 has 대상 장비 지정", "device" in acts, acts)
-if odev:
-    st, j, _ = call("POST", f"/api/as/requests/{dsn}/device", {"deviceId": odev[0]["deviceId"]}, token=R); check("dispatch: another school's device → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/device", {"deviceId": sdev[0]["deviceId"]}, token=R)
-check("dispatch: 교육지원청 links the 대상 장비", st == 200 and data((st, j, None))["deviceId"] == sdev[0]["deviceId"], j)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/device", {"deviceId": sdev[0]["deviceId"]}, token=S); check("dispatch: 학교 device action → 409", st == 409, j)
-# 업체 관리자: 기사 배정
-acts = data(call("GET", f"/api/as/requests/{dsn}", token=VA2))["allowedActions"]
-check("dispatch: 업체 관리자 sees it with 기사 배정", "engineer" in acts and "device" not in acts, acts)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/engineer", {"engineerUserId": uid("school01")}, token=VA2); check("dispatch: non-vendor user as 기사 → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/engineer", {"engineerUserId": e2["userId"]}, token=VA2)
-check("dispatch: 업체 관리자 assigns 기사", st == 200 and data((st, j, None))["engineerUserId"] == e2["userId"], j)
-check("dispatch: assigned 기사 sees it", dsn in [x["asvcSn"] for x in all_rows("/api/as/requests?size=500", E2)[1]])
-check("dispatch: assigned 기사 only sees own requests", all(x.get("engineerUserId") == e2["userId"] for x in all_rows("/api/as/requests?size=500", E2)[1]))
-nts2 = data(call("GET", "/api/notifications?size=50", token=E2)); nts2 = nts2["list"]["content"]
-check("dispatch: assigned 기사 notified", any(x.get("asvcSn") == dsn and x.get("type") == "AS_ASSIGNED" for x in nts2), nts2[:3])
-st, j, _ = call("GET", f"/api/as/requests/{dsn}", token=N); check("dispatch: other 기사 still can't see it → 404", st == 404, j)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/engineer", {"engineerUserId": nid}, token=E2); check("dispatch: 기사 cannot reassign → 409", st == 409, j)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/receive", {"visitPlannedAt": "2026-11-20T10:00"}, token=VA2)
-check("dispatch: 업체 관리자 접수 keeps the assigned 기사", st == 200 and data((st, j, None))["engineerUserId"] == e2["userId"], j)
-st, j, _ = call("POST", f"/api/as/requests/{dsn}/engineer", {"engineerUserId": nid}, token=VA2)
-check("dispatch: reassign while 접수완료", st == 200 and data((st, j, None))["engineerUserId"] == nid, j)
-st, j, _ = call("GET", f"/api/as/requests/{dsn}", token=E2); check("dispatch: previous 기사 loses it → 404", st == 404, j)
-call("POST", f"/api/as/requests/{dsn}/return", {"reason": "시험 정리"}, token=N)
-call("PUT", f"/api/as/schools/{sch1}/vendors", map0, token=A)
-call("DELETE", f"/api/users/{e2['userId']}", token=A)
-
 # ---------- 설치장소 = 대상 장비의 설치위치 (무선망 · 스쿨넷) ----------
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "설치장소 없이 신고 — 3층 복도 와이파이 안 됨", "visitRequestAt": "2026-11-26T10:00"}, token=S)
 check("place: 무선망 신고 without 설치장소 → 200", st == 200, j); psn = data((st, j, None))["asvcSn"] if st == 200 else None
 wdev = [x for x in rows_of(data(call("GET", f"/api/as/wireless-devices?schoolId={sch1}&size=200", token=A))) if x.get("location")]
 if psn and wdev:
-    st, j, _ = call("POST", f"/api/as/requests/{psn}/device", {"deviceId": wdev[0]["deviceId"]}, token=R)
-    check("place: linking the device sets 설치장소 to its 설치위치", st == 200 and data((st, j, None))["installPlace"] == wdev[0]["location"], j)
-    st, j, _ = call("POST", f"/api/as/requests/{psn}/device", {"deviceId": None}, token=R)
-    check("place: clearing the device clears 설치장소", st == 200 and not data((st, j, None)).get("installPlace"), j)
+    st, j, _ = call("POST", f"/api/as/requests/{psn}/device", {"deviceId": wdev[0]["deviceId"]}, token=R); check("place: 대상 장비 지정 (교육지원청) gone → 404", st == 404, j)
+    st, j, _ = call("PUT", f"/api/as/requests/{psn}", {"deviceId": wdev[0]["deviceId"]}, token=S)
+    check("place: 학교 picks the device while 신청완료 → 설치장소 = its 설치위치", st == 200 and data((st, j, None))["installPlace"] == wdev[0]["location"], j)
     st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "라벨로 신고", "installPlace": "엉뚱한 곳", "deviceId": wdev[0]["deviceId"], "visitRequestAt": "2026-11-26T10:00"}, token=S)
     check("place: QR-device request takes the device's 설치위치", st == 200 and data(call("GET", f"/api/as/requests/{data((st, j, None))['asvcSn']}", token=A))["installPlace"] == wdev[0]["location"], j)
     if st == 200: call("POST", f"/api/as/requests/{data((st, j, None))['asvcSn']}/cancel", {}, token=S)
@@ -1925,90 +1828,23 @@ call("DELETE", f"/api/users/{d2['userId']}", token=A)
 def todo_keys(token):
     st, j, _ = call("GET", "/api/as/requests/todo", token=token)
     return st, {x["key"]: x for x in data((st, j, None))["buckets"]} if st == 200 else {}
+VA2 = login("vendoradmin", "user1234!")
 st, tk = todo_keys(A)
-check("todo: 도교육청 buckets", st == 200 and {"receive-late", "visit-late", "device", "vendor", "engineer", "low-score"} <= set(tk), list(tk))
-check("todo: 도교육청 has no vendor-only buckets", not ({"receive", "visit-soon"} & set(tk)), list(tk))
+check("todo: 도교육청 = 확인용 낮은 만족도만 (보기만)", st == 200 and not ({"device", "vendor", "engineer", "triage", "mine", "receive", "hold"} & set(tk)), list(tk))
 st, tk = todo_keys(S)
 check("todo: 학교 = 만족도 평가 대기 only", st == 200 and set(tk) == {"evaluate"}, list(tk))
 st, tk = todo_keys(VA2)
-check("todo: 업체 관리자 buckets", st == 200 and {"receive-late", "visit-late", "engineer", "receive", "visit-soon"} <= set(tk) and "device" not in tk, list(tk))
+check("todo: 업체 관리자 buckets", st == 200 and {"reopened", "receive", "visit-soon", "hold"} <= set(tk) and "engineer" not in tk, list(tk))
 st, tk = todo_keys(N)
-check("todo: 기사 has no 기사 미배정 bucket", st == 200 and "engineer" not in tk and "receive" in tk, list(tk))
+check("todo: 기사 has the same 업체 queue", st == 200 and {"reopened", "receive"} <= set(tk) and "engineer" not in tk, list(tk))
 st, tk = todo_keys(R)
-check("todo: 교육지원청 has 대상 장비 지정", st == 200 and "device" in tk, list(tk))
+check("todo: 교육지원청 has no processing queue", st == 200 and not ({"device", "vendor", "receive", "triage"} & set(tk)), list(tk))
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "할 일 시험", "visitRequestAt": "2026-11-26T10:00"}, token=S); tsn = data((st, j, None))["asvcSn"]
-st, tk = todo_keys(R)
-check("todo: new 무선망 신고 shows under 대상 장비 지정", tsn in [x["asvcSn"] for x in tk.get("device", {}).get("rows", [])] or tk.get("device", {}).get("count", 0) > 5, tk.get("device"))
-call("PUT", f"/api/users/{ra_id}", {"dutyTypes": ["S"]}, token=A)
-st, tk = todo_keys(R)
-check("todo: 교육지원청 담당 유형 filters the queue", all(x["rceptTy"] == "S" for b in tk.values() for x in b["rows"]) and tsn not in [x["asvcSn"] for x in tk.get("device", {}).get("rows", [])], tk.get("device"))
-call("PUT", f"/api/users/{ra_id}", {"dutyTypes": []}, token=A)
+st, tk = todo_keys(N)
+check("todo: new 신고 shows under 접수 대기 for every 기사", tsn in [x["asvcSn"] for x in tk.get("receive", {}).get("rows", [])] or tk.get("receive", {}).get("count", 0) > 5, tk.get("receive"))
 call("POST", f"/api/as/requests/{tsn}/cancel", {}, token=S)
 
-# ---------- 지연 알림 (접수 지연 → 업체, 에스컬레이션 → 교육지원청, 방문 지연) ----------
-st, j, _ = call("GET", "/api/org/alert-rules", token=A); rl = {x["rceptTy"]: x for x in data((st, j, None))["rules"]}
-check("alerts: defaults (스쿨넷 30분/1시간)", st == 200 and rl["S"]["receiveMin"] == 30 and rl["S"]["escalateMin"] == 60 and rl["S"]["isDefault"], rl.get("S"))
-st, j, _ = call("GET", "/api/org/alert-rules", token=R); check("alerts: 교육지원청 cannot read the 기준 → 403", st == 403, j)
-st, j, _ = call("PUT", "/api/org/alert-rules", {"rules": [{"rceptTy": "M", "receiveMin": 60, "escalateMin": 30, "visitGraceMin": 10}]}, token=A)
-check("alerts: escalate < receive → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/org/alert-rules", {"rules": [{"rceptTy": "M", "receiveMin": 0, "escalateMin": 30, "visitGraceMin": 10}]}, token=A)
-check("alerts: 0분 → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/org/alert-rules", {"rules": [{"rceptTy": "M", "receiveMin": 1, "escalateMin": 1, "visitGraceMin": 1, "enabled": True, "businessHours": True}]}, token=A)
-check("alerts: 기준 saved", st == 200 and next(x for x in data((st, j, None))["rules"] if x["rceptTy"] == "M")["receiveMin"] == 1, j)
-check("alerts: 스쿨넷 defaults to 24시간, 무선망 to 근무 시간", {x["rceptTy"]: x["businessHours"] for x in data((st, j, None))["rules"]}.get("S") is False
-      and next(x for x in data((st, j, None))["rules"] if x["rceptTy"] == "M")["businessHours"] is True, j)
-# 근무 시간 달력
-st, j, _ = call("GET", "/api/org/alert-rules/calendar", token=A); cal0 = data((st, j, None))
-check("calendar: default 월~금 09:00~18:00", st == 200 and cal0["workDays"] == [1, 2, 3, 4, 5] and cal0["startTime"] == "09:00" and cal0["endTime"] == "18:00" and cal0["isDefault"], cal0)
-st, j, _ = call("GET", "/api/org/alert-rules/calendar", token=R); check("calendar: 교육지원청 → 403", st == 403, j)
-st, j, _ = call("PUT", "/api/org/alert-rules/calendar", {"workDays": [], "startTime": "09:00", "endTime": "18:00"}, token=A); check("calendar: no 근무 요일 → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/org/alert-rules/calendar", {"workDays": [1], "startTime": "18:00", "endTime": "09:00"}, token=A); check("calendar: end before start → 400", st == 400, j)
-st, j, _ = call("PUT", "/api/org/alert-rules/calendar", {"workDays": [8], "startTime": "09:00", "endTime": "18:00"}, token=A); check("calendar: bad 요일 → 400", st == 400, j)
-today = _dt.date.today().isoformat()
-st, j, _ = call("PUT", "/api/org/alert-rules/calendar", {"workDays": [1, 2, 3, 4, 5, 6, 7], "startTime": "00:00", "endTime": "23:59",
-                                                          "holidays": [{"date": today, "name": "시험 휴일"}, {"date": "2026-12-25", "name": "성탄절"}]}, token=A)
-cal1 = data((st, j, None))
-check("calendar: saved with 휴일", st == 200 and cal1["workDays"] == [1, 2, 3, 4, 5, 6, 7] and [h["date"] for h in cal1["holidays"]] == sorted([today, "2026-12-25"]) and not cal1["workingNow"], cal1)
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "지연 알림 시험", "visitRequestAt": "2026-11-26T10:00"}, token=S); asn = data((st, j, None))["asvcSn"]
-row0 = next(x for x in data(call("GET", "/api/as/requests?size=50", token=A))["content"] if x["asvcSn"] == asn)
-check("alerts: fresh request is not late", not row0.get("late"), row0.get("late"))
-call("POST", "/api/org/alert-rules/run", {}, token=A)
-check("alerts: nothing sent before the 기준", not any(x.get("asvcSn") == asn and x.get("type") in ("AS_LATE_RECEIVE", "AS_ESCALATED", "AS_LATE_VISIT") for x in notes_of(R)))
-time.sleep(65)
-call("POST", "/api/org/alert-rules/run", {}, token=A)
-rowh = next(x for x in data(call("GET", "/api/as/requests?size=50", token=A))["content"] if x["asvcSn"] == asn)
-check("calendar: on a 휴일 the 근무 시간 기준 request is not late", not rowh.get("late") and not any(x.get("asvcSn") == asn and x.get("type") in ("AS_LATE_RECEIVE", "AS_ESCALATED") for x in notes_of(R)), rowh.get("late"))
-st, j, _ = call("PUT", "/api/org/alert-rules/calendar", {"workDays": [1, 2, 3, 4, 5, 6, 7], "startTime": "00:00", "endTime": "23:59", "holidays": [{"date": "2026-12-25", "name": "성탄절"}]}, token=A)
-check("calendar: 휴일 removed (holidays replaced as a whole)", st == 200 and [h["date"] for h in data((st, j, None))["holidays"]] == ["2026-12-25"] and data((st, j, None))["workingNow"], j)
-st, j, _ = call("POST", "/api/org/alert-rules/run", {}, token=A); check("alerts: run → 200", st == 200, j)
-rn = [x for x in notes_of(R) if x.get("asvcSn") == asn]
-check("alerts: 교육지원청 got the 에스컬레이션", any(x["type"] == "AS_ESCALATED" for x in rn), rn)
-hist = [h["action"] for h in data(call("GET", f"/api/as/requests/{asn}", token=A))["histories"]]
-check("alerts: history records 접수 지연 + 에스컬레이션", "ALERT" in hist and "ESCALATE" in hist, hist)
-row1 = next(x for x in data(call("GET", "/api/as/requests?size=50", token=A))["content"] if x["asvcSn"] == asn)
-check("alerts: list marks it ESCALATED", row1.get("late") == "ESCALATED", row1.get("late"))
-st, tk = todo_keys(A)
-check("alerts: todo 접수 지연 includes it", asn in [x["asvcSn"] for x in tk["receive-late"]["rows"]] or tk["receive-late"]["count"] > 5, tk["receive-late"])
-st, j, _ = call("POST", "/api/org/alert-rules/run", {}, token=A)
-check("alerts: second run sends nothing new for it", sum(1 for x in notes_of(R) if x.get("asvcSn") == asn and x["type"] == "AS_ESCALATED") == 1)
-# 방문 지연: 지난 시각으로 접수 → 보고서 없음
-past = (_dt.datetime.now() - _dt.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
-st, j, _ = call("POST", f"/api/as/requests/{asn}/receive", {"visitPlannedAt": past}, token=A); check("alerts: receive with a past 방문예정", st == 200, j)
-call("POST", "/api/org/alert-rules/run", {}, token=A)
-check("alerts: 방문 지연 sent to 교육지원청", any(x.get("asvcSn") == asn and x["type"] == "AS_LATE_VISIT" for x in notes_of(R)))
-row2 = next(x for x in data(call("GET", "/api/as/requests?size=50", token=A))["content"] if x["asvcSn"] == asn)
-check("alerts: list marks it VISIT", row2.get("late") == "VISIT", row2.get("late"))
-call("POST", "/api/org/alert-rules/run", {}, token=A)
-check("alerts: 방문 지연 only once per 방문예정", sum(1 for x in notes_of(R) if x.get("asvcSn") == asn and x["type"] == "AS_LATE_VISIT") == 1)
-st, j, _ = call("POST", f"/api/as/requests/{asn}/report", {"processContent": "시험 처리", "processTypeCode": list(data(call("GET", "/api/as/requests/codes", token=A))["processTypes"].keys())[0]}, token=A)
-row3 = next(x for x in data(call("GET", "/api/as/requests?size=50", token=A))["content"] if x["asvcSn"] == asn)
-check("alerts: after the report it is no longer late", st == 200 and not row3.get("late"), (st, row3.get("late")))
-st, j, _ = call("PUT", "/api/org/alert-rules", {"rules": [{"rceptTy": "M", "receiveMin": 240, "escalateMin": 480, "visitGraceMin": 60}]}, token=A)
-check("alerts: 기준 restored", st == 200, j)
-st, j, _ = call("PUT", "/api/org/alert-rules/calendar", {"workDays": [1, 2, 3, 4, 5], "startTime": "9:00", "endTime": "18:00", "holidays": []}, token=A)
-check("calendar: restored (H:MM accepted)", st == 200 and data((st, j, None))["startTime"] == "09:00" and not data((st, j, None))["holidays"], j)
-
-# ---------- 장비 정보(QR): 처리 중 AS · 문의처 · IP 숨김 · 도착 기록 ----------
+# ---------- 장비 정보(QR): 처리 중 AS · 문의처 · IP 숨김 · 기사 접수 · 보고서 ----------
 qdev = [x for x in rows_of(data(call("GET", f"/api/as/wireless-devices?schoolId={sch1}&size=200", token=A))) if x.get("ipAddress")][0]
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "QR 장비 정보 시험 — AP 꺼짐", "deviceId": qdev["deviceId"], "visitRequestAt": "2026-11-26T10:00"}, token=S)
 qsn = data((st, j, None))["asvcSn"]
@@ -2026,32 +1862,27 @@ check("device list: 학교 rows have no IP / MAC", lr and all("ipAddress" not in
 check("device list: 학교 cannot search by IP", not rows_of(data(call("GET", f"/api/as/wireless-devices?keyword={urllib.parse.quote(qdev['ipAddress'])}&size=50", token=S))))
 # 다른 학교 신고 (장비 미지정) → 장비 미지정 신고 수
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "장비 미지정 신고", "visitRequestAt": "2026-11-26T10:00"}, token=S); usn = data((st, j, None))["asvcSn"]
-check("scan: 장비 미지정 신고 count", data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=A))["as"]["unlinked"] >= 1)
+check("scan: 장비 미지정 신고 count (0 — 무선망 · 스쿨넷은 장비 필수)", data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=A))["as"]["unlinked"] == 0)
 # 기사 두 명: 배정된 기사 · 다른 기사
 e3 = data(call("POST", "/api/users", {"loginId": "qreng3", "userName": "QR기사", "password": "QrEng!2026x", "roles": ["AS_ENGINEER"], "vendorId": qreq["vendorId"]}, token=A))
 e4 = data(call("POST", "/api/users", {"loginId": "qreng4", "userName": "QR기사2", "password": "QrEng!2026x", "roles": ["AS_ENGINEER"], "vendorId": qreq["vendorId"]}, token=A))
 E3, E4 = login("qreng3", "QrEng!2026x"), login("qreng4", "QrEng!2026x")
-st, j, _ = call("POST", f"/api/as/requests/{qsn}/engineer", {"engineerUserId": e3["userId"]}, token=A); check("scan: assign 기사 for the test", st == 200, j)
 s3 = [x for x in data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=E3))["as"]["open"] if x["asvcSn"] == qsn][0]
-check("scan: 배정된 기사 sees 내 담당 + 접수", s3["canOpen"] and s3.get("assignedToMe") and s3.get("canReceive") and not s3.get("canArrive"), s3)
+check("scan: any 기사 of the 업체 sees it and can 접수 (no 기사 배정)", s3["canOpen"] and s3.get("canReceive") and "canArrive" not in s3, s3)
 s4 = [x for x in data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=E4))["as"]["open"] if x["asvcSn"] == qsn]
-check("scan: 다른 기사 sees only that it is being handled", s4 and not s4[0]["canOpen"] and "symptom" not in s4[0] and "engineerName" not in s4[0], s4)
-st, j, _ = call("POST", f"/api/as/requests/{qsn}/arrive", {"byQr": True}, token=E3); check("arrive: before 접수 → 409", st == 409, j)
-st, j, _ = call("POST", f"/api/as/requests/{qsn}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=E3); check("arrive: 기사 접수", st == 200, j)
+check("scan: the other 기사 of the 업체 too", s4 and s4[0]["canOpen"] and s4[0].get("canReceive"), s4)
+st, j, _ = call("POST", f"/api/as/requests/{qsn}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=E3); check("scan: 기사 접수 from QR", st == 200, j)
 s3 = [x for x in data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=E3))["as"]["open"] if x["asvcSn"] == qsn][0]
-check("scan: after 접수 the 기사 gets 도착 기록 + 보고서", s3.get("canArrive") and s3.get("canReport"), s3)
-st, j, _ = call("POST", f"/api/as/requests/{qsn}/arrive", {"byQr": True}, token=E4); check("arrive: other 기사 → 404", st == 404, j)
-st, j, _ = call("POST", f"/api/as/requests/{qsn}/arrive", {"byQr": True}, token=E3)
-dq = data(call("GET", f"/api/as/requests/{qsn}", token=A))
-check("arrive: 도착 기록 sets visitAt", st == 200 and dq.get("visitAt"), (st, j))
-check("arrive: not counted as a report", not dq.get("hasReport") and not dq.get("report"), (dq.get("hasReport"), dq.get("report")))
-check("arrive: history ARRIVE (QR)", any(h["action"] == "ARRIVE" and "QR" in (h["content"] or "") for h in dq["histories"]), [h["action"] for h in dq["histories"]])
-check("arrive: 학교 notified 기사 도착", any(x.get("asvcSn") == qsn and x.get("type") == "AS_ARRIVED" for x in notes_of(S)))
-check("arrive: only once (no more arrive action)", "arrive" not in data(call("GET", f"/api/as/requests/{qsn}", token=E3))["allowedActions"])
-st, j, _ = call("POST", f"/api/as/requests/{qsn}/arrive", {}, token=E3); check("arrive: second time → 409", st == 409, j)
+check("scan: after 접수 the 기사 gets 보고서 (no 도착 step)", s3.get("canReport") and "canArrive" not in s3, s3)
+check("no 도착: arrive not in actions", "arrive" not in data(call("GET", f"/api/as/requests/{qsn}", token=E3))["allowedActions"])
+st, j, _ = call("POST", f"/api/as/requests/{qsn}/arrive", {"byQr": True}, token=E3); check("no 도착: arrive action → 404", st == 404, j)
+s3 = [x for x in data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=E3))["as"]["open"] if x["asvcSn"] == qsn][0]
+check("scan: the 기사 who received it is 담당 (내 담당)", s3.get("assignedToMe"), s3)
+s4 = [x for x in data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=E4))["as"]["open"] if x["asvcSn"] == qsn][0]
+check("scan: another 기사 of the 업체 may also 처리", s4.get("canReport") and not s4.get("assignedToMe"), s4)
 st, j, _ = call("POST", f"/api/as/requests/{qsn}/report", {"processContent": "AP 재부팅", "processTypeCode": list(data(call("GET", "/api/as/requests/codes", token=A))["processTypes"].keys())[0]}, token=E3)
 dq = data(call("GET", f"/api/as/requests/{qsn}", token=A))
-check("arrive: report keeps the 도착 시각 as 방문일시", st == 200 and dq["report"]["visitAt"] == dq["visitAt"] and dq["hasReport"], (st, dq.get("visitAt"), (dq.get("report") or {}).get("visitAt")))
+check("scan: 보고서 from QR → 처리완료, 방문일시 = 방문예정일시", st == 200 and dq["status"] == "C" and dq["hasReport"] and dq["report"]["visitAt"].startswith("2026-11-26T10:00"), (st, (dq.get("report") or {}).get("visitAt")))
 check("scan: completed AS no longer listed as open", not any(x["asvcSn"] == qsn for x in data(call("GET", f"/api/qr/devices/{qdev['deviceId']}", token=S))["as"]["open"]))
 call("POST", f"/api/as/requests/{usn}/cancel", {}, token=S)
 call("DELETE", f"/api/users/{e3['userId']}", token=A); call("DELETE", f"/api/users/{e4['userId']}", token=A)
@@ -2074,194 +1905,28 @@ check("device vendor: QR 신고 goes to the device's 업체", st == 200 and q1["
 st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "장비 업체 시험 (장비 없이)", "visitRequestAt": "2026-11-26T10:00"}, token=S)
 q2 = data((st, j, None))
 check("device vendor: report without device → 학교 배정 업체", q2["vendorId"] == hanbit_id, q2.get("vendorId"))
-st, j, _ = call("POST", f"/api/as/requests/{q2['asvcSn']}/engineer", {"engineerUserId": nid}, token=A)
-st, j, _ = call("POST", f"/api/as/requests/{q2['asvcSn']}/device", {"deviceId": dX["deviceId"]}, token=R)
+st, j, _ = call("PUT", f"/api/as/requests/{q2['asvcSn']}", {"deviceId": dX["deviceId"]}, token=S)
 dq2 = data((st, j, None))
-check("device vendor: linking the device moves it to that 업체, 기사 cleared", st == 200 and dq2["vendorId"] == v2 and not dq2.get("engineerUserId"), (st, dq2.get("vendorId"), dq2.get("engineerUserId")))
+check("device vendor: 학교 picks the device while 신청완료 → that 업체", st == 200 and dq2["vendorId"] == v2, (st, dq2.get("vendorId")))
 st, j, _ = call("GET", f"/api/as/requests/{q2['asvcSn']}", token=VA2); check("device vendor: previous 업체 loses it → 404", st == 404, j)
 check("device vendor: new 업체 관리자 sees it + notified", data(call("GET", f"/api/as/requests/{q2['asvcSn']}", token=V2)).get("asvcSn") == q2["asvcSn"]
-      and any(x.get("asvcSn") == q2["asvcSn"] and x.get("type") == "AS_ASSIGNED" for x in notes_of(V2)))
-check("device vendor: history 업체 변경", any(h["action"] == "ASSIGN" and "장비의 유지보수 업체" in (h["content"] or "") for h in data(call("GET", f"/api/as/requests/{q2['asvcSn']}", token=A))["histories"]))
+      and any(x.get("asvcSn") == q2["asvcSn"] and x.get("type") == "AS_NEW" for x in notes_of(V2)))
 for q in (q1, q2): call("POST", f"/api/as/requests/{q['asvcSn']}/cancel", {}, token=S)
 call("PUT", f"/api/as/wireless-devices/{dX['deviceId']}", {"vendorId": hanbit_id}, token=A)
 call("DELETE", f"/api/as/vendors/{v2}", token=A)
 
-# ---------- 스쿨넷: 교육지원청이 먼저 받고, 처리 담당을 정한다 ----------
-set_route("REGION")
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "스쿨넷 흐름 시험 — 인터넷 느림", "visitRequestAt": "2026-11-26T10:00"}, token=S)
-s1 = data((st, j, None)); ssn1 = s1["asvcSn"]
-check("snet: 신고 goes to 교육지원청 (no 업체)", st == 200 and s1["handlerType"] == "REGION" and not s1.get("vendorId") and "교육지원청" in (s1.get("handlerName") or ""), (s1.get("handlerType"), s1.get("vendorId"), s1.get("handlerName")))
-check("snet: 교육지원청 notified", any(x.get("asvcSn") == ssn1 and x.get("type") == "AS_NEW" for x in notes_of(R)))
-st, j, _ = call("GET", f"/api/as/requests/{ssn1}", token=VA2); check("snet: 통신사 cannot see it yet → 404", st == 404, j)
-tk = {x["key"]: x for x in data(call("GET", "/api/as/requests/todo", token=R))["buckets"]}
-check("snet: todo 스쿨넷 1차 확인", ssn1 in [x["asvcSn"] for x in tk.get("triage", {}).get("rows", [])] or tk.get("triage", {}).get("count", 0) > 5, list(tk))
-check("snet: 대상 장비 지정 is not a task for 스쿨넷", all(x["rceptTy"] == "M" for x in tk.get("device", {}).get("rows", [])))
-dR = data(call("GET", f"/api/as/requests/{ssn1}", token=R))
-ho = dR.get("handlerOptions") or {}
-check("snet: 교육지원청 gets 처리 담당 지정 (not 업체 배정)", "handler" in dR["allowedActions"] and "assign" not in dR["allowedActions"], dR["allowedActions"])
-check("snet: options = 통신사 + 교육지원청 담당자 + 교육청 담당자, suggested 통신사", ho.get("suggestedVendorId") == hanbit_id and any(x["vendorId"] == hanbit_id for x in ho.get("vendors", []))
-      and any(x["userId"] == ra_id for x in ho.get("regionUsers", [])) and any(x["userId"] == uid("eduadmin") for x in ho.get("provinceUsers", [])), ho)
-check("snet: 학교 has no 처리 담당 지정", "handler" not in data(call("GET", f"/api/as/requests/{ssn1}", token=S))["allowedActions"])
-# 교육지원청이 직접 처리: 접수하면 그 사람이 담당
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=R)
-check("snet: 교육지원청 접수 → 담당자 = 교육지원청 담당자", st == 200 and data((st, j, None))["engineerUserId"] == ra_id, j)
-tk = {x["key"]: x for x in data(call("GET", "/api/as/requests/todo", token=R))["buckets"]}
-check("snet: todo 내가 처리할 건", ssn1 in [x["asvcSn"] for x in tk.get("mine", {}).get("rows", [])], list(tk))
-# 통신사에 넘김
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "VENDOR"}, token=R); check("snet: 통신사 without 업체 → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=R)
-dv = data((st, j, None))
-check("snet: 통신사에 넘김 → 업체 set, 기사 empty, back to 신청완료", st == 200 and dv["handlerType"] == "VENDOR" and dv["vendorId"] == hanbit_id and not dv.get("engineerUserId") and dv["status"] == "A", (st, dv.get("handlerType"), dv.get("status")))
-check("snet: 통신사 관리자 sees it + notified", data(call("GET", f"/api/as/requests/{ssn1}", token=VA2)).get("asvcSn") == ssn1 and any(x.get("asvcSn") == ssn1 and x.get("type") == "AS_ASSIGNED" for x in notes_of(VA2)))
-check("snet: 통신사 관리자 can assign a 기사", "engineer" in data(call("GET", f"/api/as/requests/{ssn1}", token=VA2))["allowedActions"])
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=R); check("snet: same 담당 again → 400", st == 400, j)
-# 교육청으로 올림
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "PROVINCE", "userId": ra_id}, token=R); check("snet: 교육청 with a 교육지원청 user → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "PROVINCE", "userId": uid("eduadmin")}, token=R)
-dp = data((st, j, None))
-check("snet: 교육청으로 올림", st == 200 and dp["handlerType"] == "PROVINCE" and dp["engineerUserId"] == uid("eduadmin") and dp.get("handlerName") == "교육청", (st, dp.get("handlerType"), dp.get("handlerName")))
-st, j, _ = call("GET", f"/api/as/requests/{ssn1}", token=VA2); check("snet: 통신사 loses it → 404", st == 404, j)
-check("snet: 교육청 담당자 notified", any(x.get("asvcSn") == ssn1 and x.get("type") == "AS_ASSIGNED" for x in notes_of(E)))
-check("snet: history 처리 담당", sum(1 for h in data(call("GET", f"/api/as/requests/{ssn1}", token=A))["histories"] if h["action"] == "HANDLER") == 2)
-# 다시 교육지원청 (담당자 없이 = 스쿨넷 담당 모두)
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "REGION"}, token=E)
-check("snet: back to 교육지원청 team", st == 200 and data((st, j, None))["handlerType"] == "REGION" and not data((st, j, None)).get("engineerUserId"), j)
-st, j, _ = call("POST", f"/api/as/requests/{ssn1}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=S); check("snet: 학교 handler → 409", st == 409, j)
-call("POST", f"/api/as/requests/{ssn1}/cancel", {}, token=S)
-# 무선망은 그대로 업체 배정
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "무선망 그대로", "visitRequestAt": "2026-11-26T10:00"}, token=S)
-mq = data((st, j, None))
-acts = data(call("GET", f"/api/as/requests/{mq['asvcSn']}", token=R))["allowedActions"]
-check("snet: 무선망 still uses 업체 배정 (no 처리 담당 지정)", "assign" in acts and "handler" not in acts and mq["handlerType"] == "VENDOR", acts)
-call("POST", f"/api/as/requests/{mq['asvcSn']}/cancel", {}, token=S)
-# 통신사로 바로
-set_route("VENDOR")
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "통신사로 바로", "visitRequestAt": "2026-11-26T10:00"}, token=S)
-s2 = data((st, j, None))
-check("snet: route 통신사 → 학교 배정 통신사로 바로", s2["handlerType"] == "VENDOR" and s2["vendorId"] == hanbit_id, (s2.get("handlerType"), s2.get("vendorId")))
-call("POST", f"/api/as/requests/{s2['asvcSn']}/cancel", {}, token=S)
-st, j, _ = call("PUT", "/api/org/as-services", {"asTypes": data(call("GET", "/api/org/as-services", token=A))["asTypes"], "schoolnetRoute": "X"}, token=A)
-check("snet: bad route → 400", st == 400, j)
-
-# ---------- SLA ↔ 처리 흐름: 넘겨받은 때부터 · 1차 확인 따로 · 직접 처리 분리 · 실제 도착만 ----------
-set_route("REGION")
-_td = _dt.date.today()
-def sla_now(tok=None): return data(call("GET", f"/api/as/sla?year={_td.year}&month={_td.month}", token=tok or E))
-f0 = sla_now()
-check("sla flow: 기본 스쿨넷 처리 흐름 → 도착 기록 · 대상 장비 경고", {w["key"] for w in f0.get("flowWarnings", []) if w["level"] == "warn"} >= {"arrival", "device"}, f0.get("flowWarnings"))
-check("sla flow: 교육지원청이 먼저 받으면 1차 확인 안내", any(w["key"] == "triage" and w["level"] == "info" for w in f0.get("flowWarnings", [])), f0.get("flowWarnings"))
-check("sla flow: 직접 처리 · 1차 확인 묶음", isinstance(f0.get("office"), dict) and "triageCount" in f0["office"], f0.get("office"))
-off0, tri0, tot0 = f0["office"]["total"], f0["office"]["triageCount"], f0["summary"]["total"]
-# 1) 교육지원청이 직접 처리 → 통신사 SLA에 넣지 않는다
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "SLA 흐름 — 교육지원청 직접", "visitRequestAt": "2026-12-01T10:00"}, token=S)
-fa = data((st, j, None))["asvcSn"]
-call("POST", f"/api/as/requests/{fa}/receive", {"visitPlannedAt": "2026-12-01T10:00"}, token=R)
-f1 = sla_now()
-check("sla flow: 교육지원청 직접 처리 → 직접 처리 묶음, 통신사 건수 그대로", f1["office"]["total"] == off0 + 1 and f1["summary"]["total"] == tot0, (f1["office"]["total"], off0, f1["summary"]["total"], tot0))
-# 2) 1차 확인 뒤 통신사에 넘김 → 통신사 건이 되고 1차 확인 시간이 잡힌다, 기한은 넘겨받은 때부터 다시
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "SLA 흐름 — 통신사에 넘김", "visitRequestAt": "2026-12-01T10:00"}, token=S)
-fb = data((st, j, None))["asvcSn"]
-st, j, _ = call("POST", f"/api/as/requests/{fb}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=R)
-check("sla flow: 통신사에 넘김", st == 200, j)
-f2 = sla_now()
-check("sla flow: 넘긴 건은 통신사 건 + 1차 확인 시간", f2["summary"]["total"] == tot0 + 1 and f2["office"]["triageCount"] == tri0 + 1 and f2["office"].get("triageAvgMin") is not None,
-      (f2["summary"]["total"], tot0, f2["office"]))
-dB = data(call("GET", f"/api/as/requests/{fb}", token=E))
-check("sla flow: 접수 기한은 넘겨받은 때부터 (거의 30분 남음)", (dB.get("sla") or {}).get("stage") == "RECEIVE" and dB["sla"]["remainingMin"] >= 29, dB.get("sla"))
-# 3) 통신사가 접수 → 도착 기록 → 처리: 도착을 판정한다. 기록 없이 처리한 건(앞의 SLA 시험 건)은 '도착 기록 없음'
-to_eng(fb)
-call("POST", f"/api/as/requests/{fb}/receive", {"visitPlannedAt": "2026-12-01T10:00"}, token=N)
-st, j, _ = call("POST", f"/api/as/requests/{fb}/arrive", {"byQr": True}, token=N); check("sla flow: 도착 기록", st == 200, j)
-st, j, _ = call("POST", f"/api/as/requests/{fb}/report", {"processContent": "SLA 흐름 시험 처리"}, token=N); check("sla flow: 처리완료", st == 200, j)
-f3 = sla_now()
-na = (f3["quality"].get("noArrival") or {})
-check("sla flow: 도착을 기록한 건은 '도착 기록 없음'이 아님", all(x["asvcSn"] != fb for x in na.get("rows", [])), na)
-check("sla flow: 도착 기록 없이 처리한 건 → '도착 기록 없음'", any(x["asvcSn"] == sr_.get("asvcSn") for x in na.get("rows", [])), na)
-check("sla flow: 도착 기록 건은 위반 아님", all(v["asvcSn"] != fb for v in f3["violations"]), [v["asvcSn"] for v in f3["violations"]])
-# 4) 담당이 바뀌어도 새 담당의 접수는 새로 잰다 (접수 직후 다른 담당으로 넘겨도 위반이 생기지 않는다)
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "SLA 흐름 — 다시 넘김", "visitRequestAt": "2026-12-01T10:00"}, token=S)
-fc = data((st, j, None))["asvcSn"]
-call("POST", f"/api/as/requests/{fc}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=R)
-call("POST", f"/api/as/requests/{fc}/handler", {"handlerType": "REGION", "userId": ra_id}, token=R)
-call("POST", f"/api/as/requests/{fc}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=R)
-f4 = sla_now()
-check("sla flow: 여러 번 넘겨도 위반 없음", all(v["asvcSn"] != fc for v in f4["violations"]), [v for v in f4["violations"] if v["asvcSn"] == fc])
-dC = data(call("GET", f"/api/as/requests/{fc}", token=E))
-check("sla flow: 마지막 담당 기준 기한", (dC.get("sla") or {}).get("remainingMin", 0) >= 29, dC.get("sla"))
-# 5) 처리 흐름에서 도착 기록 · 대상 장비를 필수로 하면 경고가 사라진다
-wfs = {x["rceptTy"]: x for x in data(call("GET", "/api/org/workflows", token=A))["flows"]}
-call("PUT", "/api/org/workflows", {"flows": [dict(wfs["S"], arrivalRequired=True, deviceLink="REQUIRED")]}, token=A)
-check("sla flow: 필수로 바꾸면 경고 없음", not [w for w in sla_now().get("flowWarnings", []) if w["level"] == "warn"], sla_now().get("flowWarnings"))
-call("PUT", "/api/org/workflows", {"flows": [wfs["S"]]}, token=A)
-for x in (fa, fc): call("POST", f"/api/as/requests/{x}/cancel", {}, token=S)
-set_route("VENDOR")
-
-# ---------- AS 처리 흐름 (유형마다 단계 고르기) ----------
-st, j, _ = call("GET", "/api/org/workflows", token=A); wf0 = {x["rceptTy"]: x for x in data((st, j, None))["flows"]}
-check("workflow: defaults = current behaviour", st == 200 and wf0["M"]["firstReceiver"] == "VENDOR" and wf0["M"]["deviceLink"] == "RECOMMENDED" and wf0["M"]["vendorSource"] == "DEVICE"
-      and wf0["M"]["engineerAssign"] == "ADMIN" and wf0["M"]["evaluation"] and wf0["S"]["officeHandling"] and wf0["S"]["deviceLink"] == "OPTIONAL" and wf0["C"]["deviceLink"] == "NONE", wf0.get("M"))
-check("workflow: 스쿨넷 첫 접수처 follows the old route setting", wf0["S"]["firstReceiver"] == "VENDOR", wf0["S"]["firstReceiver"])
-st, j, _ = call("GET", "/api/org/workflows", token=R); check("workflow: 교육지원청 (장애접수관리) can read", st == 200, j)
-st, j, _ = call("PUT", "/api/org/workflows", {"flows": [wf0["M"]]}, token=R); check("workflow: 교육지원청 cannot change → 403", st == 403, j)
-st, j, _ = call("GET", "/api/org/workflows", token=S); check("workflow: 학교 → 403", st == 403, j)
-def put_flow(ty, **kw):
-    f = {k: v for k, v in wf0[ty].items() if k in ("rceptTy", "firstReceiver", "deviceLink", "vendorSource", "engineerAssign", "officeHandling", "arrivalRequired", "evaluation")}
-    f.update(kw)
-    return call("PUT", "/api/org/workflows", {"flows": [f]}, token=A)
-st, j, _ = put_flow("M", firstReceiver="REGION", officeHandling=False); check("workflow: 교육지원청 first without 직접 처리 → 400", st == 400, j)
-st, j, _ = put_flow("C", deviceLink="RECOMMENDED"); check("workflow: 정보기기 has no devices → 400", st == 400, j)
-st, j, _ = put_flow("M", deviceLink="SOMETIMES"); check("workflow: unknown value → 400", st == 400, j)
 def new_m(**extra):
-    st, j, _ = call("POST", "/api/as/requests", dict({"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "처리 흐름 시험", "visitRequestAt": "2026-11-26T10:00"}, **extra), token=S)
-    assert st == 200, j
+    body = {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "시험 신고", "visitRequestAt": "2026-11-26T10:00", **extra}
+    st, j, _ = call("POST", "/api/as/requests", body, token=S)
+    assert st == 200, ("new_m", j)
     return data((st, j, None))
-# 기사 자동 배정
-st, j, _ = put_flow("M", engineerAssign="AUTO"); check("workflow: 기사 자동 saved", st == 200, j)
-w1 = new_m(); check("workflow: AUTO → 학교 기본 기사 배정됨", w1.get("engineerUserId") == nid, w1.get("engineerUserId"))
-call("POST", f"/api/as/requests/{w1['asvcSn']}/cancel", {}, token=S)
-# 교육지원청이 먼저 (무선망도)
-put_flow("M", firstReceiver="REGION", officeHandling=True)
-w2 = new_m()
-check("workflow: 무선망 교육지원청 first → no 업체", w2["handlerType"] == "REGION" and not w2.get("vendorId"), (w2.get("handlerType"), w2.get("vendorId")))
-acts = data(call("GET", f"/api/as/requests/{w2['asvcSn']}", token=R))["allowedActions"]
-check("workflow: 처리 담당 지정 instead of 업체 배정", "handler" in acts and "assign" not in acts, acts)
-check("workflow: todo 1차 확인 (any type)", w2["asvcSn"] in [x["asvcSn"] for x in {b["key"]: b for b in data(call("GET", "/api/as/requests/todo", token=R))["buckets"]}.get("triage", {}).get("rows", [])])
-st, j, _ = call("POST", f"/api/as/requests/{w2['asvcSn']}/handler", {"handlerType": "VENDOR", "vendorId": hanbit_id}, token=R)
-check("workflow: 교육지원청 → 업체에 넘김", st == 200 and data((st, j, None))["vendorId"] == hanbit_id, j)
-call("POST", f"/api/as/requests/{w2['asvcSn']}/cancel", {}, token=S)
-# 대상 장비 필수 + 도착 필수 + 평가 없음
-put_flow("M", deviceLink="REQUIRED", arrivalRequired=True, evaluation=False)
-w3 = new_m(); to_eng(w3["asvcSn"])
-call("POST", f"/api/as/requests/{w3['asvcSn']}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=N)
-st, j, _ = call("POST", f"/api/as/requests/{w3['asvcSn']}/report", {"processContent": "x"}, token=N); check("workflow: 장비 필수 → report refused", st == 400 and "대상 장비" in (msg((st, j, None)) or ""), j)
-st, j, _ = call("POST", f"/api/as/requests/{w3['asvcSn']}/device", {"deviceId": wl[0]["deviceId"]}, token=R); check("workflow: 교육지원청 links the device", st == 200, j)
-st, j, _ = call("POST", f"/api/as/requests/{w3['asvcSn']}/report", {"processContent": "x"}, token=N); check("workflow: 도착 필수 → report refused", st == 400 and "도착" in (msg((st, j, None)) or ""), j)
-call("POST", f"/api/as/requests/{w3['asvcSn']}/arrive", {}, token=N)
-st, j, _ = call("POST", f"/api/as/requests/{w3['asvcSn']}/report", {"processContent": "AP 교체"}, token=N); check("workflow: after 도착 → report ok", st == 200 and data((st, j, None))["status"] == "C", j)
-dS = data(call("GET", f"/api/as/requests/{w3['asvcSn']}", token=S))
-check("workflow: 평가 off → no 만족도 평가", "evaluate" not in dS["allowedActions"] and dS.get("evalOff") is True, (dS["allowedActions"], dS.get("evalOff")))
-check("workflow: 평가 off → not in 학교 할 일", w3["asvcSn"] not in [x["asvcSn"] for x in {b["key"]: b for b in data(call("GET", "/api/as/requests/todo", token=S))["buckets"]}.get("evaluate", {}).get("rows", [])])
-dn = [x for x in notes_of(S) if x.get("asvcSn") == w3["asvcSn"] and x.get("type") == "AS_DONE"]
-check("workflow: 처리 완료 알림 without 평가 요청", dn and "만족도" not in (dn[0].get("body") or ""), dn[:1])
-# 대상 장비 사용 안 함
-put_flow("M", deviceLink="NONE", arrivalRequired=False, evaluation=True)
-w4 = new_m()
-check("workflow: 장비 사용 안 함 → no 대상 장비 지정", "device" not in data(call("GET", f"/api/as/requests/{w4['asvcSn']}", token=R))["allowedActions"])
-call("POST", f"/api/as/requests/{w4['asvcSn']}/cancel", {}, token=S)
-# 되돌리기 + 예전 설정과 맞춤
-st, j, _ = put_flow("M"); check("workflow: 무선망 restored", st == 200 and next(x for x in data((st, j, None))["flows"] if x["rceptTy"] == "M")["deviceLink"] == "RECOMMENDED", j)
-set_route("REGION")
-sf = next(x for x in data(call("GET", "/api/org/workflows", token=A))["flows"] if x["rceptTy"] == "S")
-check("workflow: old 스쿨넷 접수처 setting updates the flow", sf["firstReceiver"] == "REGION" and sf["officeHandling"], sf)
-st, j, _ = put_flow("S", firstReceiver="VENDOR")
-check("workflow: flow change updates the old setting", st == 200 and data(call("GET", "/api/org/as-services", token=A))["schoolnetRoute"] == "VENDOR", j)
 
 # ---------- 마이페이지: 내 할 일 (묶음 전체 목록) · 내 신청 ----------
 m1 = new_m(); m2 = new_m()
 st, j, _ = call("GET", "/api/as/requests/todo/receive", token=VA2)
 tl = data((st, j, None))
 check("my: todo bucket full list (페이지)", st == 200 and tl["key"] == "receive" and tl["list"]["totalElements"] >= 2 and "allowedActions" in tl["list"]["content"][0], tl.get("list", {}).get("totalElements"))
-check("my: todo rows carry actions (업체 관리자 → 접수 · 기사 배정)", any("engineer" in x["allowedActions"] for x in tl["list"]["content"]), [x["allowedActions"] for x in tl["list"]["content"][:2]])
+check("my: todo rows carry actions (업체 관리자 → 접수, no 기사 배정)", any("receive" in x["allowedActions"] for x in tl["list"]["content"]) and not any("engineer" in x["allowedActions"] for x in tl["list"]["content"]), [x["allowedActions"] for x in tl["list"]["content"][:2]])
 st, j, _ = call("GET", "/api/as/requests/todo/receive?page=1&size=1", token=VA2); check("my: todo paging", st == 200 and len(data((st, j, None))["list"]["content"]) == 1 and data((st, j, None))["list"]["totalPages"] >= 2, j)
 st, j, _ = call("GET", "/api/as/requests/todo/low-score", token=VA2); check("my: bucket not for this account → 404", st == 404, j)
 st, j, _ = call("GET", "/api/as/requests/todo/evaluate", token=S); check("my: 학교 평가 대기 bucket", st == 200, j)
@@ -2275,61 +1940,12 @@ check("my: status A,R = 진행 중", st == 200 and data((st, j, None))["content"
 check("my: 진행 중 includes the new ones", {m1["asvcSn"], m2["asvcSn"]} <= {x["asvcSn"] for x in data((st, j, None))["content"]})
 for m in (m1, m2): call("POST", f"/api/as/requests/{m['asvcSn']}/cancel", {}, token=S)
 
-# ---------- 스쿨넷 SLA: 실제 장애 시각 · 기한 표시 · 기한 임박 알림 · 데이터 점검 ----------
-def ago(minutes):
-    return (_dt.datetime.now() - _dt.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M")
-ym = _dt.date.today()
-sla_now = data(call("GET", f"/api/as/sla?year={ym.year}&month={ym.month}", token=A))
-used = {x["deviceId"] for x in sla_now["lines"]}
-snet = rows_of(data(call("GET", f"/api/as/schoolnet-devices?schoolId={sch1}&size=200", token=A)))
-free = [x for x in snet if x["deviceId"] not in used]
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "SLA 기한 시험", "deviceId": (free or snet)[0]["deviceId"], "visitRequestAt": "2026-11-26T10:00"}, token=S)
-q1 = data((st, j, None)); qs = q1["asvcSn"]
-row = next(x for x in data(call("GET", "/api/as/requests?rceptTy=S&size=50", token=A))["content"] if x["asvcSn"] == qs)
-check("sla due: new 스쿨넷 건 → 접수 기한 (30분)", row.get("sla") and row["sla"]["stage"] == "RECEIVE" and 25 <= row["sla"]["remainingMin"] <= 30, row.get("sla"))
-check("sla due: not on 무선망", all(not x.get("sla") for x in data(call("GET", "/api/as/requests?rceptTy=M&size=20", token=A))["content"]))
-to_eng(qs)
-call("POST", f"/api/as/requests/{qs}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=N)
-acts = data(call("GET", f"/api/as/requests/{qs}", token=R))["allowedActions"]
-check("outage: 교육지원청 has 장애 시각 수정", "outage" in acts, acts)
-st, j, _ = call("POST", f"/api/as/requests/{qs}/outage", {"outageStartAt": ago(30), "outageEndAt": ago(60)}, token=R); check("outage: 복구 before 발생 → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{qs}/outage", {"outageStartAt": (_dt.datetime.now() + _dt.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")}, token=R); check("outage: future → 400", st == 400, j)
-st, j, _ = call("POST", f"/api/as/requests/{qs}/outage", {"outageStartAt": ago(60 * 23)}, token=S); check("outage: 학교 → 409", st == 409, j)
-st, j, _ = call("POST", f"/api/as/requests/{qs}/outage", {"outageStartAt": ago(60 * 23)}, token=R)
-dq = data((st, j, None))
-check("outage: 발생 시각 saved (23시간 전)", st == 200 and dq.get("outageStartAt"), j)
-check("sla due: 복구 기한 from the real start (~1시간 남음)", dq.get("sla") and dq["sla"]["stage"] == "RECOVER" and 50 <= dq["sla"]["remainingMin"] <= 61, dq.get("sla"))
-check("outage: history", any(h["action"] == "OUTAGE" for h in dq["histories"]))
-call("POST", "/api/org/alert-rules/run", {}, token=A)
-w = [x for x in notes_of(VA2) if x.get("asvcSn") == qs and x.get("type") == "AS_SLA_WARN"]
-check("sla warn: 복구 기한 임박 → 통신사", len(w) == 1 and "복구" in w[0]["title"] and "임박" in w[0]["title"], w)
-call("POST", "/api/org/alert-rules/run", {}, token=A)
-check("sla warn: once per stage", sum(1 for x in notes_of(VA2) if x.get("asvcSn") == qs and x.get("type") == "AS_SLA_WARN") == 1)
-dev_row = next(x for x in data(call("GET", f"/api/qr/devices/{q1['deviceId']}", token=N))["as"]["open"] if x["asvcSn"] == qs)
-check("sla due: shown on the QR page", dev_row.get("sla") and dev_row["sla"]["stage"] == "RECOVER", dev_row.get("sla"))
-# 보고서에 실제 시각 → 회선 가용률은 그 시간만
-st, j, _ = call("POST", f"/api/as/requests/{qs}/report", {"processContent": "회선 복구", "outageStartAt": ago(120), "outageEndAt": ago(60)}, token=N)
-check("outage: report with real times", st == 200 and data((st, j, None))["status"] == "C", j)
-if free:
-    sla2 = data(call("GET", f"/api/as/sla?year={ym.year}&month={ym.month}", token=A))
-    ln = next((x for x in sla2["lines"] if x["deviceId"] == q1["deviceId"]), None)
-    check("outage: 가용률 uses the real outage (60분)", ln and ln["downtimeMin"] == 60, ln)
-viol = data(call("GET", f"/api/as/sla?year={ym.year}&month={ym.month}", token=A))["violations"]
-check("outage: 복구 judged from real times (60분 → 충족)", not any(v["asvcSn"] == qs and "RECOVER" in v.get("missed", []) for v in viol))
-# 데이터 점검
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "회선 미지정 신고", "visitRequestAt": "2026-11-26T10:00"}, token=S); un = data((st, j, None))["asvcSn"]
-qa = data(call("GET", f"/api/as/sla?year={ym.year}&month={ym.month}", token=A)).get("quality") or {}
-check("quality: 회선 미지정 장애 listed", un in [x["asvcSn"] for x in qa.get("unlinked", {}).get("rows", [])] or qa.get("unlinked", {}).get("count", 0) > 20, qa.get("unlinked", {}).get("count"))
-check("quality: all four checks present", {"unlinked", "noOutageTime", "lineNoCircuit", "lineNoVendor"} <= set(qa), list(qa))
-check("quality: completed with real times not in 시각 미입력", qs not in [x["asvcSn"] for x in qa["noOutageTime"]["rows"]])
-call("POST", f"/api/as/requests/{un}/cancel", {}, token=S)
-
 # ---------- 보류 ----------
 h1 = new_m(); hs = h1["asvcSn"]; to_eng(hs)
 call("POST", f"/api/as/requests/{hs}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=N)
 acts = data(call("GET", f"/api/as/requests/{hs}", token=N))["allowedActions"]
 check("hold: 기사 has 보류", "hold" in acts and "resume" not in acts, acts)
-check("hold: 교육지원청 has 보류", "hold" in data(call("GET", f"/api/as/requests/{hs}", token=R))["allowedActions"])
+check("hold: 교육지원청 has no 보류 (보기만)", "hold" not in data(call("GET", f"/api/as/requests/{hs}", token=R))["allowedActions"])
 check("hold: 학교 has no 보류", "hold" not in data(call("GET", f"/api/as/requests/{hs}", token=S))["allowedActions"])
 st, j, _ = call("POST", f"/api/as/requests/{hs}/hold", {}, token=N); check("hold: no reason → 400", st == 400, j)
 st, j, _ = call("POST", f"/api/as/requests/{hs}/hold", {"reason": "x", "holdUntil": "2020-01-01"}, token=N); check("hold: past 재개 예정일 → 400", st == 400, j)
@@ -2354,17 +1970,18 @@ check("hold: history RESUME + 학교 notified", any(h["action"] == "RESUME" for 
 call("POST", f"/api/as/requests/{hs}/hold", {"reason": "다시 보류"}, token=N)
 st, j, _ = call("POST", f"/api/as/requests/{hs}/report", {"processContent": "부품 교체 완료"}, token=N)
 check("hold: report while on hold completes and ends the hold", st == 200 and data((st, j, None))["status"] == "C" and not data((st, j, None)).get("onHold"), j)
-# 스쿨넷: 보류 중에는 SLA 기한 표시가 멈춘다
-st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "보류 SLA 시험", "visitRequestAt": "2026-11-26T10:00"}, token=S); hs2 = data((st, j, None))["asvcSn"]
+# 스쿨넷도 보류할 수 있다 (SLA 기한 · 장애 시각은 더 없다)
+st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "S", "faultTypeCode": "72", "symptom": "보류 시험 (스쿨넷)", "visitRequestAt": "2026-11-26T10:00"}, token=S); hs2 = data((st, j, None))["asvcSn"]
 to_eng(hs2)
-check("hold: 스쿨넷 has an SLA 기한 before 보류", data(call("GET", f"/api/as/requests/{hs2}", token=A)).get("sla"))
-call("POST", f"/api/as/requests/{hs2}/hold", {"reason": "통신사 회선 공사 대기"}, token=N)
-check("hold: SLA 기한 paused while on hold", not data(call("GET", f"/api/as/requests/{hs2}", token=A)).get("sla"))
-st, j, _ = call("POST", f"/api/as/requests/{hs2}/cancel", {}, token=A); check("hold: a request on hold can be cancelled", st == 200, j)
+dS = data(call("GET", f"/api/as/requests/{hs2}", token=A))
+check("hold: 스쿨넷 detail has no SLA · 장애 시각 any more", "sla" not in dS and "outageStartAt" not in dS and "outage" not in dS["allowedActions"], [k for k in ("sla", "outageStartAt") if k in dS])
+st, j, _ = call("POST", f"/api/as/requests/{hs2}/hold", {"reason": "통신사 회선 공사 대기"}, token=N)
+check("hold: 스쿨넷 보류", st == 200 and data((st, j, None)).get("onHold"), j)
+st, j, _ = call("POST", f"/api/as/requests/{hs2}/cancel", {}, token=S); check("hold: a request on hold can be cancelled by the 학교", st == 200, j)
 
 # ---------- 보류: 방문일 변경과 따로 켜고 끈다 (AS_HOLD) ----------
 check("hold perm: 보류 is its own 처리 기능", "AS_HOLD" in data(call("GET", "/api/org/role-perms", token=A))["actionPerms"])
-check("hold perm: on by default for 기사 · 업체 · 교육청 · 교육지원청", "AS_HOLD" in perms_of(N) and "AS_HOLD" in perms_of(VA2) and "AS_HOLD" in perms_of(E) and "AS_HOLD" in perms_of(R))
+check("hold perm: on by default for 기사 · 업체 only (교육청 · 교육지원청은 보기만)", "AS_HOLD" in perms_of(N) and "AS_HOLD" in perms_of(VA2) and "AS_HOLD" not in perms_of(E) and "AS_HOLD" not in perms_of(R))
 st, j, _ = call("PUT", f"/api/users/{s1id}/menu-perms", {"granted": ["AS_HOLD"]}, token=A); check("hold perm: locked for 학교 → 400", st == 400, j)
 hp = new_m(); to_eng(hp["asvcSn"])
 call("POST", f"/api/as/requests/{hp['asvcSn']}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=N)
@@ -2417,6 +2034,125 @@ st, j, _ = call("GET", "/api/users/bulk/template", token=login("regionadmin", "u
 call("PUT", "/api/org/role-perms", {"roles": {"REGION_ADMIN": {}}}, token=A)
 for lid in ("bks_r1",):
     call("DELETE", f"/api/users/{uid(lid)}", token=A)
+
+
+# ---------- 무선망 · 스쿨넷: 학교가 대상 장비를 꼭 고른다 ----------
+for ty_, nm_ in (("M", "무선망"), ("S", "스쿨넷")):
+    st, j, _ = call("POST", "/api/as/requests", {"rceptTy": ty_, "faultTypeCode": "P" if ty_ == "M" else "72", "requestTypeCode": "2", "symptom": "장비 없이",
+                                                  "visitRequestAt": "2026-11-26T10:00", "_noDevice": True}, token=S)
+    check(f"device required: {nm_} without 대상 장비 → 400", st == 400 and "대상 장비" in msg((st, j, None)), j)
+s2sch = data(call("GET", "/api/auth/me", token=S2))["schoolId"]
+odev = rows_of(data(call("GET", f"/api/as/wireless-devices?schoolId={s2sch}&size=50", token=A)))
+if odev:
+    st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "M", "faultTypeCode": "P", "requestTypeCode": "2", "symptom": "다른 학교 장비", "visitRequestAt": "2026-11-26T10:00", "deviceId": odev[0]["deviceId"]}, token=S)
+    check("device required: another school's 장비 → 400", st == 400, j)
+if "C" in data(call("GET", "/api/org/as-services", token=A))["asTypes"]:
+    st, j, _ = call("POST", "/api/as/requests", {"rceptTy": "C", "faultTypeCode": list(data(call("GET", "/api/as/requests/codes", token=S))["faultTypes"]["C"].keys())[0],
+                                                  "symptom": "정보기기는 장비 목록 없이", "installPlace": "교무실", "visitRequestAt": "2026-11-26T10:00"}, token=S)
+    check("device required: 정보기기 needs no 대상 장비", st == 200, j)
+    if st == 200: call("POST", f"/api/as/requests/{data((st, j, None))['asvcSn']}/cancel", {}, token=S)
+dm_ = new_m(symptom="장비 고쳐 고르기")
+st, j, _ = call("PUT", f"/api/as/requests/{dm_['asvcSn']}", {"deviceId": None}, token=S); check("device required: clearing the 대상 장비 on edit → 400", st == 400, j)
+check("device required: request carries the 대상 장비 and its 설치위치", dm_.get("deviceId") and dm_.get("deviceName"), (dm_.get("deviceId"), dm_.get("deviceName")))
+call("POST", f"/api/as/requests/{dm_['asvcSn']}/cancel", {}, token=S)
+
+# ---------- 업체만 처리 · 학교 재요청 (V22) ----------
+# 학교가 신고 → 업체의 기사 누구나 접수 · 처리 → 학교 평가 / 해결 안 되면 재요청 → 신청완료로 돌아가 같은 업체가 다시
+rq = new_m(symptom="재요청 시험 — 2층 교실 무선 끊김")
+rsn = rq["asvcSn"]
+check("reopen: 업체 is set automatically, no 기사 yet", rq["vendorId"] == hanbit_id and not rq.get("engineerUserId"), (rq.get("vendorId"), rq.get("engineerUserId")))
+for who, tok in (("교육청", E), ("교육지원청", R)):
+    st, j, _ = call("POST", f"/api/as/requests/{rsn}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=tok); check(f"reopen: {who} cannot 접수 (보기만) → 409", st == 409, j)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/receive", {"visitPlannedAt": "2026-11-26T10:00"}, token=N)
+check("reopen: 기사 접수 → 담당 = 그 기사", st == 200 and data((st, j, None))["engineerUserId"] == nid, j)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/report", {"processContent": "AP 재부팅 (1차)"}, token=VA2)
+check("reopen: 업체 관리자 (another person of the 업체) may 처리", st == 200 and data((st, j, None))["status"] == "C", j)
+dS = data(call("GET", f"/api/as/requests/{rsn}", token=S))
+check("reopen: 학교 gets 평가 + 재요청 after 처리완료", {"evaluate", "reopen"} <= set(dS["allowedActions"]), dS["allowedActions"])
+check("reopen: 업체 · 교육청 do not get 재요청", "reopen" not in data(call("GET", f"/api/as/requests/{rsn}", token=N))["allowedActions"]
+      and "reopen" not in data(call("GET", f"/api/as/requests/{rsn}", token=E))["allowedActions"])
+call("POST", f"/api/as/requests/{rsn}/evaluate", {"score": 2, "opinion": "아직 끊깁니다"}, token=S)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/reopen", {}, token=S); check("reopen: without reason → 400", st == 400, j)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/reopen", {"reason": "x"}, token=N); check("reopen: 기사 → 409", st == 409, j)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/reopen", {"reason": "처리 뒤에도 계속 끊깁니다"}, token=S)
+dr = data((st, j, None)) or {}
+check("reopen: 학교 재요청 → 신청완료, 같은 업체, 담당 비움", st == 200 and dr["status"] == "A" and dr["vendorId"] == hanbit_id and not dr.get("engineerUserId"), j)
+check("reopen: 평가 · 이전 보고서 지움, 재요청 1회 · 사유", dr.get("evalScore") is None and not dr.get("hasReport") and dr.get("reopenCount") == 1 and dr.get("reopenReason") == "처리 뒤에도 계속 끊깁니다", dr)
+check("reopen: history keeps the previous 처리", any(h["action"] == "REOPEN" and "AP 재부팅 (1차)" in (h["content"] or "") for h in dr.get("histories", [])))
+check("reopen: 업체 (관리자 · 기사 모두) notified", any(x.get("asvcSn") == rsn and x.get("type") == "AS_REOPENED" for x in notes_of(VA2))
+      and any(x.get("asvcSn") == rsn and x.get("type") == "AS_REOPENED" for x in notes_of(N)))
+tk = {x["key"]: x for x in data(call("GET", "/api/as/requests/todo", token=N))["buckets"]}
+check("reopen: 업체 todo 재요청 bucket", rsn in [x["asvcSn"] for x in tk.get("reopened", {}).get("rows", [])], list(tk))
+check("reopen: not doubled under 접수 대기", rsn not in [x["asvcSn"] for x in tk.get("receive", {}).get("rows", [])])
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/receive", {"visitPlannedAt": "2026-11-27T10:00"}, token=VA2)
+check("reopen: 다시 접수 (업체 관리자도 접수한다)", st == 200 and data((st, j, None))["status"] == "R" and data((st, j, None))["engineerUserId"] == uid("vendoradmin"), j)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/report", {"processContent": "AP 교체 (2차)"}, token=N)
+check("reopen: 다시 처리완료", st == 200 and data((st, j, None))["status"] == "C" and data((st, j, None))["reopenCount"] == 1, j)
+st, j, _ = call("POST", f"/api/as/requests/{rsn}/reopen", {"reason": "또 끊깁니다"}, token=S)
+check("reopen: second 재요청 → 2회", st == 200 and data((st, j, None))["reopenCount"] == 2, j)
+call("POST", f"/api/as/requests/{rsn}/cancel", {}, token=S)
+
+# ---------- 스쿨넷 SLA 결과 업로드 (/api/as/sla-reports, V21) — 장애 처리의 SLA · 지연 알림 · 장애 시각은 없어졌다 ----------
+st, j, _ = call("GET", "/api/as/sla", token=E); check("sla removed: old SLA dashboard → 404", st == 404, j)
+st, j, _ = call("GET", "/api/org/alert-rules", token=A); check("alerts removed: 지연 알림 기준 → 404", st == 404, j)
+st, j, _ = call("GET", "/api/org/alert-rules/calendar", token=A); check("calendar removed → 404", st == 404, j)
+rowS = data(call("GET", "/api/as/requests?rceptTy=S&size=50", token=A))["content"]
+check("sla removed: list rows carry no sla · late", all("sla" not in x and "late" not in x for x in rowS), [x for x in rowS if "sla" in x or "late" in x][:1])
+VA3 = login("vendoradmin", "user1234!")
+def put_file(name, body, tok):
+    st, j, _ = call("POST", "/api/files", files=[("files", (name, body, "application/octet-stream"))], token=tok)
+    return data((st, j, None))[0]["fileId"] if st == 200 else None
+hwp = put_file("2026년10월_스쿨넷_SLA_결과.hwp", b"HWP Document File", VA3)
+xls = put_file("2026년10월_SLA_세부.xlsx", make_xlsx([["회선", "가용률"], ["KT-1", "99.9"]]), VA3)
+txt = put_file("메모.txt", b"text", VA3)
+sl0 = data(call("GET", "/api/as/sla-reports", token=VA3))
+check("sla report: 통신사 업체 관리자 can upload", sl0["canUpload"] and not sl0["canReview"], (sl0["canUpload"], sl0["canReview"]))
+check("sla report: 통신사 기사 can upload too", data(call("GET", "/api/as/sla-reports", token=N))["canUpload"])
+check("sla report: 한글 · 엑셀 only", sorted(sl0["allowedExt"]) == ["hwp", "hwpx", "xls", "xlsx"], sl0["allowedExt"])
+T1 = "2026년 3분기 스쿨넷 SLA 결과"
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": T1, "fileIds": [txt]}, token=VA3); check("sla report: .txt → 400", st == 400 and "한글" in msg((st, j, None)), j)
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": T1, "fileIds": []}, token=VA3); check("sla report: no file → 400", st == 400, j)
+st, j, _ = call("POST", "/api/as/sla-reports", {"fileIds": [hwp]}, token=VA3); check("sla report: no 제목 → 400", st == 400, j)
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": T1, "periodFrom": "2026-09-30", "periodTo": "2026-07-01", "fileIds": [hwp]}, token=VA3); check("sla report: 기간 끝 < 시작 → 400", st == 400, j)
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": T1, "fileIds": [hwp]}, token=E); check("sla report: 교육청 cannot upload → 403", st == 403, j)
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": T1, "fileIds": [hwp]}, token=S); check("sla report: 학교 cannot upload → 403", st == 403, j)
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": T1, "periodFrom": "2026-07-01", "periodTo": "2026-09-30", "note": "가용률 99.93%", "fileIds": [hwp, xls]}, token=VA3)
+rid = (data((st, j, None)) or {}).get("reportId")
+check("sla report: 통신사 uploads 한글 + 엑셀 with 제목 · 기간 → 승인 대기", st == 200 and data((st, j, None))["status"] == "SUBMITTED", j)
+check("sla report: 교육청 notified", any(x.get("type") == "SLA_REPORT_SUBMITTED" for x in notes_of(E)))
+check("sla report: 관할 교육지원청 notified", any(x.get("type") == "SLA_REPORT_SUBMITTED" for x in notes_of(R)))
+lE = data(call("GET", "/api/as/sla-reports", token=E))
+mine = next((r for r in lE["rows"] if r["reportId"] == rid), None)
+check("sla report: 교육청 sees it with 제목 · 기간 · files and can review", mine and mine["title"] == T1 and mine["periodFrom"] == "2026-07-01" and len(mine["files"]) == 2 and mine["canReview"], mine)
+check("sla report: 통신사 filter list", any(v["vendorId"] == hanbit_id for v in lE["vendors"]), lE["vendors"])
+check("sla report: 통신사 filter works", all(r["vendorId"] == hanbit_id for r in data(call("GET", f"/api/as/sla-reports?vendorId={hanbit_id}", token=E))["rows"])
+      and not data(call("GET", "/api/as/sla-reports?vendorId=999999", token=E))["rows"])
+check("sla report: 상태 counts follow the filter", data(call("GET", "/api/as/sla-reports?vendorId=999999", token=E))["counts"]["all"] == 0)
+lR = data(call("GET", "/api/as/sla-reports", token=R))
+mR = next((r for r in lR["rows"] if r["reportId"] == rid), None)
+check("sla report: 관할 교육지원청 sees it before 승인 and can review", mR and mR["canReview"], mR)
+check("sla report: 학교 does not see it before 승인", all(r["reportId"] != rid for r in data(call("GET", "/api/as/sla-reports", token=S))["rows"]))
+st, j, _ = call("POST", f"/api/as/sla-reports/{rid}/approve", {}, token=VA3); check("sla report: 통신사 cannot approve → 403", st == 403, j)
+# 반려 (교육청) → 고쳐 올림 → 승인 (교육지원청)
+st, j, _ = call("POST", f"/api/as/sla-reports/{rid}/reject", {}, token=E); check("sla report: 반려 without reason → 400", st == 400, j)
+st, j, _ = call("POST", f"/api/as/sla-reports/{rid}/reject", {"reason": "회선별 가용률 표가 빠졌습니다"}, token=E)
+check("sla report: 교육청 반려", st == 200 and data((st, j, None))["status"] == "REJECTED", j)
+check("sla report: 통신사 (관리자 · 기사) notified of 반려", any(x.get("type") == "SLA_REPORT_REJECTED" for x in notes_of(VA3)) and any(x.get("type") == "SLA_REPORT_REJECTED" for x in notes_of(N)))
+rj = next(r for r in data(call("GET", "/api/as/sla-reports", token=VA3))["rows"] if r["reportId"] == rid)
+check("sla report: 통신사 sees the reason and can edit", rj["rejectReason"] == "회선별 가용률 표가 빠졌습니다" and rj["canEdit"], rj)
+st, j, _ = call("POST", "/api/as/sla-reports", {"reportId": rid, "title": T1 + " (수정)", "note": "가용률 표 추가", "fileIds": [hwp, xls]}, token=N)
+check("sla report: 기사 고쳐 올림 → 같은 건이 승인 대기로", st == 200 and data((st, j, None))["reportId"] == rid and data((st, j, None))["status"] == "SUBMITTED", j)
+st, j, _ = call("POST", f"/api/as/sla-reports/{rid}/approve", {}, token=R)
+check("sla report: 관할 교육지원청 승인", st == 200 and data((st, j, None))["status"] == "APPROVED", j)
+check("sla report: 통신사 notified of 승인", any(x.get("type") == "SLA_REPORT_APPROVED" for x in notes_of(VA3)))
+check("sla report: 승인 후 학교도 본다", any(r["reportId"] == rid and r["title"] == T1 + " (수정)" for r in data(call("GET", "/api/as/sla-reports", token=S))["rows"]))
+st, j, _ = call("POST", "/api/as/sla-reports", {"reportId": rid, "title": "x", "fileIds": [hwp]}, token=VA3); check("sla report: 승인된 건은 못 고침 → 409", st == 409, j)
+st, j, _ = call("DELETE", f"/api/as/sla-reports/{rid}", token=VA3); check("sla report: 승인된 건은 못 지움 → 409", st == 409, j)
+st, j, _ = call("POST", f"/api/as/sla-reports/{rid}/reject", {"reason": "x"}, token=E); check("sla report: 승인 후 반려 → 409", st == 409, j)
+# 매월이 아니어도 된다: 같은 업체가 몇 번이든 올린다
+st, j, _ = call("POST", "/api/as/sla-reports", {"title": "추가 자료 — 10월 장애 상세", "fileIds": [xls]}, token=VA3); r2 = (data((st, j, None)) or {}).get("reportId")
+check("sla report: another upload any time (no 월 제한)", st == 200 and r2 and r2 != rid, j)
+st, j, _ = call("DELETE", f"/api/as/sla-reports/{r2}", token=VA3); check("sla report: 승인 전 지우기", st == 200, j)
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")
