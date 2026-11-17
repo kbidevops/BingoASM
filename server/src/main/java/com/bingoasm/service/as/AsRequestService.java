@@ -385,7 +385,7 @@ public class AsRequestService {
                     .with("rows", l.stream().limit(5).map(r -> {
                         Json j = row(r, ref);
                         Json x = Json.obj();
-                        for (String k : List.of("asvcSn", "rceptTy", "rceptTyName", "schoolName", "status", "statusName", "requestAt", "visitPlannedAt",
+                        for (String k : List.of("asvcSn", "rceptTy", "rceptTyName", "schoolName", "status", "statusName", "requestAt", "visitPlannedAt", "completedAt",
                                 "vendorName", "engineerName", "evalScore", "onHold", "holdReason")) x.put(k, j.get(k));
                         x.put("symptom", clip(r.symptom, 40));
                         return x;

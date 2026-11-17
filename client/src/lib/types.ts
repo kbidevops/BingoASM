@@ -182,6 +182,8 @@ export interface TodoRow {
   statusName: string;
   requestAt?: string;
   visitPlannedAt?: string;
+  /** 처리완료 시각 (평가 대기 묶음: 처리 후 며칠 · 재요청 남은 날) */
+  completedAt?: string;
   vendorName?: string;
   engineerName?: string;
   evalScore?: number;

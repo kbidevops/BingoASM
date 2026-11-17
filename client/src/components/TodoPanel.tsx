@@ -10,6 +10,8 @@ import { HoldBadge } from "./ui";
 /** 카드 위 띠 색 */
 const TONE: Record<string, string> = { "low-score": "red", evaluate: "amber", hold: "violet" };
 const ROWS = 4;
+/** 재요청할 수 있는 기간: 처리완료 뒤 30일 (서버 AsRequestService.REOPEN_DAYS) */
+const REOPEN_DAYS = 30;
 
 /** "3분" · "5시간" · "2일 3시간" */
 function span(min: number) {
@@ -25,6 +27,18 @@ const minsSince = (iso?: string) => (iso ? (Date.now() - new Date(iso).getTime()
 function When({ b, r }: { b: TodoBucket; r: TodoRow }) {
   if (b.key === "low-score") return <span className="td-when bad">{r.evalScore}점</span>;
   if (b.key === "visit-soon") return <span className="td-when">{fmtDateTime(r.visitPlannedAt)}</span>;
+  // 평가 대기: 신청이 아니라 처리완료부터 — 얼마 전에 끝났는지와 재요청(처리완료 뒤 30일)까지 남은 날
+  if (b.key === "evaluate" && r.completedAt) {
+    const m = minsSince(r.completedAt) ?? 0;
+    const end = new Date(new Date(r.completedAt).getTime() + REOPEN_DAYS * 86400000);
+    const left = Math.ceil((end.getTime() - Date.now()) / 86400000);
+    return (
+      <span className="td-when" title={`처리완료 ${fmtDateTime(r.completedAt)} · 재요청은 ${end.getFullYear()}.${String(end.getMonth() + 1).padStart(2, "0")}.${String(end.getDate()).padStart(2, "0")}.까지`}>
+        처리 후 {m < 1440 ? "오늘" : `${Math.floor(m / 1440)}일`}
+        {left > 0 && <small className={left <= 7 ? "soon" : ""}>재요청 {left}일 남음</small>}
+      </span>
+    );
+  }
   const m = minsSince(r.requestAt);
   return <span className="td-when" title={`신청 ${fmtDateTime(r.requestAt)}`}>{m == null ? "-" : `${span(m)} 경과`}</span>;
 }
@@ -38,8 +52,8 @@ export default function TodoPanel({ todo }: { todo: Todo | null }) {
   if (!todo || !todo.buckets.length) return null;
   // 장애접수관리를 가진 계정은 전체 목록에서, 아니면 그 유형의 결과조회에서 연다.
   const href = (r: TodoRow) => `${can("AS_MANAGE") ? "/admin/requests" : AS_LIST_HREF[r.rceptTy]}?open=${r.asvcSn}`;
+  // 할 일이 있는 묶음만 보여 준다 (비어 있는 묶음의 "○○ 없음"은 표시하지 않는다).
   const busy = todo.buckets.filter((b) => b.count > 0);
-  const idle = todo.buckets.filter((b) => b.count === 0);
 
   return (
     <section className="td-wrap" aria-labelledby="td-t">
@@ -83,11 +97,6 @@ export default function TodoPanel({ todo }: { todo: Todo | null }) {
             </article>
           ))}
         </div>
-      )}
-      {idle.length > 0 && (
-        <p className="td-idle">
-          {idle.map((b) => <span key={b.key}><i aria-hidden="true">✓</i> {b.label} 없음</span>)}
-        </p>
       )}
     </section>
   );

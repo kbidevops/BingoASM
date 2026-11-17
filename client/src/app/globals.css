@@ -1786,8 +1786,6 @@ tr.evw-row>td:first-child{box-shadow:inset 3px 0 0 var(--evw-line)}
 .td-when{flex:none;font-size:.75rem;color:var(--muted);white-space:nowrap;margin-top:2px}
 .td-more{margin:6px 0 0;font-size:.8125rem;color:var(--muted)}
 .td-clear{margin:0;padding:14px 16px;border:1px dashed var(--line);border-radius:14px;color:var(--ok);font-weight:700}
-.td-idle{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
-.td-idle span{font-size:.75rem;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
 
 /* 관리자: 지연 알림 기준 */
 .ar-tab input[type=number]{width:84px}
@@ -2021,12 +2019,11 @@ td.asst-td{text-align:center;vertical-align:middle;min-width:150px}
 .td-main small{margin-top:2px}
 .td-when{margin-top:0;font-variant-numeric:tabular-nums;text-align:right;min-width:64px}
 .td-when.bad{color:var(--err);font-weight:700}
+.td-when small{display:block;font-size:.6875rem;font-weight:500;color:var(--muted);margin-top:1px}.td-when small.soon{color:#b35900;font-weight:700}
 .td-all{display:block;margin-top:8px;padding-top:10px;border-top:1px solid var(--line);font-size:.8125rem;font-weight:600;color:var(--pri);text-decoration:none;text-align:right}
 .td-all:hover{text-decoration:underline}
-.td-idle span{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .td-line .sla-b.near{color:#f0b060}:root:not([data-theme="light"]) .td-line .hold-b{color:#c4a3f0}}
 :root[data-theme="dark"] .td-line .sla-b.near{color:#f0b060}:root[data-theme="dark"] .td-line .hold-b{color:#c4a3f0}
-.td-idle i{font-style:normal;font-weight:700}
 
 /* ---------- 스쿨넷 SLA 공유 (2026-11) ---------- */
 .sla .glb.sla-act{flex-wrap:wrap}
@@ -2431,3 +2428,4 @@ td.ua-td{white-space:nowrap;vertical-align:middle}
 .ua-otp{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:6px;font-size:.6875rem;font-weight:700;color:var(--pri);background:color-mix(in srgb,var(--pri) 9%,transparent);vertical-align:middle}
 .ua-otp.pend{color:#b35900;background:color-mix(in srgb,#f5a623 16%,transparent)}
 .ua-unlock{margin-left:6px;font-size:.8125rem}
+.ua-td .ua-menu{display:inline-block}.ua-pop.up{top:auto;bottom:calc(100% + 4px)}.ua-pop li.sep{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}.ua-pop button.bad b{color:var(--err)}.ua-pop button.bad:hover,.ua-pop button.bad:focus-visible{background:color-mix(in srgb,var(--err) 8%,transparent)}

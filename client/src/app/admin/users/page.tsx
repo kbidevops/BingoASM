@@ -209,19 +209,17 @@ function Users() {
                   </td>
                   <td data-label="최근 로그인">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "-"}</td>
                   <td data-label="관리" className="ua-td">
-                    {editable ? (
-                      // 수정 · 삭제 · 더보기(⋯) 세 칸을 늘 같은 자리에: 없는 동작은 빈 칸으로 두어 줄이 맞는다.
-                      <div className="ua">
-                        {can("USER_EDIT") ? <button className="ua-btn" type="button" onClick={() => setEdit(u)}>수정</button> : <span />}
-                        {!self && u.status !== "DISABLED" && can("USER_DELETE") ? <button className="ua-btn bad" type="button" onClick={() => setDel(u)}>삭제</button> : <span />}
-                        {u.status !== "DISABLED" && can("USER_UNLOCK") ? (
-                          <RowMenu label={`${u.userName}(${u.loginId}) 더보기`} items={[
-                            { label: u.otpEnabled ? "OTP 끄기" : "OTP 켜기", hint: u.otpEnabled ? "2단계 인증을 끕니다" : "다음 로그인 때 인증 앱 등록", onClick: () => setOtpSwitch(u) },
-                            ...(u.otpEnabled && u.otpRegistered ? [{ label: "OTP 초기화", hint: "휴대폰 분실 · 교체", onClick: () => setOtpReset(u) }] : []),
-                          ]} />
-                        ) : <span />}
-                      </div>
-                    ) : <span className="hint">통합 관리자만</span>}
+                    {editable ? (() => {
+                      // 관리 동작은 모두 더보기(⋯) 메뉴에: 수정 · OTP · 삭제(맨 아래, 구분선 뒤)
+                      const live = u.status !== "DISABLED";
+                      const items: MenuItem[] = [
+                        ...(can("USER_EDIT") ? [{ label: "수정", hint: "이름 · 소속 · 역할 · 비밀번호", onClick: () => setEdit(u) }] : []),
+                        ...(live && can("USER_UNLOCK") ? [{ label: u.otpEnabled ? "OTP 끄기" : "OTP 켜기", hint: u.otpEnabled ? "2단계 인증을 끕니다" : "다음 로그인 때 인증 앱 등록", onClick: () => setOtpSwitch(u) }] : []),
+                        ...(live && can("USER_UNLOCK") && u.otpEnabled && u.otpRegistered ? [{ label: "OTP 초기화", hint: "휴대폰 분실 · 교체", onClick: () => setOtpReset(u) }] : []),
+                        ...(!self && live && can("USER_DELETE") ? [{ label: "삭제", hint: "계정 사용 중지", onClick: () => setDel(u), danger: true, sep: true }] : []),
+                      ];
+                      return items.length ? <RowMenu label={`${u.userName}(${u.loginId}) 관리`} items={items} /> : <span className="hint">-</span>;
+                    })() : <span className="hint">통합 관리자만</span>}
                   </td>
                 </tr>
               );
@@ -434,9 +432,22 @@ function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
 }
 
 /** 줄마다의 더보기(⋯) 메뉴: 자주 쓰지 않는 동작을 모아 둔다. 바깥을 누르거나 Esc로 닫힌다. */
-function RowMenu({ label, items }: { label: string; items: { label: string; hint?: string; onClick: () => void }[] }) {
+interface MenuItem { label: string; hint?: string; onClick: () => void; danger?: boolean; sep?: boolean }
+
+function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
   const [open, setOpen] = useState(false);
+  // 표 아래쪽 줄은 위로 연다 (표의 스크롤 영역에 잘리지 않게)
+  const [up, setUp] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const toggle = () => {
+    if (!open && box.current) {
+      const r = box.current.getBoundingClientRect();
+      const area = box.current.closest(".tw")?.getBoundingClientRect();
+      const bottom = Math.min(window.innerHeight, area?.bottom ?? window.innerHeight);
+      setUp(r.bottom + items.length * 52 + 16 > bottom && r.top - (area?.top ?? 0) > items.length * 52);
+    }
+    setOpen(!open);
+  };
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
@@ -446,14 +457,14 @@ function RowMenu({ label, items }: { label: string; items: { label: string; hint
   }, [open]);
   return (
     <div className="ua-menu" ref={box}>
-      <button className="ua-btn ua-more" type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button className="ua-btn ua-more" type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
       </button>
       {open && (
-        <ul className="ua-pop" role="menu">
+        <ul className={"ua-pop" + (up ? " up" : "")} role="menu">
           {items.map((it) => (
-            <li key={it.label} role="none">
-              <button type="button" role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}>
+            <li key={it.label} role="none" className={it.sep ? "sep" : undefined}>
+              <button type="button" role="menuitem" className={it.danger ? "bad" : undefined} onClick={() => { setOpen(false); it.onClick(); }}>
                 <b>{it.label}</b>{it.hint && <small>{it.hint}</small>}
               </button>
             </li>
