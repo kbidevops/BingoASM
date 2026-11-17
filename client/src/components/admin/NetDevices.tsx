@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import BulkUploadModal from "@/components/admin/BulkUploadModal";
 import PlaceField, { type PlaceValue } from "@/components/admin/PlaceField";
 import { Confirm, FilterField, FilterForm, LabelSheet, ListHead, StatusDot, Tiles, usePrintSheet } from "@/components/admin/common";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
@@ -41,6 +42,7 @@ export default function NetDevices({ ty }: { ty: "M" | "S" }) {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
   const [edit, setEdit] = useState<Device | "new" | null>(null);
+  const [bulk, setBulk] = useState(false);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const { print, sheet } = usePrintSheet();
   // ?id=123 (장비 정보 화면의 "장비 정보 수정"): 목록을 불러오면 그 장비의 수정 창을 연다.
@@ -137,6 +139,7 @@ export default function NetDevices({ ty }: { ty: "M" | "S" }) {
           엑셀출력 <Icon name="down" />
         </button>
         {canLabel && <button className="btn sm sec" type="button" onClick={() => printLabels([...sel])}>QR 라벨 출력{sel.size ? ` (${sel.size})` : ""}</button>}
+        {canCreate && <button className="btn sm sec" type="button" onClick={() => setBulk(true)}>일괄 등록</button>}
         {canCreate && <button className="btn sm" type="button" onClick={() => setEdit("new")}>장비 등록</button>}
       </ListHead>
       {relabel && (
@@ -180,6 +183,14 @@ export default function NetDevices({ ty }: { ty: "M" | "S" }) {
       {edit && (
         <DeviceForm ty={ty} device={edit === "new" ? null : edit} onClose={() => setEdit(null)}
           onSaved={(m, moved) => { setEdit(null); toast(m); if (moved) setRelabel(moved); load(); }} />
+      )}
+      {bulk && (
+        <BulkUploadModal title={ty === "M" ? "무선장비 엑셀 일괄 등록" : "스쿨넷 장비 엑셀 일괄 등록"} api={k.api} noun="장비" unit="대" onClose={() => setBulk(false)} onDone={(m) => { toast(m); load(); }}
+          notes={<>
+            <p>■ 양식의 1행(제목)은 바꾸지 마세요. 필수: 학교명 · 장비명{ty === "S" ? " · 장비 구분" : ""}. 학교명은 ‘학교 목록’ 시트의 이름으로 적습니다.</p>
+            <p>■ 장비번호를 비우면 {ty === "M" ? "W-0001" : "N-0001"}처럼 자동으로 붙습니다. 유지보수 업체를 비우면 학교의 {ty === "M" ? "무선망" : "스쿨넷"} 담당 업체로 넣습니다.</p>
+            <p>■ {ty === "M" ? "도면 위치는 등록 뒤 ‘무선장비 위치(도면)’에서 놓습니다. " : ""}등록한 장비는 QR 라벨을 출력해 붙일 수 있습니다. 최대 2,000행.</p>
+          </>} />
       )}
     </>
   );
@@ -280,7 +291,7 @@ function DeviceForm({ ty, device, onClose, onSaved }: {
             <input aria-label="MAC 주소" placeholder="MAC 주소" value={v.macAddress} onChange={set("macAddress")} />
           </FormRow>
           <FormRow label="설치위치">
-            <PlaceField apiBase={k.api} schoolId={v.schoolId} initial={device?.location ?? ""} planFloorId={ty === "M" ? device?.floorId : null} onChange={setPlace} />
+            <PlaceField apiBase={k.api} schoolId={v.schoolId} initial={device?.location ?? ""} planFloorId={device?.floorId} onChange={setPlace} />
           </FormRow>
           {ty === "S" && (
             <FormRow label="회선">

@@ -15,7 +15,8 @@ import { GROUP_META, groupIcon } from "./menuMeta";
  */
 export default function SubPage({ title, perm, auth, menuPath, side = true, children }: {
   title?: string;
-  perm?: string;
+  /** Permission that opens the page; a list means any one of them. */
+  perm?: string | string[];
   /** Requires sign-in even without a specific permission. */
   auth?: boolean;
   menuPath?: string;
@@ -52,7 +53,7 @@ export default function SubPage({ title, perm, auth, menuPath, side = true, chil
 
   let body: React.ReactNode = children;
   if (needLogin && status !== "authed") body = <Loading text={status === "loading" ? "불러오는 중입니다…" : "로그인 화면으로 이동합니다…"} />;
-  else if (perm && !can(perm)) {
+  else if (perm && !(Array.isArray(perm) ? perm.some((p) => can(p)) : can(perm))) {
     body = (
       <div className="empty" style={{ padding: "40px 20px" }}>
         <p style={{ margin: "0 0 14px" }}>이 메뉴를 사용할 권한이 없습니다. 권한이 필요하면 충청남도교육청(041-640-7114)에 문의해 주세요.</p>

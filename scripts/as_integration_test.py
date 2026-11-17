@@ -2154,6 +2154,135 @@ st, j, _ = call("POST", "/api/as/sla-reports", {"title": "추가 자료 — 10�
 check("sla report: another upload any time (no 월 제한)", st == 200 and r2 and r2 != rid, j)
 st, j, _ = call("DELETE", f"/api/as/sla-reports/{r2}", token=VA3); check("sla report: 승인 전 지우기", st == 200, j)
 
+# ---------- 일괄 등록: 학교 · 무선망 장비 · 스쿨넷 장비 (양식 → 검증 → 확정) ----------
+print("\n== 학교 · 장비 일괄 등록")
+def bulk_up(base, rows, tok, extra=""):
+    return call("POST", f"{base}/bulk/{'commit' if extra else 'validate'}{extra}", files=[("file", ("bulk.xlsx", make_xlsx(rows), XLSX))], token=tok)
+sch_all = data(call("GET", "/api/as/schools", token=E))
+bh_ = next(s for s in sch_all if s["schoolName"] == "봉황초등학교")
+reg_all = data(call("GET", "/api/as/regions", token=E))
+r_me = data(call("GET", "/api/auth/me", token=R))["regionId"]
+r_own = next(r for r in reg_all if r["regionId"] == r_me); r_other = next(r for r in reg_all if r["regionId"] != r_me)
+m_vendor = next(v["vendorName"] for v in bh_["vendors"] if v["rceptTy"] == "M")
+
+# 학교
+st, j, _ = call("GET", "/api/as/schools/bulk/template", token=S, raw=True); check("school bulk: 학교 담당자 → 403", st == 403, st)
+st, tpl, h = call("GET", "/api/as/schools/bulk/template", token=E, raw=True)
+check("school bulk: template xlsx", st == 200 and tpl[:2] == b"PK" and "filename*=UTF-8''" in h.get("Content-Disposition", ""), st)
+st, j, _ = call("POST", "/api/as/schools/bulk/validate", files=[("file", ("양식.xlsx", tpl, XLSX))], token=E); tv = data((st, j, None)) or {}
+SH = tv.get("head", [])
+check("school bulk: template sample rows validate without errors, head has 서비스별 업체 열", st == 200 and tv["total"] == 2 and tv["error"] == 0 and "무선망 업체" in SH and SH[:4] == ["기관명", "기관코드", "학교 구분", "교육지원청"], (st, SH))
+def srow(**kw):
+    r = [""] * len(SH)
+    for k_, v_ in kw.items(): r[SH.index(k_.replace("_", " "))] = v_
+    return r
+rows_ = [SH,
+         srow(기관명="일괄초등학교", 기관코드="BULK-001", 학교_구분="초등", 교육지원청=bh_["regionName"], 학급_수="12", 무선망_업체=m_vendor),
+         srow(기관명="봉황초등학교", 교육지원청=bh_["regionName"]),
+         srow(기관명="일괄초등학교", 교육지원청=bh_["regionName"]),
+         srow(기관명="일괄중학교", 학교_구분="대학교", 교육지원청=bh_["regionName"]),
+         srow(기관명="일괄고등학교", 교육지원청="없는교육지원청"),
+         srow(기관명="일괄특수학교", 기관코드="BULK-001", 교육지원청=bh_["regionName"], 학급_수="많음")]
+st, j, _ = bulk_up("/api/as/schools", rows_, E); sv_ = data((st, j, None)) or {}
+errs = {r["rowNo"]: " ".join(r["errors"]) for r in sv_.get("rows", [])}
+check("school bulk: 1 ok, 5 errors", st == 200 and sv_["ok"] == 1 and sv_["error"] == 5, (st, errs))
+check("school bulk: errors name the cause (이미 등록 · 행과 겹침 · 학교 구분 · 교육지원청 · 코드 · 학급 수)",
+      "이미 등록된" in errs.get(3, "") and "2행과 겹칩니다" in errs.get(4, "") and "학교 구분" in errs.get(5, "") and "찾을 수 없습니다" in errs.get(6, "")
+      and "기관코드" in errs.get(7, "") and "학급 수" in errs.get(7, ""), errs)
+st, j, _ = bulk_up("/api/as/schools", rows_, E, "?skipErrors=false"); check("school bulk: commit with errors, no skip → 400", st == 400, j)
+check("school bulk: nothing saved after refused commit", not any(s["schoolName"] == "일괄초등학교" for s in data(call("GET", "/api/as/schools", token=E))))
+st, j, _ = bulk_up("/api/as/schools", rows_, E, "?skipErrors=true"); sc_ = data((st, j, None)) or {}
+check("school bulk: commit skipErrors → 1 created, 5 skipped", st == 200 and sc_["created"] == 1 and sc_["skipped"] == 5, j)
+ns_ = next((s for s in data(call("GET", "/api/as/schools", token=E)) if s["schoolName"] == "일괄초등학교"), None)
+check("school bulk: saved with code · type · region · 학급 수 · 무선망 업체",
+      ns_ and ns_["schoolCode"] == "BULK-001" and ns_["schoolType"] == "ELEM" and ns_["regionId"] == bh_["regionId"] and ns_["classCount"] == 12
+      and any(v["rceptTy"] == "M" and v["vendorName"] == m_vendor for v in ns_["vendors"]), ns_)
+# 교육지원청: 비우면 자기 교육지원청, 다른 교육지원청은 안 됨
+st, j, _ = bulk_up("/api/as/schools", [SH, srow(기관명="관내일괄학교"), srow(기관명="관외일괄학교", 교육지원청=r_other["regionName"])], R); rv_ = data((st, j, None)) or {}
+check("school bulk: 교육지원청 — blank → own, other region → error",
+      st == 200 and rv_["rows"][0]["ok"] and rv_["rows"][0]["cells"][3] == r_own["regionName"] and not rv_["rows"][1]["ok"] and "관할" in " ".join(rv_["rows"][1]["errors"]), rv_.get("rows"))
+st, j, _ = bulk_up("/api/as/schools", [SH[:3]], E); check("school bulk: wrong head → 400", st == 400 and "양식이 다릅니다" in msg((st, j, None)), j)
+
+# 무선망 장비
+st, tpl, h = call("GET", "/api/as/wireless-devices/bulk/template", token=E, raw=True); check("device bulk (M): template xlsx", st == 200 and tpl[:2] == b"PK", st)
+st, j, _ = call("POST", "/api/as/wireless-devices/bulk/validate", files=[("file", ("양식.xlsx", tpl, XLSX))], token=E); tv = data((st, j, None)) or {}
+MH = tv.get("head", [])
+check("device bulk (M): template sample rows validate", st == 200 and tv["total"] == 2 and tv["ok"] == 2, [r["errors"] for r in tv.get("rows", [])])
+def mrow(head_, **kw):
+    r = [""] * len(head_)
+    for k_, v_ in kw.items(): r[head_.index(k_.replace("_", " "))] = v_
+    return r
+mrows = [MH,
+         mrow(MH, 학교명="봉황초등학교", 장비명="일괄 AP 1", 장비번호="BLK-W-001", IP_주소="10.9.9.1", MAC_주소="aa-bb-cc-dd-ee-ff", 설치위치="본관 3층", 설치일="2024.3.2"),
+         mrow(MH, 학교명="봉황초등학교", 장비명="일괄 AP 2", 장비번호="BLK-W-001"),
+         mrow(MH, 학교명="없는학교", 장비명="x"),
+         mrow(MH, 학교명="봉황초등학교", 장비명="일괄 AP 3", IP_주소="999.1.1.1"),
+         mrow(MH, 학교명="봉황초등학교", 장비명="일괄 AP 4", 상태="고장남"),
+         mrow(MH, 학교명="봉황초등학교", 장비명="일괄 AP 5", 설치일="2099-01-01"),
+         mrow(MH, 학교명="봉황초등학교", 장비명="일괄 스위치", 장비_구분="PoE 스위치", 상태="점검중")]
+st, j, _ = bulk_up("/api/as/wireless-devices", mrows, E); mv_ = data((st, j, None)) or {}
+errs = {r["rowNo"]: " ".join(r["errors"]) for r in mv_.get("rows", [])}
+check("device bulk (M): 2 ok, 5 errors", st == 200 and mv_["ok"] == 2 and mv_["error"] == 5, errs)
+check("device bulk (M): errors name the cause (번호 겹침 · 학교 · IP · 상태 · 미래 날짜)",
+      "2행과 겹칩니다" in errs.get(3, "") and "없는학교" in errs.get(4, "") and "IP" in errs.get(5, "") and "상태" in errs.get(6, "") and "오늘 이후" in errs.get(7, ""), errs)
+r2_ = mv_["rows"][0]["cells"]
+check("device bulk (M): normalised — 구분 AP · MAC · 날짜 · 학교 담당 업체",
+      r2_[MH.index("장비 구분")] == "무선 AP" and r2_[MH.index("MAC 주소")] == "AA:BB:CC:DD:EE:FF" and r2_[MH.index("설치일")] == "2024-03-02" and m_vendor in r2_[MH.index("유지보수 업체")], r2_)
+st, j, _ = bulk_up("/api/as/wireless-devices", mrows, E, "?skipErrors=true"); mc_ = data((st, j, None)) or {}
+check("device bulk (M): commit → 2 created", st == 200 and mc_["created"] == 2 and mc_["skipped"] == 5, j)
+d1 = next((d for d in data(call("GET", "/api/as/wireless-devices?keyword=BLK-W-001&size=50", token=E))["content"] if d["deviceCode"] == "BLK-W-001"), None)
+check("device bulk (M): saved as AP with MAC · 설치일 · school's 무선망 업체",
+      d1 and d1["deviceType"] == "AP" and d1["macAddress"] == "AA:BB:CC:DD:EE:FF" and d1["installedAt"] == "2024-03-02" and d1["vendorName"] == m_vendor and d1["location"] == "본관 3층", d1)
+d2 = next((d for d in data(call("GET", "/api/as/wireless-devices?size=500", token=E))["content"] if d["deviceName"] == "일괄 스위치"), None)
+check("device bulk (M): auto 장비번호 W-… and 상태 점검중", d2 and d2["deviceCode"].startswith("W-") and d2["deviceType"] == "SWITCH" and d2["status"] == "CHECK", d2)
+st, j, _ = bulk_up("/api/as/wireless-devices", [MH, mrows[1]], E); check("device bulk (M): same 장비번호 again → error (이미 사용)", st == 200 and "이미 다른 장비" in " ".join(data((st, j, None))["rows"][0]["errors"]), j)
+other_school = next(s for s in sch_all if s["regionId"] != r_me)
+st, j, _ = bulk_up("/api/as/wireless-devices", [MH, mrow(MH, 학교명=other_school["schoolName"], 장비명="관외 AP")], R)
+check("device bulk (M): 교육지원청 — 관외 학교 → error", st == 200 and "다룰 수 없는" in " ".join(data((st, j, None))["rows"][0]["errors"]), j)
+st, j, _ = bulk_up("/api/as/wireless-devices", [MH, mrows[1]], S); check("device bulk (M): 학교 담당자 (등록 권한 없음) → 403", st == 403, j)
+
+# 스쿨넷 장비
+st, tpl, h = call("GET", "/api/as/schoolnet-devices/bulk/template", token=E, raw=True); check("device bulk (S): template xlsx", st == 200 and tpl[:2] == b"PK", st)
+st, j, _ = call("POST", "/api/as/schoolnet-devices/bulk/validate", files=[("file", ("양식.xlsx", tpl, XLSX))], token=E); tv = data((st, j, None)) or {}
+NH = tv.get("head", [])
+check("device bulk (S): head has 통신사 · 회선번호 · 회선 속도", st == 200 and {"통신사", "회선번호", "회선 속도"} <= set(NH) and tv["ok"] == 1, (NH, [r["errors"] for r in tv.get("rows", [])]))
+srows = [NH, mrow(NH, 학교명="봉황초등학교", 장비명="일괄 라우터", 장비_구분="라우터", 통신사="KT", 회선번호="KT-9999-0001", 회선_속도="1Gbps"),
+         mrow(NH, 학교명="봉황초등학교", 장비명="구분 없음"),
+         mrow(NH, 학교명="봉황초등학교", 장비명="AP를 스쿨넷에", 장비_구분="무선 AP")]
+st, j, _ = bulk_up("/api/as/schoolnet-devices", srows, E); nv_ = data((st, j, None)) or {}
+errs = {r["rowNo"]: " ".join(r["errors"]) for r in nv_.get("rows", [])}
+check("device bulk (S): 장비 구분 required and must be a 스쿨넷 type", st == 200 and nv_["ok"] == 1 and "장비 구분을 입력" in errs.get(3, "") and "쓸 수 없습니다" in errs.get(4, ""), errs)
+st, j, _ = bulk_up("/api/as/schoolnet-devices", srows, E, "?skipErrors=true"); check("device bulk (S): commit → 1 created", st == 200 and data((st, j, None))["created"] == 1, j)
+n1 = next((d for d in data(call("GET", "/api/as/schoolnet-devices?keyword=KT-9999-0001&size=50", token=E))["content"]), None)
+check("device bulk (S): saved with 회선 and N- number", n1 and n1["deviceType"] == "ROUTER" and n1["carrier"] == "KT" and n1["bandwidth"] == "1Gbps" and n1["deviceCode"].startswith("N-"), n1)
+
+# ---------- 장비 위치(도면): 스쿨넷 장비도 놓고, 한 실에 여러 대 ----------
+print("\n== 장비 위치(도면): 스쿨넷 · 한 실 여러 대")
+check("plan: 스쿨넷 도면 배치 기능 (SDEVICE_PLACE) is on for 교육청", "SDEVICE_PLACE" in perms_of(E))
+sn_dev = data(call("POST", "/api/as/schoolnet-devices", {"schoolId": bh["schoolId"], "deviceName": "도면 라우터", "deviceType": "ROUTER"}, token=E))
+sn_dev2 = data(call("POST", "/api/as/schoolnet-devices", {"schoolId": bh["schoolId"], "deviceName": "도면 L3", "deviceType": "L3"}, token=E))
+w_dev = data(call("POST", "/api/as/wireless-devices", {"schoolId": bh["schoolId"], "deviceName": "전산실 컨트롤러", "deviceType": "CONTROLLER"}, token=E))
+spos = lambda dev, body, tok=E: call("PUT", f"/api/as/schoolnet-devices/{dev['deviceId']}/position", body, token=tok)
+st, j, _ = spos(sn_dev, {"floorId": fl2["floorId"], "x": 50, "y": 50, "room": "전산실"}); sp_ = data((st, j, None)) or {}
+check("plan (S): 스쿨넷 장비 placed on the floor plan with its room", st == 200 and sp_.get("floorId") == fl2["floorId"] and sp_.get("posX") == 50 and (sp_.get("location") or "").endswith(" 전산실"), j)
+st, j, _ = spos(sn_dev, {"floorId": fl2["floorId"], "x": 5, "y": 5}, S); check("plan (S): school user (no SDEVICE_PLACE) → 403", st == 403, j)
+st, j, _ = call("PUT", f"/api/as/wireless-devices/{sn_dev['deviceId']}/position", {"floorId": fl2["floorId"], "x": 5, "y": 5}, token=E)
+check("plan (S): a 스쿨넷 device cannot be moved through the 무선 API → 404", st == 404, j)
+# 한 실에 여러 대: 같은 실 · 거의 같은 자리에 스쿨넷 2대 + 무선 1대
+st2, j2, _ = spos(sn_dev2, {"floorId": fl2["floorId"], "x": 51.2, "y": 50, "room": "전산실"})
+st3, j3, _ = call("PUT", f"/api/as/wireless-devices/{w_dev['deviceId']}/position", {"floorId": fl2["floorId"], "x": 50, "y": 51.2, "room": "전산실"}, token=E)
+check("plan: many devices in one room (스쿨넷 2 + 무선 1) all saved", st2 == 200 and st3 == 200, (j2, j3))
+on_s = [d for d in data(call("GET", f"/api/as/schoolnet-devices?schoolId={bh['schoolId']}&size=200", token=E))["content"] if d.get("floorId") == fl2["floorId"]]
+on_w = [d for d in data(call("GET", f"/api/as/wireless-devices?schoolId={bh['schoolId']}&size=200", token=E))["content"] if d.get("floorId") == fl2["floorId"]]
+room_ = sp_.get("location")
+check("plan: both lists give the floor and the same room for the 3 devices",
+      sum(1 for d in on_s if d["location"] == room_) == 2 and any(d["deviceId"] == w_dev["deviceId"] and d["location"] == room_ for d in on_w), (room_, [(d["deviceCode"], d["location"]) for d in on_s + on_w]))
+hist = data(call("GET", f"/api/as/schoolnet-devices/{sn_dev['deviceId']}/history", token=E))
+check("plan (S): 위치 변경 기록 (도면에서 옮김)", any(h["actionType"] == "PLAN" for h in hist), hist)
+st, j, _ = spos(sn_dev, {"floorId": None}); check("plan (S): removed from plan", st == 200 and data((st, j, None)).get("floorId") is None, j)
+for d_ in (sn_dev, sn_dev2): call("DELETE", f"/api/as/schoolnet-devices/{d_['deviceId']}", token=E)
+call("DELETE", f"/api/as/wireless-devices/{w_dev['deviceId']}", token=E)
+
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} passed")
 if fails:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Confirm, FilterField, FilterForm, ListHead } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
 import UserBulkModal from "@/components/admin/UserBulkModal";
@@ -203,19 +203,24 @@ function Users() {
                   </td>
                   <td data-label="상태">
                     {u.status === "DISABLED" ? <span className="hint">삭제됨</span> : u.locked ? <b className="st s4">잠김</b> : <b className="st s1">정상</b>}
+                    {u.locked && u.status !== "DISABLED" && editable && can("USER_UNLOCK") && <button className="linkbtn ua-unlock" type="button" onClick={() => unlock(u)}>잠금 해제</button>}
                     {u.mustChangePassword && u.status !== "DISABLED" && <small className="um-pill warn" style={{ display: "inline-block", marginLeft: 4 }} title="다음 로그인 때 비밀번호를 바꿔야 합니다">임시 비밀번호</small>}
-                    {u.otpEnabled && <small className="hint" style={{ display: "block" }}>{u.otpRegistered ? "2단계 인증" : "2단계 인증 · 앱 미등록"}</small>}
+                    {u.otpEnabled && <small className={"ua-otp" + (u.otpRegistered ? "" : " pend")} title={u.otpRegistered ? "2단계 인증 사용 중" : "2단계 인증 사용 · 인증 앱을 아직 등록하지 않았습니다"}>OTP{u.otpRegistered ? "" : " · 앱 미등록"}</small>}
                   </td>
                   <td data-label="최근 로그인">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "-"}</td>
-                  <td data-label="관리" style={{ whiteSpace: "nowrap" }}>
+                  <td data-label="관리" className="ua-td">
                     {editable ? (
-                      <>
-                        {u.locked && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => unlock(u)}>잠금 해제</button>{" "}</>}
-                        {u.otpEnabled && u.otpRegistered && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => setOtpReset(u)}>OTP 초기화</button>{" "}</>}
-                        {u.status !== "DISABLED" && can("USER_UNLOCK") && <><button className="btn sm sec" type="button" onClick={() => setOtpSwitch(u)}>{u.otpEnabled ? "OTP 끄기" : "OTP 켜기"}</button>{" "}</>}
-                        {can("USER_EDIT") && <button className="btn sm sec" type="button" onClick={() => setEdit(u)}>수정</button>}
-                        {!self && u.status !== "DISABLED" && can("USER_DELETE") && <>{" "}<button className="btn sm sec" type="button" onClick={() => setDel(u)}>삭제</button></>}
-                      </>
+                      // 수정 · 삭제 · 더보기(⋯) 세 칸을 늘 같은 자리에: 없는 동작은 빈 칸으로 두어 줄이 맞는다.
+                      <div className="ua">
+                        {can("USER_EDIT") ? <button className="ua-btn" type="button" onClick={() => setEdit(u)}>수정</button> : <span />}
+                        {!self && u.status !== "DISABLED" && can("USER_DELETE") ? <button className="ua-btn bad" type="button" onClick={() => setDel(u)}>삭제</button> : <span />}
+                        {u.status !== "DISABLED" && can("USER_UNLOCK") ? (
+                          <RowMenu label={`${u.userName}(${u.loginId}) 더보기`} items={[
+                            { label: u.otpEnabled ? "OTP 끄기" : "OTP 켜기", hint: u.otpEnabled ? "2단계 인증을 끕니다" : "다음 로그인 때 인증 앱 등록", onClick: () => setOtpSwitch(u) },
+                            ...(u.otpEnabled && u.otpRegistered ? [{ label: "OTP 초기화", hint: "휴대폰 분실 · 교체", onClick: () => setOtpReset(u) }] : []),
+                          ]} />
+                        ) : <span />}
+                      </div>
                     ) : <span className="hint">통합 관리자만</span>}
                   </td>
                 </tr>
@@ -425,5 +430,36 @@ function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** 줄마다의 더보기(⋯) 메뉴: 자주 쓰지 않는 동작을 모아 둔다. 바깥을 누르거나 Esc로 닫힌다. */
+function RowMenu({ label, items }: { label: string; items: { label: string; hint?: string; onClick: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); box.current?.querySelector<HTMLButtonElement>(".ua-more")?.focus(); } };
+    document.addEventListener("mousedown", away); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="ua-menu" ref={box}>
+      <button className="ua-btn ua-more" type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+      </button>
+      {open && (
+        <ul className="ua-pop" role="menu">
+          {items.map((it) => (
+            <li key={it.label} role="none">
+              <button type="button" role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}>
+                <b>{it.label}</b>{it.hint && <small>{it.hint}</small>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import BulkUploadModal from "@/components/admin/BulkUploadModal";
 import { Confirm, FilterField, FilterForm, ListHead } from "@/components/admin/common";
 import SubPage from "@/components/SubPage";
 import { ErrorBox, FormMsg, FormRow, Icon, Loading, Modal, Pager, useToast } from "@/components/ui";
@@ -37,6 +38,7 @@ function Schools() {
   const [filter, setFilter] = useState(empty);
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<SchoolFull | "new" | null>(null);
+  const [bulk, setBulk] = useState(false);
 
   const load = useCallback(() => {
     setErr("");
@@ -84,6 +86,7 @@ function Schools() {
           onClick={() => downloadCsv("학교관리", head.slice(0, -1), shown.map((s) => [s.schoolName, s.regionName, s.schoolTypeName, s.classCount, vendorsOf(s), s.assetCount]))}>
           엑셀출력 <Icon name="down" />
         </button>
+        {manage && can("SCHOOL_CREATE") && <button className="btn sm sec" type="button" onClick={() => setBulk(true)}>일괄 등록</button>}
         {manage && can("SCHOOL_CREATE") && <button className="btn sm" type="button" onClick={() => setEdit("new")}>기관 등록</button>}
       </ListHead>
       <div className="tw">
@@ -106,6 +109,14 @@ function Schools() {
       </div>
       <Pager page={cur} totalPages={pages} onPage={setPage} />
       {edit && <SchoolForm school={edit === "new" ? null : edit} regions={regions} manage={manage} onClose={() => setEdit(null)} onSaved={(m) => { setEdit(null); toast(m); load(); }} />}
+      {bulk && (
+        <BulkUploadModal title="학교 엑셀 일괄 등록" api="/api/as/schools" noun="기관" unit="곳" onClose={() => setBulk(false)} onDone={(m) => { toast(m); load(); }}
+          notes={<>
+            <p>■ 양식의 1행(제목)은 바꾸지 마세요. 열: 기관명 · 기관코드 · 학교 구분 · 교육지원청 · 주소 · 전화 · 학급 수 · 메모 · 서비스별 담당 업체</p>
+            <p>■ 기관명과 기관코드는 겹칠 수 없습니다 (이미 있는 기관도 안 됩니다). {district ? "교육지원청을 비우면 자기 교육지원청으로 넣습니다." : "교육지원청은 ‘교육지원청 목록’ 시트의 이름으로 적습니다."}</p>
+            <p>■ 서비스별 담당 업체(예: 무선망 업체)를 함께 적으면 바로 지정합니다. 비우면 그 서비스의 AS 신청을 받을 업체가 없으니 나중에 지정해 주세요. 최대 1,000행.</p>
+          </>} />
+      )}
     </>
   );
 }

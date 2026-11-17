@@ -13,13 +13,18 @@ import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 
 /**
- * 무선장비 위치(도면): 학교 건물 → 층 → 층 도면을 올리고, 무선장비(AP·스위치·컨트롤러)를 도면 위 아이콘으로 놓는다.
- * 위치는 도면 크기 대비 %(0~100)라 도면을 확대해도 그대로다. ?school=&building=&floor= 로 그 층을 바로 연다.
+ * 장비 위치(도면): 학교 건물 → 층 → 층 도면을 올리고, 무선망 장비(AP·스위치·컨트롤러)와 스쿨넷 장비(라우터·스위치·방화벽 …)를
+ * 도면 위 아이콘으로 놓는다. 위치는 도면 크기 대비 %(0~100)라 도면을 확대해도 그대로다. ?school=&building=&floor= 로 그 층을 바로 연다.
+ * 한 실에 여러 대가 있으면 가까운 아이콘을 묶어 개수로 보여 주고(누르면 목록), 장비 배치에서는 여러 대를 골라 한 번에 놓는다.
  */
+type Kind = "M" | "S";
+const KAPI: Record<Kind, string> = { M: "/api/as/wireless-devices", S: "/api/as/schoolnet-devices" };
+const KNAME: Record<Kind, string> = { M: "무선망", S: "스쿨넷" };
+const apiOf = (d?: Device) => KAPI[d?.rceptTy === "S" ? "S" : "M"];
 export default function FloorplanPage() {
   return (
     <Suspense>
-      <SubPage perm="WDEVICE_MANAGE">
+      <SubPage perm={["WDEVICE_MANAGE", "SDEVICE_MANAGE"]}>
         <Floorplan />
       </SubPage>
     </Suspense>
@@ -46,10 +51,13 @@ function Floorplan() {
   const cur = useRef({ bid, fid });
   cur.current = { bid, fid };
 
+  // 이 계정이 관리하는 종류의 장비만 (무선망 · 스쿨넷 · 둘 다)
+  const kinds = useMemo(() => (["M", "S"] as Kind[]).filter((t) => can(t === "M" ? "WDEVICE_MANAGE" : "SDEVICE_MANAGE")), [can]);
   const loadDevices = useCallback(() => {
     if (!schoolId) return;
-    fetchAll<Device>("/api/as/wireless-devices", { schoolId }).then(setDevices).catch((e) => toast(e.message));
-  }, [schoolId, toast]);
+    Promise.all(kinds.map((t) => fetchAll<Device>(KAPI[t], { schoolId }).then((l) => l.map((d) => ({ ...d, rceptTy: d.rceptTy ?? t })))))
+      .then((ls) => setDevices(ls.flat())).catch((e) => toast(e.message));
+  }, [schoolId, toast, kinds]);
 
   const load = useCallback(() => {
     if (!schoolId) return;
@@ -80,7 +88,7 @@ function Floorplan() {
     form.append("file", file);
     await api.upload(`/api/places/floors/${f.floorId}/plan`, form);
     setUploading(false);
-    toast("도면을 올렸습니다. ‘장비 배치’에서 무선장비를 도면에 놓아 주세요.");
+    toast("도면을 올렸습니다. ‘장비 배치’에서 장비를 도면에 놓아 주세요.");
     setBust(Date.now());
     load();
   };
@@ -91,7 +99,8 @@ function Floorplan() {
       <div className="fpv-top">
         <SchoolSelect schools={schools} value={schoolId} fixed={fixed} onChange={(id) => { setSchoolId(id); setBlds(null); setDevices(null); }} />
         <span className="fpv-links">
-          <Link className="btn sm sec" href="/admin/devices">무선장비관리</Link>
+          {kinds.includes("M") && <Link className="btn sm sec" href="/admin/devices">무선장비관리</Link>}
+          {kinds.includes("S") && <Link className="btn sm sec" href="/admin/schoolnet-devices">스쿨넷장비관리</Link>}
           {canSpace && <Link className="btn sm sec" href="/admin/spaces">건물·층 관리</Link>}
         </span>
       </div>
@@ -101,7 +110,7 @@ function Floorplan() {
           <ol className="fpv-steps">
             <li><b>건물 등록</b><span>학교의 건물(본관·별관 등)과 층 수</span></li>
             <li><b>층 도면 올리기</b><span>층마다 도면 이미지·PDF·사진</span></li>
-            <li><b>장비 배치</b><span>무선 AP·스위치를 도면 위에 놓기</span></li>
+            <li><b>장비 배치</b><span>무선 AP · 스쿨넷 라우터 · 스위치를 도면 위에 놓기</span></li>
           </ol>
           {canAddBld ? <button type="button" className="btn sm" onClick={() => setAdding("building")}>건물 등록</button>
             : <p className="hint">건물 등록은 학교·교육청 담당자가 할 수 있습니다.</p>}
@@ -141,7 +150,7 @@ function Floorplan() {
             </div>
           ) : devices === null ? <Loading /> : (
             <PlanView key={f.floorId} planUrl={`${API_BASE}${f.planUrl}${bust ? `?v=${bust}` : ""}`} title={`${b!.buildingName} ${f.floorName}`}
-              floorId={f.floorId} devices={devices} floorTexts={blds.flatMap((x) => x.floors.map((y) => `${x.buildingName} ${y.floorName}`))} canEdit={can("WDEVICE_PLACE")} onChanged={changed} initialSel={Number(params.get("device")) || null}
+              floorId={f.floorId} devices={devices} floorTexts={blds.flatMap((x) => x.floors.map((y) => `${x.buildingName} ${y.floorName}`))} kinds={kinds} canPlace={(d) => can(d.rceptTy === "S" ? "SDEVICE_PLACE" : "WDEVICE_PLACE")} onChanged={changed} initialSel={Number(params.get("device")) || null}
               initialPlace={params.get("place") === "1" && f.floorId === Number(params.get("floor"))}
               onReplace={can("FLOOR_WRITE") ? () => setUploading(true) : undefined} />
           )}
@@ -164,20 +173,31 @@ function Floorplan() {
 
 type Mode = "view" | "place";
 const HINTS: Record<Mode, string> = {
-  view: "장비 아이콘을 누르면 정보가 나옵니다.",
-  place: "목록에서 장비를 고른 뒤 도면에서 놓을 곳을 누르세요. 놓인 아이콘은 끌어서 옮깁니다.",
+  view: "장비 아이콘을 누르면 정보가 나옵니다. 숫자 아이콘은 한곳에 모인 여러 대입니다 — 누르면 목록이 나옵니다.",
+  place: "목록에서 장비를 고른 뒤 도면에서 놓을 곳을 누르세요. 한 실에 여러 대면 체크해서 한 번에 놓습니다. 놓인 아이콘은 끌어서 옮깁니다.",
 };
+const STATUS_RANK: Record<string, number> = { FAULT: 3, CHECK: 2, NORMAL: 1, DISPOSED: 0 };
+/** 화면에서 이만큼(px) 가까운 아이콘은 하나로 묶는다 (아이콘 지름 30px). */
+const CLUSTER_PX = 26;
 const STATUS_TONE: Record<string, string> = { NORMAL: "ok", CHECK: "chk", FAULT: "bad", DISPOSED: "off" };
 
-/** 장비 유형 아이콘 (24×24, currentColor). */
+/** 장비 유형 아이콘 (24×24, currentColor). 무선망: AP · 스위치 · 컨트롤러, 스쿨넷: 라우터 · L3/L2 스위치 · 방화벽 · 기타. */
 function DeviceGlyph({ type }: { type?: string }) {
+  if (type === "ROUTER") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="8" rx="2" /><path d="M7 15h.01M11 15h.01M15 15h2M8 11L6 5M16 11l2-6" /></svg>;
+  if (type === "L3" || type === "L2") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2" /><path d="M7 11v2M10 11v2M13 11v2" /><path d="M16.5 10.5v3" /></svg>;
+  if (type === "FIREWALL") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM4 10h16M4 14h16M9 6v4M15 6v4M12 10v4M8 14v4M16 14v4" /></svg>;
+  if (type === "ETC") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M8 12h8" /></svg>;
   if (type === "SWITCH") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2" /><path d="M7 11v2M10 11v2M13 11v2M16 11v2" /></svg>;
   if (type === "CONTROLLER") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M8 7h8M8 11h8M9 16.5h.01M12 16.5h.01" /></svg>;
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10a10 10 0 0 1 14 0M8 13a6 6 0 0 1 8 0" /><circle cx="12" cy="17" r="1.6" /></svg>;
 }
 
-function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onChanged, onReplace, initialSel, initialPlace }: {
-  planUrl: string; title: string; floorId: number; devices: Device[]; canEdit: boolean; onChanged: (d: Device) => void; onReplace?: () => void;
+function PlanView({ planUrl, title, floorId, devices: allDevices, floorTexts, kinds, canPlace, onChanged, onReplace, initialSel, initialPlace }: {
+  planUrl: string; title: string; floorId: number; devices: Device[]; onChanged: (d: Device) => void; onReplace?: () => void;
+  /** 이 계정이 보는 장비 종류 (둘 다면 종류 고르기가 나온다) */
+  kinds: Kind[];
+  /** 이 장비를 도면에 놓거나 옮길 수 있는가 (종류별 기능 권한) */
+  canPlace: (d: Device) => boolean;
   /** 이 학교의 "건물 층" 이름들: 설치위치에서 떼고 실(상세 위치)만 보여 준다. */
   floorTexts: string[];
   /** 장비 정보 화면의 "도면에서 보기" (?device=): 그 장비를 골라 강조한다. */
@@ -187,6 +207,21 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
 }) {
   const toast = useToast();
   const canvas = useRef<HTMLDivElement>(null);
+  const canEdit = kinds.some((t) => canPlace({ rceptTy: t } as Device));
+  const [kind, setKind] = useState<"" | Kind>("");
+  const devices = useMemo(() => (kind ? allDevices.filter((d) => d.rceptTy === kind) : allDevices), [allDevices, kind]);
+  // 한곳에 모인 장비 묶음: 열린 묶음(목록), 장비 배치에서 함께 놓을 장비, 함께 놓을 자리(실 입력 전)
+  const [openClu, setOpenClu] = useState<string | null>(null);
+  const [multi, setMulti] = useState<Set<number>>(new Set());
+  const [multiAt, setMultiAt] = useState<{ x: number; y: number } | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [mode, setMode] = useState<Mode>(initialPlace && canEdit ? "place" : "view");
   const [zoom, setZoom] = useState(1);
   const [sel, setSel] = useState<number | null>(initialSel ?? null);
@@ -200,7 +235,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
   const [drag, setDrag] = useState<{ id: number; x: number; y: number; moved: boolean } | null>(null);
 
   const here = devices.filter((d) => d.floorId === floorId && d.posX != null && d.posY != null);
-  const byId = useMemo(() => new Map(devices.map((d) => [d.deviceId, d])), [devices]);
+  const byId = useMemo(() => new Map(allDevices.map((d) => [d.deviceId, d])), [allDevices]);
   const selDev = sel ? byId.get(sel) : undefined;
   // 강조할 장비: 보기에서는 누른 장비, 장비 배치에서는 놓을(옮길) 장비. 도면 아이콘과 목록 줄이 함께 강조된다.
   const focus = mode === "place" ? picked : sel;
@@ -220,7 +255,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
 
   const save = async (id: number, pos: { x: number; y: number } | null) => {
     try {
-      const d = await api.put<Device>(`/api/as/wireless-devices/${id}/position`, pos ? { floorId, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2) } : { floorId: null });
+      const d = await api.put<Device>(`${apiOf(byId.get(id))}/${id}/position`, pos ? { floorId, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2) } : { floorId: null });
       onChanged(d);
       return d;
     } catch (e) {
@@ -230,8 +265,13 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
   };
 
   const onCanvasClick = async (e: React.PointerEvent) => {
-    if (mode !== "place" || !picked || drag || pending) return;
+    if (openClu) { setOpenClu(null); return; }
+    if (mode !== "place" || drag || pending || multiAt) return;
+    // 여러 대를 골랐으면: 이 자리에 함께 놓는다 (실을 받은 뒤)
+    if (multi.size) { setMoved(null); setMultiAt(frac(e)); return; }
+    if (!picked) return;
     const d = byId.get(picked);
+    if (d && !canPlace(d)) { toast(`${KNAME[d.rceptTy === "S" ? "S" : "M"]} 장비를 도면에 놓을 권한이 없습니다.`); return; }
     // 다른 층·건물에 놓인 장비를 이 층으로 옮기는 기능은 숨겼다 (같은 층 안에서만 옮긴다).
     if (d?.floorId && d.floorId !== floorId) return;
     // 이미 이 층에 놓인 장비를 옮기면: 옮길 실을 받은 뒤 저장한다.
@@ -242,7 +282,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
       setSel(picked);
       // 처음 놓은 장비면 다음 미배치 장비를 바로 고르고, 이미 놓인 장비를 옮긴 거면 계속 그 장비를 강조한다.
       if (!d?.floorId) {
-        const next = devices.find((x) => x.deviceId !== picked && !x.floorId && x.status !== "DISPOSED" && forHere(x));
+        const next = devices.find((x) => x.deviceId !== picked && !x.floorId && x.status !== "DISPOSED" && forHere(x) && canPlace(x));
         setPicked(next?.deviceId ?? picked);
       }
     }
@@ -250,7 +290,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
 
   const onIconDown = (e: React.PointerEvent, d: Device) => {
     e.stopPropagation();
-    if (mode !== "place" || !canEdit || pending) return;
+    if (mode !== "place" || !canPlace(d) || pending) return;
     e.preventDefault();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     setDrag({ id: d.deviceId, x: d.posX!, y: d.posY!, moved: false });
@@ -275,7 +315,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
   // 키보드: 장비 배치 중 선택한 아이콘을 방향키로 0.5%씩 옮긴다.
   const onIconKey = (e: React.KeyboardEvent, d: Device) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(d.deviceId); return; }
-    if (mode !== "place" || !canEdit) return;
+    if (mode !== "place" || !canPlace(d)) return;
     const step = e.shiftKey ? 2 : 0.5;
     const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
     const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
@@ -302,23 +342,69 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
   // 도면에 없는 장비 중 이 층에 놓을 수 있는 것: 설치위치가 이 층이거나 층을 모르는 장비 (다른 층 장비는 그 층 도면에서 놓는다).
   const forHere = (d: Device) => { const f = floorOf(d); return !f || f === title; };
   const roomText = (d: Device) => room(d) || <span className="fpv-noroom">실 미지정</span>;
+  // 이 층 장비를 실별로 (실 이름 순, 실 미지정은 끝)
+  const byRoom = [...here.reduce((m, d) => m.set(room(d), [...(m.get(room(d)) ?? []), d]), new Map<string, Device[]>())]
+    .sort(([a], [b]) => (!a ? 1 : !b ? -1 : a.localeCompare(b, "ko")));
   const query = q.trim().toLowerCase();
   const match = (d: Device) => !query || [d.deviceCode, d.deviceName, d.location, d.modelName, d.ipAddress].some((v) => v?.toLowerCase().includes(query));
   const list = devices.filter(match);
   const unplaced = list.filter((d) => !d.floorId && forHere(d));
   const inFloor = list.filter((d) => d.floorId === floorId);
-  const allUnplaced = devices.filter((d) => !d.floorId && d.status !== "DISPOSED" && forHere(d));
+  const allUnplaced = devices.filter((d) => !d.floorId && d.status !== "DISPOSED" && forHere(d) && canPlace(d));
   const count = (s: string) => here.filter((d) => d.status === s).length;
+  const toggleMulti = (id: number, on: boolean) => setMulti((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
+
+  // 화면에서 가까운 아이콘 묶기 (끌고 있거나 옮기는 중인 장비는 따로). 도면 크기를 모르면 묶지 않는다.
+  const clusters = useMemo(() => {
+    const pts = here.filter((d) => d.deviceId !== drag?.id && d.deviceId !== pending?.id)
+      .map((d) => ({ d, x: (d.posX! / 100) * size.w, y: (d.posY! / 100) * size.h }));
+    const parent = pts.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    if (size.w > 0) for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++)
+      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < CLUSTER_PX) parent[find(i)] = find(j);
+    const groups = new Map<number, Device[]>();
+    pts.forEach((p, i) => { const r = find(i); groups.set(r, [...(groups.get(r) ?? []), p.d]); });
+    return [...groups.values()].map((ds) => ({
+      key: ds.map((d) => d.deviceId).sort((a, b) => a - b).join("-"), ds,
+      x: ds.reduce((s, d) => s + d.posX!, 0) / ds.length, y: ds.reduce((s, d) => s + d.posY!, 0) / ds.length,
+    }));
+  }, [here, drag?.id, pending?.id, size.w, size.h]);
+  const loose = here.filter((d) => d.deviceId === drag?.id || d.deviceId === pending?.id);
+
+  /** 여러 대를 한 자리에: 고른 점을 가운데로 작은 격자(아이콘 간격)로 놓고, 실을 적었으면 설치위치를 "건물 층 실"로. */
+  const placeMany = async (room: string) => {
+    if (!multiAt) return;
+    const ids = [...multi].filter((id) => byId.get(id) && canPlace(byId.get(id)!));
+    const cols = Math.ceil(Math.sqrt(ids.length));
+    // 아이콘 간격 14px: 100%에서는 한 묶음(개수)으로 보이고, 확대하면 하나씩 떨어져 끌어 옮길 수 있다.
+    const dx = size.w ? (14 / size.w) * 100 : 0.8, dy = size.h ? (14 / size.h) * 100 : 0.8;
+    let ok = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const c = i % cols, r = Math.floor(i / cols), rows = Math.ceil(ids.length / cols);
+      const x = Math.min(100, Math.max(0, multiAt.x + (c - (cols - 1) / 2) * dx)), y = Math.min(100, Math.max(0, multiAt.y + (r - (rows - 1) / 2) * dy));
+      try {
+        const d = await api.put<Device>(`${apiOf(byId.get(ids[i]))}/${ids[i]}/position`, { floorId, x: +x.toFixed(2), y: +y.toFixed(2), ...(room ? { room } : {}) });
+        onChanged(d); ok++;
+      } catch (e) { toast(`${byId.get(ids[i])?.deviceCode}: ${(e as Error).message}`); }
+    }
+    setMultiAt(null); setMulti(new Set());
+    if (ok) toast(`${ok}대를 ${room ? `${title} ${room}에` : "도면에"} 놓았습니다.`);
+  };
+  const cluTone = (ds: Device[]) => STATUS_TONE[ds.reduce((w, d) => (STATUS_RANK[d.status] > STATUS_RANK[w] ? d.status : w), "DISPOSED")];
+  const kindOf = (d: Device): Kind => (d.rceptTy === "S" ? "S" : "M");
 
   const row = (d: Device) => (
-    <li key={d.deviceId}>
-      <button type="button" className={"fpv-row" + (picked === d.deviceId ? " on" : "")} aria-pressed={picked === d.deviceId} onClick={() => setPicked(picked === d.deviceId ? null : d.deviceId)}>
+    <li key={d.deviceId} className={!d.floorId && canPlace(d) ? "fpv-li-multi" : undefined}>
+      {!d.floorId && canPlace(d) && (
+        <input type="checkbox" className="fpv-multi" aria-label={`${d.deviceCode} 함께 놓기`} checked={multi.has(d.deviceId)} onChange={(e) => toggleMulti(d.deviceId, e.target.checked)} />
+      )}
+      <button type="button" className={"fpv-row" + (picked === d.deviceId ? " on" : "") + (multi.has(d.deviceId) ? " multi" : "")} aria-pressed={picked === d.deviceId} onClick={() => setPicked(picked === d.deviceId ? null : d.deviceId)}>
         <span className={"fpv-ico st-" + STATUS_TONE[d.status]}><DeviceGlyph type={d.deviceType} /></span>
         <span className="fpv-row-t">
           <b>{d.deviceCode}</b>
           <small title={d.deviceName}>{roomText(d)}</small>
         </span>
-        <span className="fpv-tag">{d.deviceTypeName}</span>
+        <span className={"fpv-tag k-" + kindOf(d)}>{kinds.length > 1 ? `${KNAME[kindOf(d)]} · ` : ""}{d.deviceTypeName}</span>
       </button>
     </li>
   );
@@ -336,7 +422,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
           <div className="fpv-seg fpv-modes" role="group" aria-label="모드">
             {([["view", "보기"], ["place", "장비 배치"]] as const).map(([m, l]) => (
               <button key={m} type="button" aria-pressed={mode === m}
-                onClick={() => { setMode(m); setDrag(null); if (m === "place" && !picked) setPicked(allUnplaced[0]?.deviceId ?? null); }}>{l}</button>
+                onClick={() => { setMode(m); setDrag(null); setOpenClu(null); setMulti(new Set()); setMultiAt(null); if (m === "place" && !picked) setPicked(allUnplaced[0]?.deviceId ?? null); }}>{l}</button>
             ))}
           </div>
         )}
@@ -345,6 +431,15 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
           <span>{Math.round(zoom * 100)}%</span>
           <button type="button" aria-label="확대" disabled={zoom >= 3} onClick={() => setZoom(Math.min(3, zoom + 0.5))}>＋</button>
         </div>
+        {kinds.length > 1 && (
+          <div className="fpv-seg fpv-kind" role="group" aria-label="장비 종류">
+            {([["", "전체"], ["M", "무선망"], ["S", "스쿨넷"]] as const).map(([k2, l]) => (
+              <button key={k2} type="button" aria-pressed={kind === k2} onClick={() => { setKind(k2); setOpenClu(null); setMulti(new Set()); }}>
+                {l} <small>{(k2 ? allDevices.filter((d) => d.rceptTy === k2) : allDevices).filter((d) => d.floorId === floorId).length}</small>
+              </button>
+            ))}
+          </div>
+        )}
         <label className="fpv-check"><input type="checkbox" checked={labels} onChange={(e) => setLabels(e.target.checked)} /> 장비번호 표시</label>
         <div className="fpv-stats">
           <span>이 층 <b>{here.length}</b>대</span>
@@ -359,6 +454,10 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
             <MoveRoom key={pending.id} device={byId.get(pending.id)!} floorId={floorId} floorText={title} pos={pending}
               onSaved={(d, changed) => { setPending(null); onChanged(d); setSel(d.deviceId); if (changed) setMoved({ id: d.deviceId, location: d.location ?? "" }); else toast(`${d.deviceCode}을(를) 옮겼습니다.`); }}
               onCancel={() => setPending(null)} />
+          )}
+          {multiAt && (
+            <PlaceMany key={`${multiAt.x}-${multiAt.y}`} devices={[...multi].map((id) => byId.get(id)!).filter(Boolean)} floorText={title} schoolId={allDevices[0]?.schoolId}
+              onPlace={placeMany} onCancel={() => setMultiAt(null)} />
           )}
           {moved && !pending && (
             <div className="fpv-ask done" role="status">
@@ -375,17 +474,55 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
               </div>
             </div>
           )}
-          <p className={"fpv-hint m-" + mode}>{mode === "place" && picked ? <><b>{byId.get(picked)?.deviceCode}</b> {byId.get(picked)?.deviceName} — 도면에서 {byId.get(picked)?.floorId === floorId ? "옮길" : "놓을"} 곳을 누르세요.</> : HINTS[mode]}</p>
+          <p className={"fpv-hint m-" + mode}>{mode === "place" && multi.size ? <><b>{multi.size}대</b>를 함께 놓습니다 — 도면에서 그 실의 자리를 누르세요.</> : mode === "place" && picked ? <><b>{byId.get(picked)?.deviceCode}</b> {byId.get(picked)?.deviceName} — 도면에서 {byId.get(picked)?.floorId === floorId ? "옮길" : "놓을"} 곳을 누르세요.</> : HINTS[mode]}</p>
           <div className="fpv-scroll">
-            <div ref={canvas} className={`fpv-canvas m-${mode}${mode === "place" && picked ? " picking" : ""}${focusOnPlan ? " has-sel" : ""}`} style={{ width: `${zoom * 100}%` }}
+            <div ref={canvas} className={`fpv-canvas m-${mode}${mode === "place" && (picked || multi.size) ? " picking" : ""}${focusOnPlan ? " has-sel" : ""}`} style={{ width: `${zoom * 100}%` }}
               onPointerUp={onCanvasClick}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={planUrl} alt={`${title} 도면`} draggable={false} />
-              {here.map((d) => {
+              {multiAt && (
+                <div className="fpv-clu-w ghost" style={{ left: `${multiAt.x}%`, top: `${multiAt.y}%` }} aria-hidden="true">
+                  <span className="fpv-clu"><span className="fpv-clu-i"><DeviceGlyph type={byId.get([...multi][0])?.deviceType} /><b>{multi.size}</b></span></span>
+                </div>
+              )}
+              {clusters.filter((c) => c.ds.length > 1).map((c) => {
+                const open = openClu === c.key, has = focus != null && c.ds.some((d) => d.deviceId === focus);
+                const right = c.x > 60, up = c.y > 60;
+                return (
+                  <div key={c.key} className={"fpv-clu-w" + (open ? " open" : "")} style={{ left: `${c.x}%`, top: `${c.y}%` }}
+                    onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}>
+                    <button type="button" className={`fpv-clu st-${cluTone(c.ds)}${has ? " sel" : ""}`} aria-expanded={open}
+                      aria-label={`한곳에 ${c.ds.length}대: ${c.ds.map((d) => d.deviceCode).join(", ")}`} title={c.ds.map((d) => `${d.deviceCode} ${d.deviceName}`).join("\n")}
+                      onClick={() => setOpenClu(open ? null : c.key)}>
+                      <span className="fpv-clu-i"><DeviceGlyph type={c.ds[0].deviceType} /><b>{c.ds.length}</b></span>
+                      {labels && <span className="fpv-dev-l">{room(c.ds[0]) || `${c.ds.length}대`}</span>}
+                    </button>
+                    {open && (
+                      <div className={"fpv-pop" + (right ? " r" : "") + (up ? " u" : "")} role="dialog" aria-label={`이 자리의 장비 ${c.ds.length}대`}>
+                        <div className="fpv-pop-h"><b>이 자리 {c.ds.length}대</b>{room(c.ds[0]) && <small>{room(c.ds[0])}</small>}
+                          <button type="button" className="fpv-x" aria-label="닫기" onClick={() => setOpenClu(null)}>✕</button></div>
+                        <ul className="fpv-list">
+                          {c.ds.map((d) => (
+                            <li key={d.deviceId}>
+                              <button type="button" className={"fpv-row" + (focus === d.deviceId ? " on" : "")} aria-pressed={focus === d.deviceId} onClick={() => choose(d.deviceId)}>
+                                <span className={"fpv-ico st-" + STATUS_TONE[d.status] + " k-" + kindOf(d)}><DeviceGlyph type={d.deviceType} /></span>
+                                <span className="fpv-row-t"><b>{d.deviceCode}</b><small title={d.deviceName}>{d.deviceName}</small></span>
+                                <span className={"fpv-tag k-" + kindOf(d)}>{d.deviceTypeName}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        {mode === "place" && <p className="fpv-pop-f">장비를 고른 뒤 도면에서 옮길 곳을 누르세요.</p>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {[...clusters.filter((c) => c.ds.length === 1).map((c) => c.ds[0]), ...loose].map((d) => {
                 const at = drag?.id === d.deviceId ? drag : pending?.id === d.deviceId ? pending : { x: d.posX!, y: d.posY! };
                 return (
                   <button key={d.deviceId} type="button"
-                    className={`fpv-dev st-${STATUS_TONE[d.status]}${focus === d.deviceId ? " sel" : ""}${drag?.id === d.deviceId ? " drag" : ""}${pending?.id === d.deviceId ? " pending" : ""}`}
+                    className={`fpv-dev k-${kindOf(d)} st-${STATUS_TONE[d.status]}${focus === d.deviceId ? " sel" : ""}${drag?.id === d.deviceId ? " drag" : ""}${pending?.id === d.deviceId ? " pending" : ""}`}
                     data-dev={d.deviceId} aria-pressed={focus === d.deviceId}
                     style={{ left: `${at.x}%`, top: `${at.y}%` }}
                     title={`${d.deviceCode} ${d.deviceName} · ${d.statusName}`}
@@ -402,7 +539,9 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
           </div>
           <div className="fpv-legend">
             {DEVICE_STATUSES.map(([c, n]) => <span key={c}><i className={"lg-dev st-" + STATUS_TONE[c]} />{n}</span>)}
-            <span className="fpv-legend-t"><DeviceGlyph type="AP" />AP <DeviceGlyph type="SWITCH" />스위치 <DeviceGlyph type="CONTROLLER" />컨트롤러</span>
+            {kinds.includes("M") && <span className="fpv-legend-t"><i className="lg-k k-M" />무선망 <DeviceGlyph type="AP" />AP <DeviceGlyph type="SWITCH" />스위치 <DeviceGlyph type="CONTROLLER" />컨트롤러</span>}
+            {kinds.includes("S") && <span className="fpv-legend-t"><i className="lg-k k-S" />스쿨넷 <DeviceGlyph type="ROUTER" />라우터 <DeviceGlyph type="L3" />스위치 <DeviceGlyph type="FIREWALL" />방화벽</span>}
+            <span className="fpv-legend-t"><i className="lg-clu">3</i>한곳에 여러 대</span>
           </div>
         </section>
 
@@ -415,11 +554,20 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
                 <input aria-label="장비 검색" placeholder="장비번호·장비명·위치·IP" value={q} onChange={(e) => setQ(e.target.value)} />
                 {q && <button type="button" aria-label="검색어 지우기" onClick={() => setQ("")}>✕</button>}
               </div>
+              {multi.size > 0 ? (
+                <div className="fpv-multibar" role="status">
+                  <span><b>{multi.size}대</b> 선택 · 도면에서 실의 자리를 누르면 함께 놓습니다</span>
+                  <button type="button" className="linkbtn" onClick={() => setMulti(new Set())}>선택 해제</button>
+                </div>
+              ) : unplaced.filter((d) => canPlace(d)).length > 1 && (
+                <p className="fpv-multihint">한 실에 여러 대면 체크하고 도면을 한 번 누르세요.{" "}
+                  <button type="button" className="linkbtn" onClick={() => setMulti(new Set(unplaced.filter((d) => canPlace(d)).map((d) => d.deviceId)))}>모두 선택</button></p>
+              )}
               <div className="fpv-groups">
                 {group("도면에 없는 장비", unplaced, true)}
                 {group("이 층", inFloor, true)}
               </div>
-              {!devices.length && <p className="fpv-none" style={{ padding: "0 16px 16px" }}>이 학교에 등록된 무선장비가 없습니다. <Link href="/admin/devices">무선장비관리</Link>에서 등록하세요.</p>}
+              {!devices.length && <p className="fpv-none" style={{ padding: "0 16px 16px" }}>이 학교에 등록된 장비가 없습니다. {kinds.includes("M") && <Link href="/admin/devices">무선장비관리</Link>}{kinds.length > 1 && " · "}{kinds.includes("S") && <Link href="/admin/schoolnet-devices">스쿨넷장비관리</Link>}에서 등록하세요.</p>}
             </>
           ) : selDev ? (
             <>
@@ -429,7 +577,7 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
               </header>
               <dl className="fpv-dl">
                 <dt>상태</dt><dd><StatusDot cls={badgeClass(DEVICE_STATUSES, selDev.status)} name={selDev.statusName} /></dd>
-                <dt>유형</dt><dd>{selDev.deviceTypeName ?? "-"}</dd>
+                <dt>유형</dt><dd>{KNAME[kindOf(selDev)]} · {selDev.deviceTypeName ?? "-"}</dd>
                 <dt>모델</dt><dd>{selDev.modelName ?? "-"}</dd>
                 <dt>IP / MAC</dt><dd>{selDev.ipAddress ?? "-"}{selDev.macAddress ? <><br /><small>{selDev.macAddress}</small></> : null}</dd>
                 <dt>설치위치</dt><dd>{selDev.location ?? "-"}</dd>
@@ -437,8 +585,8 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
                 <dt>최근 점검</dt><dd>{selDev.lastCheckedAt ? fmtDate(selDev.lastCheckedAt) : "기록 없음"}</dd>
               </dl>
               <div className="fpv-cta">
-                <Link className="btn sm sec" href="/admin/devices">무선장비관리</Link>
-                {canEdit && <button type="button" className="btn sm sec" onClick={() => remove(selDev)}>도면에서 빼기</button>}
+                <Link className="btn sm sec" href={`${kindOf(selDev) === "S" ? "/admin/schoolnet-devices" : "/admin/devices"}?id=${selDev.deviceId}`}>{kindOf(selDev) === "S" ? "스쿨넷장비관리" : "무선장비관리"}</Link>
+                {canPlace(selDev) && selDev.floorId === floorId && <button type="button" className="btn sm sec" onClick={() => remove(selDev)}>도면에서 빼기</button>}
               </div>
             </>
           ) : (
@@ -449,13 +597,20 @@ function PlanView({ planUrl, title, floorId, devices, floorTexts, canEdit, onCha
                 <div><small>장애·점검중</small><b className={count("FAULT") ? "bad" : ""}>{count("FAULT") + count("CHECK")}<em>대</em></b></div>
               </div>
               <ul className="fpv-list fpv-floorlist">
-                {here.map((d) => (
-                  <li key={d.deviceId}>
-                    <button type="button" className={"fpv-row" + (sel === d.deviceId ? " on" : "")} aria-pressed={sel === d.deviceId} onClick={() => setSel(d.deviceId)}>
-                      <span className={"fpv-ico st-" + STATUS_TONE[d.status]}><DeviceGlyph type={d.deviceType} /></span>
-                      <span className="fpv-row-t"><b>{d.deviceCode}</b><small title={d.deviceName}>{roomText(d)}</small></span>
-                      <StatusDot cls={badgeClass(DEVICE_STATUSES, d.status)} name={d.statusName} />
-                    </button>
+                {byRoom.map(([rm, ds]) => (
+                  <li key={rm || "-"} className="fpv-room">
+                    <div className="fpv-room-h"><b>{rm || "실 미지정"}</b><span>{ds.length}대</span></div>
+                    <ul className="fpv-list">
+                      {ds.map((d) => (
+                        <li key={d.deviceId}>
+                          <button type="button" className={"fpv-row" + (sel === d.deviceId ? " on" : "")} aria-pressed={sel === d.deviceId} onClick={() => setSel(d.deviceId)}>
+                            <span className={"fpv-ico st-" + STATUS_TONE[d.status] + " k-" + kindOf(d)}><DeviceGlyph type={d.deviceType} /></span>
+                            <span className="fpv-row-t"><b>{d.deviceCode}</b><small title={d.deviceName}>{d.deviceName}</small></span>
+                            <StatusDot cls={badgeClass(DEVICE_STATUSES, d.status)} name={d.statusName} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
                 {!here.length && <li className="fpv-none">이 층 도면에 놓인 장비가 없습니다.</li>}
@@ -570,7 +725,7 @@ function MoveRoom({ device, floorId, floorText, pos, onSaved, onCancel }: {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   useEffect(() => {
-    api.get<DevicePlaces>("/api/as/wireless-devices/places", { schoolId: device.schoolId }).then((p) => setDetails(p.details)).catch(() => {});
+    api.get<DevicePlaces>(`${apiOf(device)}/places`, { schoolId: device.schoolId }).then((p) => setDetails(p.details)).catch(() => {});
   }, [device.schoolId]);
 
   const submit = async (e: React.FormEvent) => {
@@ -578,7 +733,7 @@ function MoveRoom({ device, floorId, floorText, pos, onSaved, onCancel }: {
     if (!room.trim()) return setMsg("옮길 실을 입력해 주세요.");
     setBusy(true);
     try {
-      const d = await api.put<Device>(`/api/as/wireless-devices/${device.deviceId}/position`, { floorId, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), room: room.trim() });
+      const d = await api.put<Device>(`${apiOf(device)}/${device.deviceId}/position`, { floorId, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), room: room.trim() });
       onSaved(d, (d.location ?? "").trim() !== loc);
     } catch (er) {
       setMsg((er as Error).message);
@@ -616,6 +771,57 @@ function MoveRoom({ device, floorId, floorText, pos, onSaved, onCancel }: {
         </div>
       )}
       {msg && <small className="fpv-ask-err" role="alert">{msg}</small>}
+    </form>
+  );
+}
+
+/**
+ * 한 실에 여러 대 놓기: 체크한 장비를 도면에서 누른 자리에 함께 놓는다. 실을 적으면 모두의 설치위치가 "건물 층 실"이 되고,
+ * 비우면 각자 설치위치의 실을 그대로 두고 건물 · 층만 이 층으로 맞춘다.
+ */
+function PlaceMany({ devices, floorText, schoolId, onPlace, onCancel }: {
+  devices: Device[]; floorText: string; schoolId?: number; onPlace: (room: string) => Promise<void>; onCancel: () => void;
+}) {
+  const [room, setRoom] = useState("");
+  const [details, setDetails] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!schoolId) return;
+    const d0 = devices[0];
+    api.get<DevicePlaces>(`${apiOf(d0)}/places`, { schoolId }).then((p) => setDetails(p.details)).catch(() => {});
+  }, [schoolId, devices]);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (room.trim().length > 100) return;
+    setBusy(true);
+    await onPlace(room.trim());
+  };
+  return (
+    <form className="fpv-ask need" onSubmit={submit} noValidate aria-label="여러 대 함께 놓기">
+      <div className="fpv-ask-h">
+        <span className="fpv-ask-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.6" /></svg></span>
+        <div>
+          <b>{devices.length}대를 이 자리에 놓기</b>
+          <small title={devices.map((d) => d.deviceCode).join(", ")}>{devices.slice(0, 6).map((d) => d.deviceCode).join(", ")}{devices.length > 6 ? ` 외 ${devices.length - 6}대` : ""}</small>
+        </div>
+      </div>
+      <div className="fpv-ask-row">
+        <label className="fpv-ask-field">
+          <span className="fpv-ask-floor">{floorText}</span>
+          <input aria-label="실 (선택)" list="fpv-many-details" placeholder="실 (예: 전산실) — 비우면 각 장비의 실 그대로" value={room} onChange={(e) => setRoom(e.target.value)} autoFocus />
+        </label>
+        <datalist id="fpv-many-details">{details.map((x) => <option key={x} value={x} />)}</datalist>
+        <div className="fpv-ask-act">
+          <button type="submit" className="btn sm" disabled={busy || !devices.length}>{busy ? "놓는 중…" : `${devices.length}대 놓기`}</button>
+          <button type="button" className="btn sm sec" disabled={busy} onClick={onCancel}>취소</button>
+        </div>
+      </div>
+      {details.length > 0 && (
+        <div className="fpv-ask-chips" role="group" aria-label="이 학교에서 쓴 실">
+          <small>자주 쓴 실</small>
+          {details.slice(0, 8).map((x) => <button key={x} type="button" className={"fpv-chip" + (room === x ? " on" : "")} onClick={() => setRoom(x)}>{x}</button>)}
+        </div>
+      )}
     </form>
   );
 }

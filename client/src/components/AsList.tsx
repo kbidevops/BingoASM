@@ -178,10 +178,10 @@ function AsListBody({ ty }: { ty?: RceptTy }) {
                   return (
                     <tr key={r.asvcSn}>
                       {cells.map((c, j) => <td key={j} data-label={head[j]}>{c ?? "-"}</td>)}
-                      <td data-label="상태" className="stc-td">
-                        <div className="stc">
+                      <td data-label="상태" className="asst-td">
+                        <div className="asst">
                           <AsBadge status={r.status} name={r.statusName} />
-                          {r.onHold && <div className="stc-f"><HoldBadge row={r} /></div>}
+                          {r.onHold && <div className="asst-f"><HoldBadge row={r} /></div>}
                         </div>
                       </td>
                       <td data-label="보고서">

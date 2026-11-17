@@ -5,6 +5,8 @@ export interface MenuItem {
   title: string;
   href: string;
   perm?: string;
+  /** Other permissions that also open this screen (any one is enough). The permission tables use `perm`. */
+  alt?: string[];
   /** Shown in the side menu only (not in the GNB mega menu). */
   sideOnly?: boolean;
   /** Small heading above this item in the side menu (items of one section sit together). */
@@ -62,7 +64,7 @@ export const MENU: MenuGroup[] = [
       { title: "무선장비관리", href: "/admin/devices", perm: "WDEVICE_MANAGE", section: "장비 목록" },
       { title: "스쿨넷장비관리", href: "/admin/schoolnet-devices", perm: "SDEVICE_MANAGE", section: "장비 목록" },
       { title: "건물·층 관리", href: "/admin/spaces", perm: "SPACE_MANAGE", section: "위치" },
-      { title: "무선장비 위치(도면)", href: "/admin/floorplan", perm: "WDEVICE_MANAGE", section: "위치" },
+      { title: "장비 위치(도면)", href: "/admin/floorplan", perm: "WDEVICE_MANAGE", alt: ["SDEVICE_MANAGE"], section: "위치" },
     ],
   },
   {
@@ -111,7 +113,7 @@ export function findMenu(pathname: string): { group?: MenuGroup; item?: MenuItem
  * AS services the 교육청 does not use; signed in, those are already missing from `perms`.
  */
 export function visibleMenu(perms: Set<string> | null, off: Set<string> = new Set()): MenuGroup[] {
-  const allowed = (i: MenuItem) => !i.perm || (perms ? perms.has(i.perm) : !off.has(i.perm));
+  const allowed = (i: MenuItem) => !i.perm || (perms ? [i.perm, ...(i.alt ?? [])].some((p) => perms.has(p)) : !off.has(i.perm));
   return MENU.filter((g) => !g.hidden)
     .map((g) => ({ ...g, items: g.items.filter(allowed) }))
     .filter((g) => g.items.length > 0);

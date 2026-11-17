@@ -150,6 +150,12 @@ public class WirelessDeviceService {
     }
 
     public Json create(CurrentUser me, String ty, Map<String, Object> b) {
+        WirelessDevice d = newDevice(me, ty, b);
+        return view(d, schoolService.schoolMap(me.orgId()), schoolService.regionMap(me.orgId()));
+    }
+
+    /** 장비 등록의 검사 · 저장만 (화면용 보기 없이). 장비 일괄 등록이 행마다 쓴다. */
+    public WirelessDevice newDevice(CurrentUser me, String ty, Map<String, Object> b) {
         WirelessDevice d = new WirelessDevice();
         d.orgId = me.orgId();
         d.rceptTy = ty;
@@ -161,7 +167,7 @@ public class WirelessDeviceService {
             schoolService.resolveVendor(d.schoolId, ty).ifPresent(sv -> d.vendorId = sv.vendorId);
         devices.save(d);
         if (d.deviceCode == null) d.deviceCode = String.format("%s-%04d", CODE_PREFIX.get(ty), d.deviceId);
-        return view(d, schoolService.schoolMap(me.orgId()), schoolService.regionMap(me.orgId()));
+        return d;
     }
 
     /**
@@ -262,7 +268,7 @@ public class WirelessDeviceService {
     }
 
     /**
-     * 무선장비 위치(도면): 장비를 그 학교 건물의 층 도면 위 (x, y)%에 놓는다. floorId가 없으면 도면에서 뺀다.
+     * 장비 위치(도면): 무선망 · 스쿨넷 장비를 그 학교 건물의 층 도면 위 (x, y)%에 놓는다. 한 실에 여러 대를 놓아도 된다. floorId가 없으면 도면에서 뺀다.
      * 설치위치도 함께 맞춘다: 비었거나 이 학교의 "건물 층"으로 시작하면(예: "본관 2층", "본관 2층 교무실")
      * 그 부분을 새 "건물 층"으로 바꾼다. 직접 적은 다른 문구(예: "교무실 천장")는 그대로 둔다.
      * {@code room}(옮길 실)을 함께 보내면 설치위치를 "건물 층 실"로 적는다 — 도면에서 장비를 옮길 때 화면은 실을 꼭 받는다.

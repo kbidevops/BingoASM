@@ -46,6 +46,11 @@ public class SchoolNetDeviceController {
     @RequirePerm("SDEVICE_EDIT")
     public ApiResponse update(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.update(AuthContext.get(), "S", id, body)); }
 
+    /** 장비 위치(도면): {floorId, x, y, room?} (x·y는 도면 대비 %) — floorId를 비우면 도면에서 뺀다. 무선장비와 같은 규칙. */
+    @PutMapping("/{id}/position")
+    @RequirePerm("SDEVICE_PLACE")
+    public ApiResponse position(@PathVariable Long id, @RequestBody Map<String, Object> body) { return ApiResponse.ok(devices.position(AuthContext.get(), "S", id, body)); }
+
     @DeleteMapping("/{id}")
     @RequirePerm("SDEVICE_DELETE")
     public ApiResponse delete(@PathVariable Long id) { devices.delete(AuthContext.get(), "S", id); return ApiResponse.ok(null); }

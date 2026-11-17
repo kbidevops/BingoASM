@@ -96,6 +96,7 @@ public final class Roles {
             new Feature("SDEVICE_EDIT", "SDEVICE_MANAGE", "스쿨넷장비 수정"),
             new Feature("SDEVICE_DELETE", "SDEVICE_MANAGE", "스쿨넷장비 삭제"),
             new Feature("SDEVICE_LABEL", "SDEVICE_MANAGE", "스쿨넷장비 라벨 출력"),
+            new Feature("SDEVICE_PLACE", "SDEVICE_MANAGE", "스쿨넷장비 도면에 놓기 · 옮기기"),
             new Feature("SPACE_BUILDING_CREATE", "SPACE_MANAGE", "건물 추가"),
             new Feature("SPACE_BUILDING_DELETE", "SPACE_MANAGE", "건물 삭제"),
             new Feature("SPACE_FLOOR_CREATE", "SPACE_MANAGE", "층 추가"),

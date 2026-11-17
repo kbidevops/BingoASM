@@ -245,13 +245,17 @@ public class SchoolService {
     }
 
     public Json createSchool(CurrentUser me, Map<String, Object> b) {
+        return school(me, newSchool(me, b).schoolId);
+    }
+
+    /** 학교 등록의 검사 · 저장만 (화면용 목록 계산 없이). 학교 일괄 등록이 행마다 쓴다. */
+    public School newSchool(CurrentUser me, Map<String, Object> b) {
         requireSchoolAdmin(me, "학교 등록");
         School s = new School();
         s.orgId = me.orgId(); s.createdAt = Times.now();
         applySchool(me, s, b);
         keepInDistrict(me, s);
-        schools.save(s);
-        return school(me, s.schoolId);
+        return schools.save(s);
     }
 
     /** 모든 학교는 교육지원청 하나에 속하고, 교육지원청 담당자가 등록·수정하는 학교는 항상 자기 교육지원청 소속. */
@@ -287,6 +291,12 @@ public class SchoolService {
 
     /** body: [{ rceptTy, vendorId, engineerUserId }] — replaces all mappings of the school. */
     public List<Json> setSchoolVendors(CurrentUser me, Long schoolId, List<Map<String, Object>> rows) {
+        saveSchoolVendors(me, schoolId, rows);
+        return (List<Json>) school(me, schoolId).get("vendors");
+    }
+
+    /** 담당 업체 지정의 검사 · 저장만 (화면용 목록 계산 없이). 학교 일괄 등록도 쓴다. */
+    public void saveSchoolVendors(CurrentUser me, Long schoolId, List<Map<String, Object>> rows) {
         loadSchool(me, schoolId);
         requireSchoolAdmin(me, "담당 업체·기사 지정");
         Map<Long, Vendor> vm = vendorMap(me.orgId());
@@ -316,7 +326,6 @@ public class SchoolService {
             }
             schoolVendors.save(sv);
         }
-        return (List<Json>) school(me, schoolId).get("vendors");
     }
 
     // ---------- vendors ----------
@@ -378,6 +387,11 @@ public class SchoolService {
      * 담당 지역 저장. body: { allRegions, regions:[{regionId}] } 또는 예전 형식 { regionId } (없으면 전체). 빠진 지역은 지운다.
      */
     /** 이 업체가 그 지역을 담당하는가. */
+    /** 업체가 담당하는 지역 id (전체 지역 업체는 빈 집합 — allRegions를 따로 본다). */
+    public Set<Long> vendorRegionIds(Long vendorId) {
+        return vendorRegions.findByVendorId(vendorId).stream().map(l -> l.regionId).collect(Collectors.toSet());
+    }
+
     public boolean vendorCovers(Vendor v, Long regionId) {
         return Boolean.TRUE.equals(v.allRegions) || vendorRegions.findByVendorId(v.vendorId).stream().anyMatch(l -> l.regionId.equals(regionId));
     }

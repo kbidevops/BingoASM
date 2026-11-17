@@ -218,6 +218,7 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | GET | `/api/as/wireless-devices?schoolId&regionId&deviceType&status&keyword` | 장비관리·무선망 신청/조회·기사 |
 | POST / PUT / DELETE | `/api/as/wireless-devices[/{id}]` | `WDEVICE_MANAGE` — `{schoolId, deviceCode, deviceName, deviceType AP/SWITCH/CONTROLLER, modelName, ipAddress, macAddress, location, installedAt, lastCheckedAt, status NORMAL/FAULT/REPLACED, note}` |
 | PUT | `/api/as/wireless-devices/{id}/position` | `WDEVICE_MANAGE` — 무선장비 위치(도면). `{floorId, x, y}`: 장비 학교의 건물 층(도면이 있어야 함) 위 좌표, 도면 크기 대비 % (0~100). `floorId: null`이면 도면에서 뺀다. 목록·상세에 `floorId`, `posX`, `posY`, `floorFullName`("본관 2층")이 나온다. 설치위치도 맞춘다: 비었으면 "건물 층", 이 학교의 "건물 층"으로 시작하면("본관 2층 복도") 그 부분을 새 층으로 바꾸고("본관 3층 복도"), 직접 적은 다른 문구는 그대로 둔다. 서버를 시작할 때도 도면 층과 다른 "건물 층"으로 시작하는 설치위치를 한 번 맞춘다. 건물을 지우면 그 층의 장비는 도면에서 빠진다 |
+| PUT | `/api/as/schoolnet-devices/{id}/position` | `SDEVICE_PLACE` (스쿨넷장비관리의 기능 "스쿨넷장비 도면에 놓기 · 옮기기") — 스쿨넷 장비도 같은 규칙으로 장비 위치(도면)에 놓는다 `{floorId, x, y, room?}`. 한 실(같은 자리)에 여러 대를 놓아도 된다: 화면은 가까운 아이콘을 개수로 묶고, 장비 배치에서 여러 대를 체크해 한 번에 놓는다 (장비마다 이 API를 부른다) |
 | POST | `/api/qr/device-labels` | `WDEVICE_MANAGE`·`SDEVICE_MANAGE` | 장비 라벨 인쇄 항목 `{deviceIds}` → `[{deviceId, code, qrText(/d/{id}), title, sub}]` (관리하는 유형·범위만, 60장까지) |
 | GET | `/api/qr/devices/{id}` | 장비관리·AS 신청/조회·기사 | 장비 라벨 QR → 장비 정보 + `where{schoolName, buildingName, floorName, onPlan, path}` + `canManage`·`canRequest`. 범위 밖 학교 장비는 404. `as`: `open`(이 장비의 신청완료 · 접수완료 AS — 볼 수 없는 건은 `canOpen:false`와 상태만, 볼 수 있으면 증상 · 방문예정 · 담당 · `assignedToMe` · `canReceive`/`canReport`), `count90`(최근 90일 이 장비의 AS 수), `unlinked`(같은 학교 · 유형의 대상 장비 미지정 처리 중 신고 수), `contacts{vendor{vendorName, tel}, engineer{userName, tel}, region[{userName, positionName, tel, regionName}]}` (학교 배정 업체 · 기본 기사 · 그 유형을 맡은 관할 교육지원청 담당자). IP · MAC은 장비 수정 · AS 처리 권한, 도교육청 · 교육지원청에게만 준다 (장비 목록도 같음, IP 검색도) |
 | GET | `/d/{deviceId}` | 공개 | 장비 라벨 QR 주소 → `DEVICE_LINK`(기본 `/device?id={deviceId}`)로 302. `POST /api/qr/resolve`는 `{type:"DEVICE", deviceId, found, rceptTy}` |
@@ -329,6 +330,18 @@ cbe.go.kr의 네 가지 신청(정보기기 C · 무선망 M · 스쿨넷 S · �
 | POST | `/api/assets/bulk/commit` | 같은 입력 + `skipErrors` → `{created, skipped, assets:[{rowNo, assetId, assetNo}]}` |
 
 검증 규칙: 헤더 7개 일치 · 최대 2,000행 · 수식 주입(`=`, `+`, `@`, `-`로 시작) 차단 · 기관명은 존재하는 학교이며 학교 담당자는 자기 학교만 · 분류는 분류명 일치 · 품명 60자 이내 · 취득일은 `YYYY-MM-DD`(`2023.05.02`, `20230502`도 허용)이며 오늘 이후 불가 · 내용연수 1~15(비우면 분류 기본값) · 위치는 실 이름/실번호(없으면 경고 후 비고에 기록) · 상태 사용/유휴/수리/불용예정/불용. 등록된 자산은 자동 채번되고 실·층·건물이 연결됩니다.
+
+### 5.4.1 학교 · 무선망 장비 · 스쿨넷 장비 일괄 등록
+
+흐름 · 응답은 자산 일괄 등록과 같다: `GET …/bulk/template` (xlsx: 첫 시트 + 안내 + 참고 목록 시트) → `POST …/bulk/validate` (multipart `file`) → `POST …/bulk/commit` (`file` + `skipErrors`). 검증 응답 `{head, total, ok, error, rows:[{rowNo, cells, errors[], warning, ok}]}`, 확정 응답 `{created, skipped, items:[{rowNo, id, name, sub}]}`. 확정은 한 트랜잭션 (한 행이라도 저장에 실패하면 아무것도 등록하지 않는다). 제목 행이 양식과 다르면 400.
+
+| 경로 | 권한 | 열 · 규칙 |
+|---|---|---|
+| `/api/as/schools/bulk/*` | `SCHOOL_CREATE` + 도교육청 · 교육지원청 | 기관명* · 기관코드 · 학교 구분 · 교육지원청 · 주소 · 전화 · 학급 수 · 메모 · **서비스별 담당 업체** (교육청이 쓰는 서비스마다 "무선망 업체" 같은 열). 최대 1,000행. 기관명 · 기관코드는 기존 · 파일 안에서 겹치면 오류. 교육지원청 담당자는 교육지원청을 비우면 자기 교육지원청, 다른 곳은 오류. 업체 열은 그 서비스를 맡고 학교 지역을 담당하는 업체만 (`SCHOOL_VENDOR` 필요). 업체 없는 서비스는 경고 |
+| `/api/as/wireless-devices/bulk/*` | `WDEVICE_CREATE` | 학교명* · 장비명* · 장비 구분(비우면 무선 AP) · 장비번호 · 모델명 · IP 주소 · MAC 주소 · 설치위치 · 설치일 · 최근 점검일 · 상태 · 유지보수 업체 · 비고. 최대 2,000행 |
+| `/api/as/schoolnet-devices/bulk/*` | `SDEVICE_CREATE` | 무선망 열 + 통신사 · 회선번호 · 회선 속도. 장비 구분 필수 (라우터 · L3 스위치 · L2 스위치 · 보안장비(방화벽) · 기타) |
+
+장비 공통: 학교는 이 계정의 범위 안만 · 장비번호는 기존(무선망 · 스쿨넷 전체) · 파일 안에서 겹치면 오류, 비우면 `W-0001` / `N-0001`처럼 자동 · IP는 IPv4/IPv6 꼴, MAC은 `AA:BB:CC:DD:EE:FF`로 맞춤 · 날짜 `YYYY-MM-DD`(`2024.3.2` · `20240302`도), 오늘 이후 불가 · 상태 정상/점검중/장애/폐기(비우면 정상) · 업체를 비우면 학교의 그 서비스 담당 업체(없으면 경고). 도면 배치는 하지 않는다 (설치위치 글자만).
 
 ### 5.5 자산 (기존 `/api/assets` 확장)
 

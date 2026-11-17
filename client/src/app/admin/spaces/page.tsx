@@ -50,7 +50,7 @@ function Spaces() {
     <>
       <div className="pl-top">
         <SchoolSelect schools={schools} value={schoolId} fixed={fixed} onChange={setSchoolId} />
-        {plans && <Link className="linkbtn" href="/admin/floorplan">무선장비 위치(도면)</Link>}
+        {plans && <Link className="linkbtn" href="/admin/floorplan">장비 위치(도면)</Link>}
       </div>
       {err ? <ErrorBox message={err} onRetry={load} /> : !blds ? <Loading /> : (
         <>
