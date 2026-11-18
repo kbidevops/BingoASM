@@ -435,25 +435,30 @@ function UserForm({ user, isTop, mgr, self, onClose, onSaved }: {
 interface MenuItem { label: string; hint?: string; onClick: () => void; danger?: boolean; sep?: boolean }
 
 function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
-  const [open, setOpen] = useState(false);
-  // 표 아래쪽 줄은 위로 연다 (표의 스크롤 영역에 잘리지 않게)
-  const [up, setUp] = useState(false);
+  // 메뉴는 화면 기준(fixed)으로 띄운다: 표의 스크롤 영역(줄이 적을 때 낮다)에 잘리지 않는다.
+  // 버튼 아래 자리가 모자라면 위로 연다. 스크롤 · 창 크기가 바뀌면 닫는다.
+  const [pos, setPos] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
+  const open = pos !== null;
   const box = useRef<HTMLDivElement>(null);
+  const close = () => setPos(null);
   const toggle = () => {
-    if (!open && box.current) {
-      const r = box.current.getBoundingClientRect();
-      const area = box.current.closest(".tw")?.getBoundingClientRect();
-      const bottom = Math.min(window.innerHeight, area?.bottom ?? window.innerHeight);
-      setUp(r.bottom + items.length * 52 + 16 > bottom && r.top - (area?.top ?? 0) > items.length * 52);
-    }
-    setOpen(!open);
+    if (open || !box.current) return close();
+    const r = box.current.getBoundingClientRect();
+    const h = items.length * 52 + 20;
+    const right = Math.max(8, window.innerWidth - r.right);
+    const up = r.bottom + 4 + h > window.innerHeight - 8 && r.top - 4 - h > 8;
+    setPos(up ? { right, bottom: window.innerHeight - r.top + 4 } : { right, top: r.bottom + 4 });
   };
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); box.current?.querySelector<HTMLButtonElement>(".ua-more")?.focus(); } };
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) close(); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { close(); box.current?.querySelector<HTMLButtonElement>(".ua-more")?.focus(); } };
     document.addEventListener("mousedown", away); document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+    window.addEventListener("scroll", close, true); window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc);
+      window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close);
+    };
   }, [open]);
   return (
     <div className="ua-menu" ref={box}>
@@ -461,10 +466,10 @@ function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
       </button>
       {open && (
-        <ul className={"ua-pop" + (up ? " up" : "")} role="menu">
+        <ul className="ua-pop" role="menu" style={{ position: "fixed", right: pos.right, top: pos.top ?? "auto", bottom: pos.bottom ?? "auto" }}>
           {items.map((it) => (
             <li key={it.label} role="none" className={it.sep ? "sep" : undefined}>
-              <button type="button" role="menuitem" className={it.danger ? "bad" : undefined} onClick={() => { setOpen(false); it.onClick(); }}>
+              <button type="button" role="menuitem" className={it.danger ? "bad" : undefined} onClick={() => { close(); it.onClick(); }}>
                 <b>{it.label}</b>{it.hint && <small>{it.hint}</small>}
               </button>
             </li>

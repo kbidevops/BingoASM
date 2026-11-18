@@ -50,78 +50,101 @@ export default function SlaReports() {
 
   return (
     <div className="slr">
-      <div className="nbox">
-        <p>■ 스쿨넷 서비스 제공 업체(통신사)가 SLA 결과 파일을 올리면, 교육청 또는 그 업체가 맡은 지역의 교육지원청이 확인해 승인합니다. 승인된 결과는 학교도 볼 수 있습니다.</p>
-        <p>■ 올릴 수 있는 파일: 한글({d.allowedExt.filter((x) => x.startsWith("hw")).map((x) => "." + x).join(" · ")}) · 엑셀({d.allowedExt.filter((x) => x.startsWith("xl")).map((x) => "." + x).join(" · ")}), 한 번에 {d.maxFiles}개까지 · 각 20MB 이하. 반려되면 고쳐서 다시 올립니다.</p>
+      <div className="slr-info">
+        <p><b>업체(통신사)</b>가 SLA 결과 파일을 올리면 <b>교육청 · 교육지원청</b>이 확인해 승인합니다. 승인된 결과는 학교도 봅니다.</p>
+        <p className="slr-info-f">
+          한글({d.allowedExt.filter((x) => x.startsWith("hw")).map((x) => "." + x).join(" · ")}) · 엑셀({d.allowedExt.filter((x) => x.startsWith("xl")).map((x) => "." + x).join(" · ")})
+          <span aria-hidden="true"> · </span>한 번에 {d.maxFiles}개 · 각 20MB 이하<span aria-hidden="true"> · </span>반려되면 고쳐서 다시 올립니다
+        </p>
       </div>
 
+      {d.canReview && d.counts.SUBMITTED > 0 && status !== "SUBMITTED" && (
+        <button type="button" className="slr-todo" onClick={() => setStatus("SUBMITTED")}>
+          <span className="slr-todo-n">{d.counts.SUBMITTED}</span>
+          <span><b>승인을 기다리는 결과가 {d.counts.SUBMITTED}건 있습니다.</b><small>파일을 확인하고 승인하거나 사유와 함께 반려하세요.</small></span>
+          <span className="slr-todo-go" aria-hidden="true">보기 →</span>
+        </button>
+      )}
+
       <div className="slr-bar">
-        <div className="my-chips" role="group" aria-label="상태">
+        <div className="my-chips slr-chips" role="group" aria-label="상태">
           <button type="button" className={!status ? "on" : ""} aria-pressed={!status} onClick={() => setStatus("")}>전체 <b>{d.counts.all}</b></button>
           {(["SUBMITTED", "APPROVED", "REJECTED"] as Status[]).map((s) => (
             <button key={s} type="button" className={status === s ? "on" : ""} aria-pressed={status === s} onClick={() => setStatus(s)}>{STATUS[s][0]} <b>{d.counts[s]}</b></button>
           ))}
         </div>
-        {d.vendors.length > 1 && (
-          <select aria-label="통신사" value={vendor} onChange={(e) => setVendor(e.target.value)}>
-            <option value="">통신사 전체</option>
-            {d.vendors.map((v) => <option key={v.vendorId} value={String(v.vendorId)}>{v.vendorName}</option>)}
-          </select>
-        )}
-        {d.canUpload && <button type="button" className="btn sm" onClick={() => setUpload("new")}>SLA 결과 올리기</button>}
+        <div className="slr-bar-r">
+          {d.vendors.length > 1 && (
+            <select aria-label="통신사" value={vendor} onChange={(e) => setVendor(e.target.value)}>
+              <option value="">통신사 전체</option>
+              {d.vendors.map((v) => <option key={v.vendorId} value={String(v.vendorId)}>{v.vendorName}</option>)}
+            </select>
+          )}
+          {d.canUpload && <button type="button" className="btn sm" onClick={() => setUpload("new")}>＋ SLA 결과 올리기</button>}
+        </div>
       </div>
 
-      <div className="tw">
-        <table className="cards slr-t" style={{ minWidth: 820 }}>
-          <thead><tr>{["SLA 결과", "통신사", "파일", "상태", "올림", "처리"].map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead>
-          <tbody>
-            {d.rows.length ? d.rows.map((r) => (
-              <tr key={r.reportId} className={r.status === "SUBMITTED" && r.canReview ? "slr-wait" : undefined}>
-                <td data-label="SLA 결과" className="tl">
-                  <b>{r.title}</b>
-                  {period(r) && <small className="hint slr-by">대상 기간 {period(r)}</small>}
-                  {r.note && <p className="slr-note">{r.note}</p>}
-                </td>
-                <td data-label="통신사">{r.vendorName}</td>
-                <td data-label="파일" className="tl">
-                  <ul className="slr-files">
-                    {r.files.map((f) => (
-                      <li key={f.fileId}>
-                        <span className={"slr-ext " + (/\.hwpx?$/i.test(f.name) ? "hwp" : "xls")} aria-hidden="true">{/\.hwpx?$/i.test(f.name) ? "한글" : "엑셀"}</span>
-                        <button type="button" className="linkbtn" onClick={() => api.download(f.url, undefined, f.name).catch((e) => toast((e as Error).message))}>{f.name}</button>
-                        <small className="hint"> {kb(f.size)}</small>
-                      </li>
-                    ))}
+      {d.rows.length ? (
+        <ul className="slr-list">
+          {d.rows.map((r) => {
+            const wait = r.status === "SUBMITTED" && r.canReview;
+            return (
+              <li key={r.reportId} className={`slr-card st-${r.status.toLowerCase()}${wait ? " wait" : ""}`}>
+                <div className="slr-main">
+                  <div className="slr-head">
+                    <h3>{r.title}</h3>
+                    <b className={"st " + STATUS[r.status][1]}>{STATUS[r.status][0]}</b>
+                  </div>
+                  <p className="slr-meta">
+                    <span className="slr-vendor">{r.vendorName}</span>
+                    {period(r) && <span>대상 기간 {period(r)}</span>}
+                    <span>{r.submittedByName ?? "-"} · {fmtDateTime(r.submittedAt)} 올림</span>
+                  </p>
+                  <ul className="slr-chipfiles" aria-label="첨부 파일">
+                    {r.files.map((f) => {
+                      const hwp = /\.hwpx?$/i.test(f.name);
+                      return (
+                        <li key={f.fileId}>
+                          <button type="button" title={`${f.name} 내려받기`} onClick={() => api.download(f.url, undefined, f.name).catch((e) => toast((e as Error).message))}>
+                            <span className={"slr-ext " + (hwp ? "hwp" : "xls")} aria-hidden="true">{hwp ? "한글" : "엑셀"}</span>
+                            <span className="slr-fn">{f.name}</span>
+                            <small>{kb(f.size)}</small>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
-                </td>
-                <td data-label="상태">
-                  <b className={"st " + STATUS[r.status][1]}>{STATUS[r.status][0]}</b>
-                  {r.status === "REJECTED" && r.rejectReason && <small className="slr-why">사유: {r.rejectReason}</small>}
-                  {r.reviewedAt && <small className="hint slr-by">{r.reviewedByName ?? ""} · {fmtDateTime(r.reviewedAt)}</small>}
-                </td>
-                <td data-label="올림"><small>{r.submittedByName ?? "-"}<br />{fmtDateTime(r.submittedAt)}</small></td>
-                <td data-label="처리" className="slr-act">
-                  {r.canReview && (
-                    <>
-                      <button type="button" className="btn sm" onClick={() => setConfirm({ kind: "approve", r })}>승인</button>
-                      <button type="button" className="btn sm sec" onClick={() => setReject(r)}>반려</button>
-                    </>
-                  )}
-                  {r.canEdit && (
-                    <>
-                      <button type="button" className="btn sm sec" onClick={() => setUpload(r)}>고쳐 올리기</button>
-                      <button type="button" className="linkbtn" onClick={() => setConfirm({ kind: "delete", r })}>지우기</button>
-                    </>
-                  )}
-                  {!r.canReview && !r.canEdit && <span className="hint">-</span>}
-                </td>
-              </tr>
-            )) : (
-              <tr><td colSpan={6}>{d.counts.all ? "고른 조건에 맞는 결과가 없습니다." : d.canUpload ? "올린 SLA 결과가 없습니다. [SLA 결과 올리기]로 올려 주세요." : "아직 올라온 SLA 결과가 없습니다."}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  {r.note && <p className="slr-memo">{r.note}</p>}
+                  {r.status === "REJECTED" && r.rejectReason && <p className="slr-reason"><b>반려 사유</b> {r.rejectReason}</p>}
+                  {r.reviewedAt && <small className="slr-rev">{r.status === "APPROVED" ? "승인" : "반려"} · {r.reviewedByName ?? ""} · {fmtDateTime(r.reviewedAt)}</small>}
+                </div>
+                {(r.canReview || r.canEdit) && (
+                  <div className="slr-acts">
+                    {r.canReview && (
+                      <>
+                        <button type="button" className="btn sm" onClick={() => setConfirm({ kind: "approve", r })}>승인</button>
+                        <button type="button" className="btn sm sec" onClick={() => setReject(r)}>반려</button>
+                      </>
+                    )}
+                    {r.canEdit && (
+                      <>
+                        <button type="button" className="btn sm sec" onClick={() => setUpload(r)}>고쳐 올리기</button>
+                        <button type="button" className="btn sm sec slr-del" onClick={() => setConfirm({ kind: "delete", r })}>지우기</button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="slr-empty">
+          <span className="slr-empty-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg></span>
+          <p>{d.counts.all ? "고른 조건에 맞는 결과가 없습니다." : d.canUpload ? "올린 SLA 결과가 없습니다." : "아직 올라온 SLA 결과가 없습니다."}</p>
+          {!d.counts.all && d.canUpload && <button type="button" className="btn sm" onClick={() => setUpload("new")}>＋ SLA 결과 올리기</button>}
+        </div>
+      )}
 
       {upload && <UploadForm d={d} edit={upload === "new" ? null : upload} onClose={() => setUpload(null)} onDone={() => { setUpload(null); toast("올렸습니다. 교육청 · 교육지원청이 확인하면 알림이 갑니다."); load(); }} />}
       {reject && <RejectForm r={reject} onClose={() => setReject(null)} onDone={() => { setReject(null); toast("반려했습니다."); load(); }} />}

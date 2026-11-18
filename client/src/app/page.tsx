@@ -9,7 +9,14 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
 import { AS_LIST_HREF } from "@/lib/as";
-import type { AsRow, AsSummary, ContactGroup, Page, PostRow, Todo } from "@/lib/types";
+import type {
+  AsRow,
+  AsSummary,
+  ContactGroup,
+  Page,
+  PostRow,
+  Todo,
+} from "@/lib/types";
 
 export default function HomePage() {
   const { status } = useAuth();
@@ -38,7 +45,7 @@ function HomePublic() {
             <span>After Service</span>
           </h2>
           <p className="mv-d">
-            학교 정보화기기 장애신고의 신청 · 접수 · 처리 · 결과를 <br />
+            학교 스쿨넷 및 무선망 장애 신청 · 접수 · 처리 · 결과를 <br />
             원스톱으로 처리하는 원클릭AS시스템입니다.
           </p>
           <ol className="mrail" aria-label="AS 처리절차">
@@ -95,10 +102,30 @@ function HomePublic() {
 }
 
 const QUICK = [
-  { href: "/as/wireless", title: "무선망 AS신청", icon: "wifi", perm: "AS_M_REQUEST" },
-  { href: "/as/schoolnet", title: "스쿨넷 AS신청", icon: "net", perm: "AS_S_REQUEST" },
-  { href: "/admin/requests", title: "장애접수관리", icon: "list", perm: "AS_MANAGE" },
-  { href: "/boards/qna", title: "질문 및 건의하기", icon: "chat", perm: "BOARD_QNA" },
+  {
+    href: "/as/wireless",
+    title: "무선망 AS신청",
+    icon: "wifi",
+    perm: "AS_M_REQUEST",
+  },
+  {
+    href: "/as/schoolnet",
+    title: "스쿨넷 AS신청",
+    icon: "net",
+    perm: "AS_S_REQUEST",
+  },
+  {
+    href: "/admin/requests",
+    title: "장애접수관리",
+    icon: "list",
+    perm: "AS_MANAGE",
+  },
+  {
+    href: "/boards/qna",
+    title: "질문 및 건의하기",
+    icon: "chat",
+    perm: "BOARD_QNA",
+  },
 ] as const;
 
 /** Contacts shown on the home page: the first rows of 도교육청 in 문의처 안내, so the two never disagree. */
@@ -113,7 +140,9 @@ function HomeAuthed() {
   const [mine, setMine] = useState<AsRow[] | null>(null);
   const [notice, setNotice] = useState<PostRow[] | null>(null);
   const [qna, setQna] = useState<PostRow[] | null>(null);
-  const [tels, setTels] = useState<{ group: string; name: string; tel?: string }[] | null>(null);
+  const [tels, setTels] = useState<
+    { group: string; name: string; tel?: string }[] | null
+  >(null);
   const canViewAs = [
     "AS_C_VIEW",
     "AS_M_VIEW",
@@ -127,7 +156,10 @@ function HomeAuthed() {
         .get<AsSummary>("/api/as/requests/summary")
         .then(setSummary)
         .catch(() => setSummary(null));
-      api.get<Todo>("/api/as/requests/todo").then(setTodo).catch(() => setTodo(null));
+      api
+        .get<Todo>("/api/as/requests/todo")
+        .then(setTodo)
+        .catch(() => setTodo(null));
       api
         .get<Page<AsRow>>("/api/as/requests", { size: 5 })
         .then((p) => setMine(p.content))
@@ -146,9 +178,19 @@ function HomeAuthed() {
     if (can("PORTAL_CONTACT"))
       api
         .get<ContactGroup[]>("/api/as/contacts")
-        .then((d) => setTels((d.find((x) => x.regionName === "도교육청")?.groups ?? [])
-          .flatMap((g) => g.items.map((it) => ({ group: g.groupName, name: it.itemName, tel: it.tel })))
-          .slice(0, HOME_CONTACTS)))
+        .then((d) =>
+          setTels(
+            (d.find((x) => x.regionName === "도교육청")?.groups ?? [])
+              .flatMap((g) =>
+                g.items.map((it) => ({
+                  group: g.groupName,
+                  name: it.itemName,
+                  tel: it.tel,
+                })),
+              )
+              .slice(0, HOME_CONTACTS),
+          ),
+        )
         .catch(() => setTels([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -158,12 +200,30 @@ function HomeAuthed() {
     me.schoolName ?? me.vendorName ?? me.regionName ?? me.orgName ?? "";
   // 숫자를 누르면 그 상태로 거른 목록: 장애접수관리가 있으면 전체 목록, 학교는 마이페이지의 우리 학교 신청.
   const statusHref = (s: string) =>
-    can("AS_MANAGE") ? `/admin/requests?status=${s}`
-      : me.schoolId ? `/mypage?tab=mine&school=1&status=${s === "C" ? "C" : "A,R"}` : null;
-  const tiles: { label: string; n?: number; href: string | null; cls: string }[] = [
-    { label: "신청완료", n: summary?.requested, href: statusHref("A"), cls: "" },
+    can("AS_MANAGE")
+      ? `/admin/requests?status=${s}`
+      : me.schoolId
+        ? `/mypage?tab=mine&school=1&status=${s === "C" ? "C" : "A,R"}`
+        : null;
+  const tiles: {
+    label: string;
+    n?: number;
+    href: string | null;
+    cls: string;
+  }[] = [
+    {
+      label: "신청완료",
+      n: summary?.requested,
+      href: statusHref("A"),
+      cls: "",
+    },
     { label: "접수완료", n: summary?.received, href: statusHref("R"), cls: "" },
-    { label: "처리완료", n: summary?.completed, href: statusHref("C"), cls: "" },
+    {
+      label: "처리완료",
+      n: summary?.completed,
+      href: statusHref("C"),
+      cls: "",
+    },
   ];
   // 기사 · 업체는 QR 찍기를 맨 앞에, 학교는 AS 신청이 먼저 (QUICK 순서 그대로).
   const qrFirst = !!me.vendorId;
@@ -193,9 +253,18 @@ function HomeAuthed() {
                   </>
                 );
                 return t.href ? (
-                  <Link key={t.label} className={"hm-sti" + t.cls} href={t.href} aria-label={`${t.label} ${t.n ?? 0}건 보기`}>{body}</Link>
+                  <Link
+                    key={t.label}
+                    className={"hm-sti" + t.cls}
+                    href={t.href}
+                    aria-label={`${t.label} ${t.n ?? 0}건 보기`}
+                  >
+                    {body}
+                  </Link>
                 ) : (
-                  <div key={t.label} className={"hm-sti" + t.cls}>{body}</div>
+                  <div key={t.label} className={"hm-sti" + t.cls}>
+                    {body}
+                  </div>
                 );
               })}
               <Link className="btn sm sec" href="/mypage">
@@ -212,7 +281,9 @@ function HomeAuthed() {
               {canScan && qrFirst && (
                 <li>
                   <button type="button" onClick={() => setScan(true)}>
-                    <span className="hm-qi"><QuickIcon name="qr" /></span>
+                    <span className="hm-qi">
+                      <QuickIcon name="qr" />
+                    </span>
                     QR 찍기
                   </button>
                 </li>
@@ -324,7 +395,9 @@ function HomeAuthed() {
                   <h2 id="ht-t">문의처</h2>
                   <Link href="/contact">전체보기 +</Link>
                 </div>
-                {!tels ? <Loading /> : (
+                {!tels ? (
+                  <Loading />
+                ) : (
                   <ul className="hm-l">
                     {tels.map((t, i) => (
                       <li key={i}>
@@ -332,10 +405,18 @@ function HomeAuthed() {
                           <small>{t.group}</small>
                           {t.name}
                         </span>
-                        {t.tel ? <a href={"tel:" + t.tel.split(/[,~]/)[0].trim()}>{t.tel}</a> : "-"}
+                        {t.tel ? (
+                          <a href={"tel:" + t.tel.split(/[,~]/)[0].trim()}>
+                            {t.tel}
+                          </a>
+                        ) : (
+                          "-"
+                        )}
                       </li>
                     ))}
-                    {!tels.length && <li className="hint">등록된 문의처가 없습니다.</li>}
+                    {!tels.length && (
+                      <li className="hint">등록된 문의처가 없습니다.</li>
+                    )}
                   </ul>
                 )}
               </section>
